@@ -1,24 +1,24 @@
 # --- Core Web & API ---
-fastapi==0.110.0
-uvicorn==0.27.1
-python-multipart==0.0.9
-pydantic==2.6.3
+fastapi
+uvicorn
+python-multipart
+pydantic
 
 # --- AI & Deep Learning ---
 torch
 torchvision
 torchaudio
-timm==0.9.16
-pytorch-grad-cam==1.5.0
+timm
+pytorch-grad-cam
 
 # --- Image & Vision Processing ---
-opencv-python-headless==4.9.0.80
-mediapipe==0.10.11
-Pillow==10.2.0
+opencv-python-headless
+mediapipe
+Pillow
 
 # --- Audio Analysis (Voice Screening) ---
-librosa==0.10.1
-soundfile==0.12.1
+librosa
+soundfile
 
 # --- Data Science & Support ---
 numpy
