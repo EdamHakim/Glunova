@@ -15,7 +15,6 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('light')
   const [isDark, setIsDark] = useState(false)
-  const [mounted, setMounted] = useState(false)
 
   // Load theme from localStorage on mount
   useEffect(() => {
@@ -23,7 +22,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const initialTheme = savedTheme || 'light'
     setThemeState(initialTheme)
     applyTheme(initialTheme)
-    setMounted(true)
   }, [])
 
   // Listen for system theme changes
@@ -55,15 +53,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme)
+    if (typeof window === 'undefined') return
     localStorage.setItem('theme', newTheme)
     applyTheme(newTheme)
   }
 
-  // Don't render until mounted to avoid hydration issues
-  if (!mounted) {
-    return <>{children}</>
-  }
-
+  // Always provide context so useTheme works during SSR/static prerender.
+  // State matches defaults until the client loads persisted theme in useEffect.
   return (
     <ThemeContext.Provider value={{ theme, setTheme, isDark }}>
       {children}
