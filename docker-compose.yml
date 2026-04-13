@@ -1,0 +1,36 @@
+# Local stack: PostgreSQL + Glunova API (optional; use Supabase by pointing DATABASE_URL only at the API).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: glunova
+    ports:
+      - "5432:5432"
+    volumes:
+      - glunova_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d glunova"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/glunova
+      SECRET_KEY: ${GLUNOVA_SECRET_KEY:-dev-only-change-me-use-openssl-rand-hex-32}
+      APP_ENV: development
+      DEBUG: "true"
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  glunova_pg_data:
