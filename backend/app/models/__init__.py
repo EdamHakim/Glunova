@@ -8,7 +8,9 @@ from app.models.enums import (
     AlertSeverity,
     AppointmentStatus,
     DiabetesType,
+    DocumentProcessingStatus,
     Gender,
+    LLMRefinementStatus,
     MoodState,
     RiskLevel,
     TrendStatus,
@@ -18,6 +20,7 @@ from app.models.monitoring import CarePlan, HealthAlert, ScreeningResult
 from app.models.patient import Patient
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
+from app.models.medical_document import MedicalDocument
 
 __all__ = [
     "AlertSeverity",
@@ -30,7 +33,10 @@ __all__ = [
     "Doctor",
     "DoctorPatientAssignment",
     "Gender",
+    "DocumentProcessingStatus",
     "HealthAlert",
+    "LLMRefinementStatus",
+    "MedicalDocument",
     "MoodState",
     "Patient",
     "RefreshToken",

@@ -97,3 +97,6 @@ class Patient(Base):
         "HealthAlert", back_populates="patient"
     )
     care_plans: Mapped[list["CarePlan"]] = relationship("CarePlan", back_populates="patient")
+    medical_documents: Mapped[list["MedicalDocument"]] = relationship(
+        "MedicalDocument", back_populates="patient"
+    )

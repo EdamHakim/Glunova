@@ -11,6 +11,15 @@ Production-oriented backend for the **Glunova** medical AI platform: diabetes mo
 - `bcrypt` password hashing  
 - SlowAPI rate limits (stricter on auth routes)  
 - Pytest (unit tests; no DB required for default suite)
+- **Care Circle — medical documents:** Tesseract OCR + rule extraction + optional **Groq** or **Ollama** LLM refinement; files under `UPLOAD_DIR` (default `uploads/`)
+
+## Medical documents API (OCR)
+
+- `POST /api/v1/documents` — `multipart/form-data`: `patient_id` (UUID), `file` (JPEG/PNG/WebP/PDF). Requires access to that patient (patient self, assigned doctor, or linked caregiver).
+- `GET /api/v1/documents?patient_id=...` — paginated list (`page`, `page_size`).
+- `GET /api/v1/documents/{id}` — detail; **caregivers** do not receive `raw_ocr_text`.
+
+Configure **Tesseract** on the host (included in Docker image). On Windows, set `TESSERACT_CMD` to the `tesseract.exe` path. For LLM refinement set `LLM_PROVIDER=groq` or `ollama` and the matching keys in `.env.example`.
 
 ## Quick start (local)
 
@@ -71,14 +80,17 @@ API: [http://127.0.0.1:8000](http://127.0.0.1:8000) · Health: `GET /health`
 | **Appointments** | CRUD-style create/list/get/patch/delete with RBAC |
 | **Medical** | `GET /medical/patients/{id}/clinical-summary` (patient + assigned doctor) |
 | **Monitoring** | Screenings, alerts, care plans under `/monitoring/...` |
+| **Documents** | Care Circle OCR: `POST/GET /documents` (JPEG/PNG/WebP/PDF) |
 
 Send `Authorization: Bearer <access_token>` for protected routes.
+
+**Next.js:** set `NEXT_PUBLIC_API_URL` to this API origin; Care Circle uses localStorage key `glunova_access_token` for the JWT.
 
 ## RBAC (high level)
 
 - **Patient**: own profile, appointments, screenings/alerts/care plans where self; cannot create clinical alerts or arbitrary care plans for others.  
 - **Doctor**: assigned patients only for clinical/monitoring writes; can update assigned patient profiles.  
-- **Caregiver**: linked patients — list/read limited patient summary, read linked appointments and monitoring lists; cannot delete appointments or resolve alerts.
+- **Caregiver**: linked patients — list/read limited patient summary, read linked appointments and monitoring lists; may upload/list medical documents for linked patients; raw OCR text is omitted in API responses; cannot delete appointments or resolve alerts.
 
 ## Security & compliance notes
 

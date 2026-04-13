@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { MedicalDocumentsSection } from '@/components/care-circle/medical-documents-section'
 
 const familyMembers = [
   {
@@ -94,6 +95,8 @@ export default function CareCirclePage() {
           ))}
         </CardContent>
       </Card>
+
+      <MedicalDocumentsSection />
 
       {/* Shared Care Plan */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -59,3 +59,15 @@ class AlertSeverity(StrEnum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class DocumentProcessingStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class LLMRefinementStatus(StrEnum):
+    OK = "ok"
+    SKIPPED = "skipped"
+    FAILED = "failed"

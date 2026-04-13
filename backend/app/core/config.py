@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -33,6 +34,25 @@ class Settings(BaseSettings):
 
     RATE_LIMIT_DEFAULT: str = "100/minute"
     RATE_LIMIT_AUTH: str = "20/minute"
+
+    UPLOAD_DIR: str = Field(default="uploads", description="Directory for stored medical document files")
+    UPLOAD_MAX_MB: int = Field(default=10, ge=1, le=100)
+    TESSERACT_CMD: str | None = Field(default=None, description="Path to tesseract executable (Windows)")
+
+    LLM_PROVIDER: Literal["groq", "ollama"] = "groq"
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "llama3.2"
+
+    LLM_TIMEOUT_SECONDS: float = 60.0
+    LLM_MAX_OCR_CHARS: int = 12000
+
+    @property
+    def upload_path(self) -> Path:
+        return Path(self.UPLOAD_DIR)
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

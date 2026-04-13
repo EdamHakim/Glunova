@@ -48,3 +48,6 @@ class User(Base):
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
+    uploaded_medical_documents: Mapped[list["MedicalDocument"]] = relationship(
+        "MedicalDocument", back_populates="uploaded_by"
+    )
