@@ -108,7 +108,7 @@
 | ----------------------------------- | ----------------------------------------------- | ------------------- |
 | Diabetic Retinopathy                | Grade retinal images (0–4 severity).            | Mohamed Ali Ghrissi |
 | Foot Ulcer Detection & Segmentation | Detect and segment diabetic ulcers from images. | —                   |
-| Foot Ulcer Prediction               | Predict ulcers using infrared imaging.          | Yessine Hakim       |
+| Plantar Infrared Diabetes Classification               | Predict diabetes using infrared imaging.          | Yessine Hakim       |
 | Pre-Consultation Patient Summary    | Generate structured clinical briefings.         | —                   |
 | Priority Case Review                | Rank patients by urgency.                       | —                   |
 
