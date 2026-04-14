@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [[ ! -f "backend/.env" ]]; then
+  echo "Missing backend/.env file."
+  exit 1
+fi
+
 echo "[1/3] Installing backend dependencies..."
 python -m pip install -r backend/requirements.txt
 
@@ -20,4 +25,4 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-uvicorn --app-dir backend/fastapi_ai main:app --host 0.0.0.0 --port 8001 --reload
+python -m uvicorn --app-dir backend/fastapi_ai main:app --host 0.0.0.0 --port 8001 --reload

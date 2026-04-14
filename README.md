@@ -26,6 +26,8 @@ Create `backend/.env` (or copy from `backend/.env.example`) and set:
 - `JWT_SHARED_SECRET`
 - `DJANGO_DEBUG` (usually `true` for dev)
 
+Local startup scripts automatically load variables from `backend/.env`.
+
 ## Run Backend (Docker)
 
 Quick start with Makefile:
@@ -100,7 +102,7 @@ Run FastAPI in another terminal:
 
 ```bash
 cd backend/fastapi_ai
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ## Run Frontend
