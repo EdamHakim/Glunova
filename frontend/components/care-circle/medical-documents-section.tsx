@@ -1,21 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { FileUp, Loader2, RefreshCw } from 'lucide-react'
+import Link from 'next/link'
+import { Download, FileUp, Loader2, RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { ACCESS_TOKEN_KEY, getAccessToken } from '@/lib/auth'
 import {
   fetchCurrentUser,
   listDocuments,
+  requestDocumentDownload,
   uploadDocument,
   type ExtractedDocument,
   type MedicalDocumentRow,
 } from '@/lib/documents-api'
-
-const TOKEN_KEY = 'glunova_access_token'
 
 function formatExtraction(ex: ExtractedDocument | null) {
   if (!ex) return null
@@ -38,23 +39,23 @@ export function MedicalDocumentsSection() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [downloadBusy, setDownloadBusy] = useState(false)
 
   useEffect(() => {
-    const t = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null
-    if (t) setToken(t)
+    setToken(getAccessToken() ?? '')
   }, [])
 
   const persistToken = (t: string) => {
     setToken(t)
     if (typeof window !== 'undefined') {
-      if (t) localStorage.setItem(TOKEN_KEY, t)
-      else localStorage.removeItem(TOKEN_KEY)
+      if (t) localStorage.setItem(ACCESS_TOKEN_KEY, t)
+      else localStorage.removeItem(ACCESS_TOKEN_KEY)
     }
   }
 
   const resolvePatient = useCallback(async () => {
     if (!token.trim()) {
-      setError('Add an access token from login (POST /api/v1/auth/login).')
+      setError('Sign in from the app header, or paste a JWT from POST /api/auth/token/.')
       return
     }
     setLoading(true)
@@ -68,7 +69,7 @@ export function MedicalDocumentsSection() {
         setPatientId(me.id)
       }
       if (!pid) {
-        setError('Enter the patient UUID to load documents (doctors/caregivers).')
+        setError('Enter the patient user ID to load documents (doctors/caregivers).')
         setLoading(false)
         return
       }
@@ -81,6 +82,29 @@ export function MedicalDocumentsSection() {
       setLoading(false)
     }
   }, [token, patientId])
+
+  const onDownload = async () => {
+    if (!selected || !token.trim()) return
+    setDownloadBusy(true)
+    setError(null)
+    try {
+      const result = await requestDocumentDownload(token.trim(), selected.id)
+      if (result.kind === 'url') {
+        window.open(result.url, '_blank', 'noopener,noreferrer')
+      } else {
+        const href = URL.createObjectURL(result.blob)
+        const a = document.createElement('a')
+        a.href = href
+        a.download = result.filename
+        a.click()
+        URL.revokeObjectURL(href)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Download failed')
+    } finally {
+      setDownloadBusy(false)
+    }
+  }
 
   const onUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -112,25 +136,34 @@ export function MedicalDocumentsSection() {
           Medical documents (OCR)
         </CardTitle>
         <CardDescription>
-          Upload lab reports, prescriptions, or clinical PDFs/images. Values are extracted from OCR and LLM
-          refinement—always verify with a clinician. PHI: use a secure token and approved hosting.
+          Upload lab reports, prescriptions, or clinical PDFs/images. Values come from OCR (Gemini when
+          configured) plus rule validation—always verify with a clinician. Google AI Studio is not HIPAA-covered;
+          use approved hosting for real PHI.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="api-token">Access token (Bearer)</Label>
+            <Label htmlFor="api-token">Access token (optional override)</Label>
             <Input
               id="api-token"
               type="password"
               autoComplete="off"
-              placeholder="Paste JWT from /api/v1/auth/login"
+              placeholder="Filled from login; or paste JWT from POST /api/auth/token/"
               value={token}
               onChange={(e) => persistToken(e.target.value)}
             />
+            {!getAccessToken() && (
+              <p className="text-xs text-muted-foreground">
+                <Link href="/login" className="text-primary underline">
+                  Sign in
+                </Link>{' '}
+                to use your session token automatically.
+              </p>
+            )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="patient-id">Patient ID (UUID)</Label>
+            <Label htmlFor="patient-id">Patient user ID</Label>
             <Input
               id="patient-id"
               placeholder="Auto-filled for patients after Load"
@@ -189,6 +222,21 @@ export function MedicalDocumentsSection() {
             {!selected && <p className="text-sm text-muted-foreground">Select a document.</p>}
             {selected && (
               <div className="space-y-3 text-sm border border-border rounded-md p-3 max-h-96 overflow-y-auto">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  disabled={downloadBusy || !token.trim()}
+                  onClick={() => void onDownload()}
+                >
+                  {downloadBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  <span className="ml-2">Download original</span>
+                </Button>
                 <dl className="space-y-1">
                   {formatExtraction(extraction)?.map(([k, v]) => (
                     <div key={k} className="grid grid-cols-[1fr_2fr] gap-2">

@@ -18,6 +18,12 @@
 - Add business orchestration in explicit service modules per domain.
 - Keep model adapters and persistence concerns isolated from inference logic.
 
+## Documents OCR pipeline (Care Circle)
+
+- Django app `documents` owns `MedicalDocument` storage metadata, RBAC, and REST routes under `/api/v1/`.
+- Upload flow: validate MIME/size → persist row → **Supabase Storage** when `SUPABASE_*` env vars are set, otherwise **Django `default_storage`** under `MEDIA_ROOT` → optional **Gemini Flash** OCR+JSON → **rule pass** (`extraction_rules`) → **conservative merge** (`merge_validate`) → save `extracted_json` / `extracted_json_rules` / `raw_ocr_text`.
+- **Doctor** access uses `clinical.CarePlan` (assigned patient). **Caregiver** access uses `documents.PatientCaregiverLink` (create links in Django admin). **Patient** is limited to their own `user.id`.
+
 ## Screening PyTorch pipeline
 
 - Route layer: `fastapi_ai/screening/router.py`

@@ -1,5 +1,7 @@
 const base = () => process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://127.0.0.1:8000'
 
+const apiPrefix = () => process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1'
+
 export type ExtractedDocument = Record<string, unknown> & {
   medications?: Array<Record<string, unknown>>
 }
@@ -18,7 +20,7 @@ export type MedicalDocumentRow = {
 }
 
 export async function fetchCurrentUser(token: string) {
-  const r = await fetch(`${base()}${process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1'}/users/me`, {
+  const r = await fetch(`${base()}${apiPrefix()}/users/me`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!r.ok) throw new Error(await r.text())
@@ -27,7 +29,7 @@ export async function fetchCurrentUser(token: string) {
 
 export async function listDocuments(token: string, patientId: string, page = 1, pageSize = 20) {
   const q = new URLSearchParams({ patient_id: patientId, page: String(page), page_size: String(pageSize) })
-  const r = await fetch(`${base()}${process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1'}/documents?${q}`, {
+  const r = await fetch(`${base()}${apiPrefix()}/documents?${q}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!r.ok) throw new Error(await r.text())
@@ -38,11 +40,33 @@ export async function uploadDocument(token: string, patientId: string, file: Fil
   const fd = new FormData()
   fd.append('patient_id', patientId)
   fd.append('file', file)
-  const r = await fetch(`${base()}${process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1'}/documents`, {
+  const r = await fetch(`${base()}${apiPrefix()}/documents`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: fd,
   })
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<MedicalDocumentRow>
+}
+
+export type DocumentDownloadResult =
+  | { kind: 'url'; url: string }
+  | { kind: 'blob'; blob: Blob; filename: string }
+
+export async function requestDocumentDownload(token: string, docId: string): Promise<DocumentDownloadResult> {
+  const r = await fetch(`${base()}${apiPrefix()}/documents/${docId}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const ct = r.headers.get('content-type') || ''
+  if (ct.includes('application/json')) {
+    const j = (await r.json().catch(() => ({}))) as { url?: string; detail?: string }
+    if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'Download failed')
+    if (!j.url || typeof j.url !== 'string') throw new Error('No download URL returned')
+    return { kind: 'url', url: j.url }
+  }
+  if (!r.ok) throw new Error(await r.text())
+  const cd = r.headers.get('Content-Disposition') || ''
+  const m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd)
+  const filename = m ? decodeURIComponent(m[1].replace(/"/g, '')) : 'document'
+  return { kind: 'blob', blob: await r.blob(), filename }
 }

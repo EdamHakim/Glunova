@@ -7,7 +7,7 @@ export type AuthUser = {
   userId: number | null
 }
 
-const ACCESS_TOKEN_KEY = 'glunova_access_token'
+export const ACCESS_TOKEN_KEY = 'glunova_access_token'
 const REFRESH_TOKEN_KEY = 'glunova_refresh_token'
 
 export function getApiUrls() {
