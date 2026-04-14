@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 import {
   LayoutDashboard,
   Stethoscope,
@@ -12,6 +13,7 @@ import {
   Stethoscope as Clinic,
   Settings,
 } from 'lucide-react'
+import { getCurrentUser } from '@/lib/auth'
 
 const menuItems = [
   {
@@ -23,6 +25,7 @@ const menuItems = [
     label: 'Screening',
     href: '/dashboard/screening',
     icon: Stethoscope,
+    patientOnly: true,
   },
   {
     label: 'Monitoring',
@@ -53,6 +56,19 @@ const menuItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const visibleMenuItems = useMemo(() => {
+    const role = mounted ? getCurrentUser()?.role : undefined
+    return menuItems.filter((item) => {
+      if (!('patientOnly' in item) || !item.patientOnly) return true
+      return role === 'patient'
+    })
+  }, [mounted])
 
   return (
     <aside className="w-64 border-r border-border bg-sidebar text-sidebar-foreground flex flex-col">
@@ -68,7 +84,7 @@ export default function Sidebar() {
 
       <nav className="flex-1 overflow-y-auto px-3 py-6">
         <ul className="space-y-2">
-          {menuItems.map((item) => {
+          {visibleMenuItems.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
             return (

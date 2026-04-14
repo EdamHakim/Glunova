@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from core.rbac import require_roles
 from screening.schemas import TongueGradcamResponse, TongueInferenceResponse, TongueModelHealthResponse
@@ -7,16 +7,39 @@ from screening.services.tongue_pt_service import TonguePtService
 router = APIRouter(prefix="/screening", tags=["screening"])
 _tongue_service = TonguePtService()
 
+
+def _patient_id_from_claims(claims: dict) -> int:
+    raw = claims.get("user_id")
+    if raw is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing user identity",
+        )
+    try:
+        patient_id = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user identity in token",
+        ) from exc
+    if patient_id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user identity in token",
+        )
+    return patient_id
+
+
 @router.post(
     "/tongue/infer",
     response_model=TongueInferenceResponse,
     summary="Tongue diabetes PyTorch inference",
 )
 async def infer_tongue_diabetes(
-    patient_id: int = Form(..., gt=0),
     image: UploadFile = File(...),
-    _claims: dict = Depends(require_roles("patient", "doctor")),
+    claims: dict = Depends(require_roles("patient")),
 ) -> TongueInferenceResponse:
+    patient_id = _patient_id_from_claims(claims)
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -62,7 +85,7 @@ async def infer_tongue_diabetes(
 
 @router.get("/tongue/health", response_model=TongueModelHealthResponse)
 def tongue_model_health(
-    _claims: dict = Depends(require_roles("doctor")),
+    _claims: dict = Depends(require_roles("patient")),
 ) -> TongueModelHealthResponse:
     model_exists = _tongue_service.model_path.exists()
     return TongueModelHealthResponse(
@@ -79,10 +102,10 @@ def tongue_model_health(
     summary="Generate tongue Grad-CAM heatmap",
 )
 async def tongue_gradcam(
-    patient_id: int = Form(..., gt=0),
     image: UploadFile = File(...),
-    _claims: dict = Depends(require_roles("patient", "doctor")),
+    claims: dict = Depends(require_roles("patient")),
 ) -> TongueGradcamResponse:
+    patient_id = _patient_id_from_claims(claims)
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

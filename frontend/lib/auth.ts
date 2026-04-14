@@ -3,6 +3,8 @@ export type UserRole = 'patient' | 'doctor' | 'caregiver'
 export type AuthUser = {
   username: string
   role: UserRole
+  /** Django user primary key from JWT (`user_id` claim). */
+  userId: number | null
 }
 
 const ACCESS_TOKEN_KEY = 'glunova_access_token'
@@ -43,6 +45,16 @@ function parseJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
+function parseUserId(payload: Record<string, unknown>): number | null {
+  const raw = payload.user_id
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    const n = Number(raw)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return null
+}
+
 export function getCurrentUser(): AuthUser | null {
   const token = getAccessToken()
   if (!token) return null
@@ -51,5 +63,5 @@ export function getCurrentUser(): AuthUser | null {
   const username = typeof payload.username === 'string' ? payload.username : ''
   const role = typeof payload.role === 'string' ? (payload.role as UserRole) : 'patient'
   if (!username) return null
-  return { username, role }
+  return { username, role, userId: parseUserId(payload) }
 }

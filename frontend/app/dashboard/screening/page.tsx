@@ -1,6 +1,7 @@
 'use client'
 
-import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { Upload, Mic, AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { getAccessToken, getApiUrls } from '@/lib/auth'
+import { getAccessToken, getApiUrls, getCurrentUser, type AuthUser } from '@/lib/auth'
 
 type TongueResult = {
   probability: number
@@ -24,7 +25,14 @@ type TongueResult = {
 }
 
 export default function ScreeningPage() {
-  const [patientId, setPatientId] = useState('1')
+  const [sessionUser, setSessionUser] = useState<AuthUser | null>(null)
+  const [sessionReady, setSessionReady] = useState(false)
+
+  useEffect(() => {
+    setSessionUser(getCurrentUser())
+    setSessionReady(true)
+  }, [])
+
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [loading, setLoading] = useState(false)
@@ -59,12 +67,16 @@ export default function ScreeningPage() {
       setError('You must login first.')
       return
     }
+    const me = getCurrentUser()
+    if (me?.role !== 'patient' || me.userId == null) {
+      setError('Screening is only available to patient accounts with a valid session.')
+      return
+    }
 
     setLoading(true)
     try {
       const { fastapi } = getApiUrls()
       const payload = new FormData()
-      payload.append('patient_id', patientId)
       payload.append('image', file)
 
       const response = await fetch(`${fastapi}/screening/tongue/infer`, {
@@ -86,7 +98,6 @@ export default function ScreeningPage() {
       }
 
       const gradcamPayload = new FormData()
-      gradcamPayload.append('patient_id', patientId)
       gradcamPayload.append('image', file)
       const gradcamResponse = await fetch(`${fastapi}/screening/tongue/gradcam`, {
         method: 'POST',
@@ -107,15 +118,62 @@ export default function ScreeningPage() {
     }
   }
 
+  if (!sessionReady) {
+    return (
+      <div className="space-y-6 p-6">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    )
+  }
+
+  if (!sessionUser || sessionUser.role !== 'patient') {
+    return (
+      <div className="space-y-6 p-6">
+        <Card className="max-w-lg">
+          <CardHeader>
+            <CardTitle>Screening unavailable</CardTitle>
+            <CardDescription>
+              Self-service screening is limited to patient accounts. If you are a clinician, use the other
+              dashboard tools for patient care.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="secondary">
+              <Link href="/dashboard">Back to dashboard</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (sessionUser.userId == null) {
+    return (
+      <div className="space-y-6 p-6">
+        <Card className="max-w-lg">
+          <CardHeader>
+            <CardTitle>Session needs refresh</CardTitle>
+            <CardDescription>
+              Sign out and sign in again to use screening. Your access token is missing account identity.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="secondary">
+              <Link href="/login">Go to login</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 p-6">
       <Dialog open={isResultModalOpen} onOpenChange={setIsResultModalOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Tongue Screening Result</DialogTitle>
-            <DialogDescription>
-              AI prediction for patient ID {patientId}.
-            </DialogDescription>
+            <DialogDescription>AI prediction for your screening (account #{sessionUser.userId}).</DialogDescription>
           </DialogHeader>
 
           {tongueResult ? (
@@ -191,14 +249,6 @@ export default function ScreeningPage() {
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-center gap-4">
             <form className="space-y-3" onSubmit={onTongueSubmit}>
-              <Input
-                type="number"
-                value={patientId}
-                onChange={(event) => setPatientId(event.target.value)}
-                placeholder="Patient ID"
-                min={1}
-                required
-              />
               <Input type="file" accept="image/*" onChange={onFileChange} required />
 
               {previewUrl ? (
