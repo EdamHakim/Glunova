@@ -1,0 +1,12 @@
+fastapi>=0.111
+uvicorn[standard]>=0.30
+python-jose[cryptography]>=3.3
+pydantic-settings>=2.3
+python-dotenv>=1.0
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+numpy>=1.26
+pillow>=10.0
+torch>=2.3
+torchvision>=0.18
+grad-cam>=1.5

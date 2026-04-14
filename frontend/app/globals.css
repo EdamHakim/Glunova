@@ -1,0 +1,186 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Background System */
+  --background: #F4F7F8;
+  --foreground: #0F2A2E;
+  --card: #FFFFFF;
+  --card-foreground: #0F2A2E;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F2A2E;
+  
+  /* Primary - Deep Teal */
+  --primary: #1F6F78;
+  --primary-foreground: #FFFFFF;
+  
+  /* Secondary - Muted Cyan */
+  --secondary: #6FAFB7;
+  --secondary-foreground: #FFFFFF;
+  
+  /* Muted & Disabled */
+  --muted: #E9EFF1;
+  --muted-foreground: #5F7A7E;
+  
+  /* Accent - Light Cyan */
+  --accent: #D9EEF1;
+  --accent-foreground: #0F2A2E;
+  
+  /* Destructive - Critical */
+  --destructive: #C26D6D;
+  --destructive-foreground: #FFFFFF;
+  
+  /* Borders & Input */
+  --border: #D1DCE0;
+  --input: #D1DCE0;
+  --ring: #1F6F78;
+  
+  /* Charts */
+  --chart-1: #1F6F78;
+  --chart-2: #4C9A8A;
+  --chart-3: #D4A373;
+  --chart-4: #C26D6D;
+  --chart-5: #AFA4D4;
+  
+  --radius: 0.5rem;
+  
+  /* Sidebar */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #0F2A2E;
+  --sidebar-primary: #1F6F78;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E9EFF1;
+  --sidebar-accent-foreground: #1F6F78;
+  --sidebar-border: #D1DCE0;
+  --sidebar-ring: #1F6F78;
+  
+  /* Status Colors */
+  --health-success: #4C9A8A;
+  --health-warning: #D4A373;
+  --health-danger: #C26D6D;
+  --health-info: #1F6F78;
+  
+  /* Psychology Module */
+  --psychology-soft-purple: #AFA4D4;
+  --psychology-soft-lavender: #E8E5F6;
+}
+
+.dark {
+  /* Dark Background System */
+  --background: #0F2A2E;
+  --foreground: #F4F7F8;
+  --card: #162D33;
+  --card-foreground: #F4F7F8;
+  --popover: #162D33;
+  --popover-foreground: #F4F7F8;
+  
+  /* Primary - Deep Teal */
+  --primary: #6FAFB7;
+  --primary-foreground: #0F2A2E;
+  
+  /* Secondary - Muted Cyan */
+  --secondary: #4C9A8A;
+  --secondary-foreground: #FFFFFF;
+  
+  /* Muted & Disabled */
+  --muted: #1F6F78;
+  --muted-foreground: #D1DCE0;
+  
+  /* Accent - Light Cyan */
+  --accent: #2D5860;
+  --accent-foreground: #F4F7F8;
+  
+  /* Destructive - Critical */
+  --destructive: #D9817A;
+  --destructive-foreground: #0F2A2E;
+  
+  /* Borders & Input */
+  --border: #2D5860;
+  --input: #2D5860;
+  --ring: #6FAFB7;
+  
+  /* Charts */
+  --chart-1: #6FAFB7;
+  --chart-2: #4C9A8A;
+  --chart-3: #D4A373;
+  --chart-4: #D9817A;
+  --chart-5: #AFA4D4;
+  
+  /* Sidebar */
+  --sidebar: #0F2A2E;
+  --sidebar-foreground: #F4F7F8;
+  --sidebar-primary: #6FAFB7;
+  --sidebar-primary-foreground: #0F2A2E;
+  --sidebar-accent: #1F6F78;
+  --sidebar-accent-foreground: #D9EEF1;
+  --sidebar-border: #2D5860;
+  --sidebar-ring: #6FAFB7;
+  
+  /* Status Colors */
+  --health-success: #4C9A8A;
+  --health-warning: #D4A373;
+  --health-danger: #D9817A;
+  --health-info: #6FAFB7;
+  
+  /* Psychology Module */
+  --psychology-soft-purple: #AFA4D4;
+  --psychology-soft-lavender: #2D2040;
+}
+
+@theme inline {
+  --font-sans: 'Geist', 'Geist Fallback';
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-health-success: var(--health-success);
+  --color-health-warning: var(--health-warning);
+  --color-health-danger: var(--health-danger);
+  --color-health-info: var(--health-info);
+  --color-psychology-soft-purple: var(--psychology-soft-purple);
+  --color-psychology-soft-pink: var(--psychology-soft-pink);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
