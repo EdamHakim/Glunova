@@ -1,0 +1,20 @@
+services:
+  django_app:
+    build:
+      context: ./backend/django_app
+    container_name: glunova-django
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+
+  fastapi_ai:
+    build:
+      context: ./backend/fastapi_ai
+    container_name: glunova-fastapi
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8001:8001"
