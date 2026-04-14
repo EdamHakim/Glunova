@@ -4,6 +4,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [[ ! -f "venv/Scripts/activate" ]]; then
+  echo "Missing virtualenv activation script at venv/Scripts/activate."
+  exit 1
+fi
+
+echo "[0/3] Activating virtualenv..."
+# Windows venv layout, used from Git Bash.
+source "venv/Scripts/activate"
+
 if [[ ! -f "backend/.env" ]]; then
   echo "Missing backend/.env file."
   exit 1
