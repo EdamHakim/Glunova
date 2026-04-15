@@ -135,11 +135,9 @@ pnpm dev
 ```
 
 Frontend URL:
-
 - App: `http://localhost:3000`
 
 ## Notes
-
-- Django is the JWT issuer and identity provider.
-- FastAPI validates the same JWT using `JWT_SHARED_SECRET`.
-- Database migrations are managed from Django.
+- Session persistence is handled by rolling `refresh_token` cookies.
+- Cross-origin credentials (CORS) are enabled for `localhost:3000` to `localhost:8000/8001`.
+- Database migrations must be run in Django to enable the token blacklist: `python manage.py migrate`.
