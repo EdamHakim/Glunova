@@ -9,10 +9,18 @@ export type AuthUser = {
   full_name: string
 }
 
+function resolveClientApiBaseUrl(envValue: string | undefined, port: number, fallback: string) {
+  if (envValue && envValue.trim()) return envValue
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:${port}`
+  }
+  return fallback
+}
+
 export function getApiUrls() {
   return {
-    django: process.env.NEXT_PUBLIC_DJANGO_API_URL ?? 'http://localhost:8000',
-    fastapi: process.env.NEXT_PUBLIC_FASTAPI_API_URL ?? 'http://localhost:8001',
+    django: resolveClientApiBaseUrl(process.env.NEXT_PUBLIC_DJANGO_API_URL, 8000, 'http://localhost:8000'),
+    fastapi: resolveClientApiBaseUrl(process.env.NEXT_PUBLIC_FASTAPI_API_URL, 8001, 'http://localhost:8001'),
   }
 }
 

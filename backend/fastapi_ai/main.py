@@ -10,10 +10,18 @@ from screening.router import router as screening_router
 
 app = FastAPI(title="Glunova AI Engine")
 
-frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+raw_origins = os.getenv("FRONTEND_ORIGINS", "")
+frontend_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+legacy_origin = os.getenv("FRONTEND_ORIGIN", "").strip()
+if legacy_origin:
+    frontend_origins.append(legacy_origin)
+if not frontend_origins:
+    frontend_origins = ["http://localhost:3000", "http://172.19.32.1:3000"]
+frontend_origins = list(dict.fromkeys(frontend_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin],
+    allow_origins=frontend_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

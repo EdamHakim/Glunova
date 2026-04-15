@@ -7,6 +7,23 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / ".env")
 
+
+def _parse_frontend_origins():
+    origins = []
+    raw = os.getenv("FRONTEND_ORIGINS", "")
+    if raw:
+        origins.extend([origin.strip() for origin in raw.split(",") if origin.strip()])
+
+    legacy_origin = os.getenv("FRONTEND_ORIGIN", "").strip()
+    if legacy_origin:
+        origins.append(legacy_origin)
+
+    if not origins:
+        origins = ["http://localhost:3000", "http://172.19.32.1:3000"]
+
+    # Keep order stable while removing duplicates.
+    return list(dict.fromkeys(origins))
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
 ALLOWED_HOSTS = ["*"]
@@ -110,10 +127,6 @@ SIMPLE_JWT = {
     "REFRESH_COOKIE_SECURE": False,
 }
 
-CORS_ALLOWED_ORIGINS = [
-    os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
-]
+CORS_ALLOWED_ORIGINS = _parse_frontend_origins()
 CORS_ALLOW_CREDENTIALS = True
-CSRF_TRUSTED_ORIGINS = [
-    os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
-]
+CSRF_TRUSTED_ORIGINS = _parse_frontend_origins()
