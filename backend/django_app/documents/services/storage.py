@@ -29,6 +29,9 @@ def upload_medical_file(storage_path: str, data: bytes, content_type: str) -> No
                 file_options={"content-type": content_type},
             )
         except Exception as exc:
+            message = str(exc)
+            if "Duplicate" in message or "already exists" in message:
+                raise FileExistsError("A document with the same storage path already exists.") from exc
             logger.exception("Supabase upload failed: %s", exc)
             raise
         return

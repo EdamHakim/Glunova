@@ -11,7 +11,7 @@ from django.conf import settings
 from documents.models import MedicalDocument
 
 from .extraction_rules import run_rule_validation
-from .gemini_ocr import normalize_ocr_text, run_gemini_ocr
+from .gemini_ocr import GeminiQuotaExceeded, normalize_ocr_text, run_gemini_ocr
 from .merge_validate import merge_and_validate
 from .storage import upload_medical_file
 
@@ -60,6 +60,9 @@ def process_document_upload(doc: MedicalDocument, file_bytes: bytes, mime_type: 
             field_evidence = fe if isinstance(fe, dict) else None
             llm_status = MedicalDocument.LlmRefinementStatus.OK
             llm_provider = getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash")
+        except GeminiQuotaExceeded as exc:
+            logger.info("Gemini OCR quota limited (fallback to rules): %s", exc)
+            llm_status = MedicalDocument.LlmRefinementStatus.SKIPPED
         except Exception as exc:
             logger.warning("Gemini OCR failed (fallback to rules): %s", exc, exc_info=True)
             llm_status = MedicalDocument.LlmRefinementStatus.FAILED

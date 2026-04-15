@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.core.files.storage import default_storage
 from django.http import FileResponse
+from uuid import uuid4
 
 from .models import MedicalDocument
 from .serializers import MedicalDocumentSerializer, MedicalDocumentListSerializer
@@ -64,7 +65,8 @@ class DocumentListCreateView(APIView):
             # Prepare storage path
             from .services.pipeline import safe_filename
             s_name = safe_filename(original_filename)
-            storage_path = f"patient_{patient_id}/{s_name}"
+            # Use a unique object key to avoid storage collisions on same filename.
+            storage_path = f"patient_{patient_id}/{uuid4().hex}_{s_name}"
 
             # Create the record in PENDING state
             doc = MedicalDocument.objects.create(
@@ -80,6 +82,8 @@ class DocumentListCreateView(APIView):
             
             serializer = MedicalDocumentSerializer(doc)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except FileExistsError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Upload failed: {str(e)}", exc_info=True)
