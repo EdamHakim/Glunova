@@ -8,9 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { setTokens, getApiUrls } from '@/lib/auth'
 
+import { useAuth } from '@/components/auth-context'
+
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { login } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -22,19 +25,8 @@ function LoginForm() {
     setError('')
 
     try {
-      const { django } = getApiUrls()
-      const response = await fetch(`${django}/api/auth/token/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Invalid username or password.')
-      }
-
-      const data = await response.json()
-      setTokens(data.access, data.refresh)
+      await login(username, password)
+      // Redirect handled by AuthProvider or manually here
       const next = searchParams.get('next')
       router.push(next || '/dashboard')
     } catch (submitError) {

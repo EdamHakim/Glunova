@@ -1,6 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
+import { AuthProvider } from '@/components/auth-context'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -62,7 +63,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // State matches defaults until the client loads persisted theme in useEffect.
   return (
     <ThemeContext.Provider value={{ theme, setTheme, isDark }}>
-      {children}
+      <AuthProvider>
+        {children}
+      </AuthProvider>
     </ThemeContext.Provider>
   )
 }

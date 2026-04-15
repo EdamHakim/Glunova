@@ -51,5 +51,103 @@ class GlunovaTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 
+from django.conf import settings
+from rest_framework_simplejwt.tokens import RefreshToken
+
 class GlunovaTokenObtainPairView(TokenObtainPairView):
     serializer_class = GlunovaTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            access_token = response.data.get("access")
+            refresh_token = response.data.get("refresh")
+            
+            # Use configurations from settings.SIMPLE_JWT
+            jwt_conf = settings.SIMPLE_JWT
+            
+            response.set_cookie(
+                key=jwt_conf.get("AUTH_COOKIE", "access_token"),
+                value=access_token,
+                httponly=jwt_conf.get("AUTH_COOKIE_HTTP_ONLY", True),
+                path=jwt_conf.get("AUTH_COOKIE_PATH", "/"),
+                samesite=jwt_conf.get("AUTH_COOKIE_SAMESITE", "Lax"),
+                secure=jwt_conf.get("AUTH_COOKIE_SECURE", False), # False locally
+            )
+            response.set_cookie(
+                key=jwt_conf.get("REFRESH_COOKIE", "refresh_token"),
+                value=refresh_token,
+                httponly=jwt_conf.get("REFRESH_COOKIE_HTTP_ONLY", True),
+                path=jwt_conf.get("REFRESH_COOKIE_PATH", "/"),
+                samesite=jwt_conf.get("REFRESH_COOKIE_SAMESITE", "Lax"),
+                secure=jwt_conf.get("REFRESH_COOKIE_SECURE", False),
+            )
+            # Remove tokens from response body for extra security (optional)
+            # response.data.pop("access", None)
+            # response.data.pop("refresh", None)
+        return response
+
+from rest_framework_simplejwt.views import TokenRefreshView
+
+class GlunovaTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        # If the 'refresh' token is not in the request body, try to get it from the cookie
+        refresh_cookie_name = settings.SIMPLE_JWT.get("REFRESH_COOKIE", "refresh_token")
+        if "refresh" not in request.data and refresh_cookie_name in request.COOKIES:
+            # We can't easily mutate request.data as it's a QueryDict, 
+            # so we prepare a modified data dictionary for the serializer.
+            refresh_token = request.COOKIES.get(refresh_cookie_name)
+            serializer = self.get_serializer(data={"refresh": refresh_token})
+            
+            try:
+                serializer.is_valid(raise_exception=True)
+            except Exception as e:
+                return Response({"detail": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+            
+            response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+        else:
+            response = super().post(request, *args, **kwargs)
+
+        if response.status_code == 200:
+            access_token = response.data.get("access")
+            jwt_conf = settings.SIMPLE_JWT
+            
+            response.set_cookie(
+                key=jwt_conf.get("AUTH_COOKIE", "access_token"),
+                value=access_token,
+                httponly=jwt_conf.get("AUTH_COOKIE_HTTP_ONLY", True),
+                path=jwt_conf.get("AUTH_COOKIE_PATH", "/"),
+                samesite=jwt_conf.get("AUTH_COOKIE_SAMESITE", "Lax"),
+                secure=jwt_conf.get("AUTH_COOKIE_SECURE", False),
+            )
+            # If a new refresh token was returned (optional rotation), set it too
+            new_refresh = response.data.get("refresh")
+            if new_refresh:
+                response.set_cookie(
+                    key=jwt_conf.get("REFRESH_COOKIE", "refresh_token"),
+                    value=new_refresh,
+                    httponly=jwt_conf.get("REFRESH_COOKIE_HTTP_ONLY", True),
+                    path=jwt_conf.get("REFRESH_COOKIE_PATH", "/"),
+                    samesite=jwt_conf.get("REFRESH_COOKIE_SAMESITE", "Lax"),
+                    secure=jwt_conf.get("REFRESH_COOKIE_SECURE", False),
+                )
+        return response
+
+class LogoutView(APIView):
+    permission_classes = [] # Allow anyone to call logout to clear local cookies
+    
+    def post(self, request):
+        response = Response({"detail": "Logged out"}, status=status.HTTP_200_OK)
+        
+        # Blacklist refresh token if provided
+        refresh_token = request.COOKIES.get(settings.SIMPLE_JWT.get("REFRESH_COOKIE", "refresh_token"))
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except Exception:
+                pass
+
+        response.delete_cookie(settings.SIMPLE_JWT.get("AUTH_COOKIE", "access_token"))
+        response.delete_cookie(settings.SIMPLE_JWT.get("REFRESH_COOKIE", "refresh_token"))
+        return response

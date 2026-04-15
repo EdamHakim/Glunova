@@ -24,14 +24,10 @@ type TongueResult = {
   heatmapBase64?: string
 }
 
-export default function ScreeningPage() {
-  const [sessionUser, setSessionUser] = useState<AuthUser | null>(null)
-  const [sessionReady, setSessionReady] = useState(false)
+import { useAuth } from '@/components/auth-context'
 
-  useEffect(() => {
-    setSessionUser(getCurrentUser())
-    setSessionReady(true)
-  }, [])
+export default function ScreeningPage() {
+  const { user: sessionUser, loading: sessionLoading } = useAuth()
 
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
@@ -62,13 +58,13 @@ export default function ScreeningPage() {
       setError('Please select an image before submitting.')
       return
     }
-    const token = getAccessToken()
-    if (!token) {
+
+    if (!sessionUser) {
       setError('You must login first.')
       return
     }
-    const me = getCurrentUser()
-    if (me?.role !== 'patient' || me.userId == null) {
+    
+    if (sessionUser.role !== 'patient' || sessionUser.userId == null) {
       setError('Screening is only available to patient accounts with a valid session.')
       return
     }
@@ -81,7 +77,7 @@ export default function ScreeningPage() {
 
       const response = await fetch(`${fastapi}/screening/tongue/infer`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
         body: payload,
       })
 
@@ -101,7 +97,7 @@ export default function ScreeningPage() {
       gradcamPayload.append('image', file)
       const gradcamResponse = await fetch(`${fastapi}/screening/tongue/gradcam`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
         body: gradcamPayload,
       })
       if (gradcamResponse.ok) {
@@ -118,10 +114,10 @@ export default function ScreeningPage() {
     }
   }
 
-  if (!sessionReady) {
+  if (sessionLoading) {
     return (
       <div className="space-y-6 p-6">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading session…</p>
       </div>
     )
   }
@@ -140,26 +136,6 @@ export default function ScreeningPage() {
           <CardContent>
             <Button asChild variant="secondary">
               <Link href="/dashboard">Back to dashboard</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (sessionUser.userId == null) {
-    return (
-      <div className="space-y-6 p-6">
-        <Card className="max-w-lg">
-          <CardHeader>
-            <CardTitle>Session needs refresh</CardTitle>
-            <CardDescription>
-              Sign out and sign in again to use screening. Your access token is missing account identity.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild variant="secondary">
-              <Link href="/login">Go to login</Link>
             </Button>
           </CardContent>
         </Card>

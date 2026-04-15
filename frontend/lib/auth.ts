@@ -3,12 +3,11 @@ export type UserRole = 'patient' | 'doctor' | 'caregiver'
 export type AuthUser = {
   username: string
   role: UserRole
-  /** Django user primary key from JWT (`user_id` claim). */
+  /** Django user primary key from JWT (`user_id` claim or verified from backend). */
   userId: number | null
+  id: string // Add string ID for compatibility with documents-api
+  full_name: string
 }
-
-export const ACCESS_TOKEN_KEY = 'glunova_access_token'
-const REFRESH_TOKEN_KEY = 'glunova_refresh_token'
 
 export function getApiUrls() {
   return {
@@ -17,51 +16,47 @@ export function getApiUrls() {
   }
 }
 
-export function setTokens(access: string, refresh: string) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(ACCESS_TOKEN_KEY, access)
-  localStorage.setItem(REFRESH_TOKEN_KEY, refresh)
+// Cookies are handled by the browser automatically with credentials: 'include'.
+export function setTokens(_access: string, _refresh: string) {
+  // Logic removed as tokens are now in HttpOnly cookies set by backend.
 }
 
 export function getAccessToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem(ACCESS_TOKEN_KEY)
+  // Cannot read HttpOnly access_token from JS.
+  return null
 }
 
 export function clearTokens() {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(ACCESS_TOKEN_KEY)
-  localStorage.removeItem(REFRESH_TOKEN_KEY)
+  // Backend's /logout clears cookies.
 }
 
-function parseJwtPayload(token: string): Record<string, unknown> | null {
+/**
+ * Fetches the current session user from the backend.
+ * This is the new source of truth for "logged in" state.
+ */
+export async function fetchCurrentSessionUser(): Promise<AuthUser | null> {
   try {
-    const parts = token.split('.')
-    if (parts.length !== 3) return null
-    const payload = JSON.parse(atob(parts[1]))
-    return payload
+    const { django } = getApiUrls()
+    const r = await fetch(`${django}/api/v1/users/me`, {
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Ensure cookies are sent
+    })
+    if (!r.ok) return null
+    const data = await r.json()
+    return {
+      id: data.id,
+      userId: Number(data.id),
+      username: data.username || '',
+      role: data.role as UserRole,
+      full_name: data.full_name || '',
+    }
   } catch {
     return null
   }
 }
 
-function parseUserId(payload: Record<string, unknown>): number | null {
-  const raw = payload.user_id
-  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
-  if (typeof raw === 'string' && raw.trim() !== '') {
-    const n = Number(raw)
-    if (Number.isFinite(n) && n > 0) return n
-  }
-  return null
-}
-
+// Keeping legacy getCurrentUser for small parts of the app until refactor is complete
+// but it will likely return null now since token is not readable.
 export function getCurrentUser(): AuthUser | null {
-  const token = getAccessToken()
-  if (!token) return null
-  const payload = parseJwtPayload(token)
-  if (!payload) return null
-  const username = typeof payload.username === 'string' ? payload.username : ''
-  const role = typeof payload.role === 'string' ? (payload.role as UserRole) : 'patient'
-  if (!username) return null
-  return { username, role, userId: parseUserId(payload) }
+  return null
 }

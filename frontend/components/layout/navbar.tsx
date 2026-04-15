@@ -12,16 +12,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { clearTokens, getCurrentUser } from '@/lib/auth'
+import { useAuth } from '@/components/auth-context'
 import { useRouter } from 'next/navigation'
 
 export default function Navbar() {
-  const router = useRouter()
-  const user = getCurrentUser()
+  const { user, logout } = useAuth()
 
-  function handleLogout() {
-    clearTokens()
-    router.push('/login')
+  async function handleLogout() {
+    await logout()
   }
 
   return (

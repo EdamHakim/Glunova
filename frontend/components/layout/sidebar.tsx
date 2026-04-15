@@ -13,9 +13,10 @@ import {
   Stethoscope as Clinic,
   Settings,
 } from 'lucide-react'
-import { getCurrentUser } from '@/lib/auth'
+import { useAuth } from '@/components/auth-context'
 
 const menuItems = [
+// ... (rest same, skipping for clarity if using replace_file_content)
   {
     label: 'Dashboard',
     href: '/dashboard',
@@ -56,19 +57,15 @@ const menuItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  const { user } = useAuth()
 
   const visibleMenuItems = useMemo(() => {
-    const role = mounted ? getCurrentUser()?.role : undefined
+    const role = user?.role
     return menuItems.filter((item) => {
       if (!('patientOnly' in item) || !item.patientOnly) return true
       return role === 'patient'
     })
-  }, [mounted])
+  }, [user])
 
   return (
     <aside className="w-64 border-r border-border bg-sidebar text-sidebar-foreground flex flex-col">

@@ -30,10 +30,11 @@ function formatExtraction(ex: ExtractedDocument | null) {
   return rows
 }
 
+import { useAuth } from '@/components/auth-context'
+
 export function MedicalDocumentsSection() {
-  const [token, setToken] = useState('')
+  const { user } = useAuth()
   const [patientId, setPatientId] = useState('')
-  const [role, setRole] = useState<string | null>(null)
   const [items, setItems] = useState<MedicalDocumentRow[]>([])
   const [selected, setSelected] = useState<MedicalDocumentRow | null>(null)
   const [loading, setLoading] = useState(false)
@@ -41,54 +42,42 @@ export function MedicalDocumentsSection() {
   const [uploading, setUploading] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
 
+  // Automatically resolve patient and load documents on mount/user change
   useEffect(() => {
-    setToken(getAccessToken() ?? '')
-  }, [])
-
-  const persistToken = (t: string) => {
-    setToken(t)
-    if (typeof window !== 'undefined') {
-      if (t) localStorage.setItem(ACCESS_TOKEN_KEY, t)
-      else localStorage.removeItem(ACCESS_TOKEN_KEY)
+    if (user) {
+      if (user.role === 'patient') {
+        setPatientId(user.id)
+      }
     }
-  }
+  }, [user])
 
-  const resolvePatient = useCallback(async () => {
-    if (!token.trim()) {
-      setError('Sign in from the app header, or paste a JWT from POST /api/auth/token/.')
-      return
-    }
+  const resolveDocuments = useCallback(async (pid: string) => {
+    if (!pid) return
     setLoading(true)
     setError(null)
     try {
-      const me = await fetchCurrentUser(token.trim())
-      setRole(me.role)
-      let pid = patientId.trim()
-      if (me.role === 'patient') {
-        pid = me.id
-        setPatientId(me.id)
-      }
-      if (!pid) {
-        setError('Enter the patient user ID to load documents (doctors/caregivers).')
-        setLoading(false)
-        return
-      }
-      const list = await listDocuments(token.trim(), pid)
+      const list = await listDocuments(pid)
       setItems(list.items)
       setSelected(list.items[0] ?? null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load')
+      setError(e instanceof Error ? e.message : 'Failed to load documents')
     } finally {
       setLoading(false)
     }
-  }, [token, patientId])
+  }, [])
+
+  useEffect(() => {
+    if (patientId) {
+      resolveDocuments(patientId)
+    }
+  }, [patientId, resolveDocuments])
 
   const onDownload = async () => {
-    if (!selected || !token.trim()) return
+    if (!selected) return
     setDownloadBusy(true)
     setError(null)
     try {
-      const result = await requestDocumentDownload(token.trim(), selected.id)
+      const result = await requestDocumentDownload(selected.id)
       if (result.kind === 'url') {
         window.open(result.url, '_blank', 'noopener,noreferrer')
       } else {
@@ -108,11 +97,11 @@ export function MedicalDocumentsSection() {
 
   const onUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !token.trim() || !patientId.trim()) return
+    if (!file || !patientId.trim()) return
     setUploading(true)
     setError(null)
     try {
-      const doc = await uploadDocument(token.trim(), patientId.trim(), file)
+      const doc = await uploadDocument(patientId.trim(), file)
       setItems((prev) => [doc, ...prev])
       setSelected(doc)
     } catch (err) {
@@ -133,63 +122,37 @@ export function MedicalDocumentsSection() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileUp className="h-5 w-5" />
-          Medical documents (OCR)
+          Medical documents
         </CardTitle>
         <CardDescription>
-          Upload lab reports, prescriptions, or clinical PDFs/images. Values come from OCR (Gemini when
-          configured) plus rule validation—always verify with a clinician. Google AI Studio is not HIPAA-covered;
-          use approved hosting for real PHI.
+          Your health records are analyzed automatically.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="api-token">Access token (optional override)</Label>
-            <Input
-              id="api-token"
-              type="password"
-              autoComplete="off"
-              placeholder="Filled from login; or paste JWT from POST /api/auth/token/"
-              value={token}
-              onChange={(e) => persistToken(e.target.value)}
-            />
-            {!getAccessToken() && (
-              <p className="text-xs text-muted-foreground">
-                <Link href="/login" className="text-primary underline">
-                  Sign in
-                </Link>{' '}
-                to use your session token automatically.
-              </p>
-            )}
+        {user?.role !== 'patient' && (
+          <div className="flex items-end gap-2 mb-4">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="patient-id">Patient ID</Label>
+              <Input
+                id="patient-id"
+                placeholder="Enter patient ID to view records"
+                value={patientId}
+                onChange={(e) => setPatientId(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="patient-id">Patient user ID</Label>
-            <Input
-              id="patient-id"
-              placeholder="Auto-filled for patients after Load"
-              value={patientId}
-              onChange={(e) => setPatientId(e.target.value)}
-              disabled={role === 'patient'}
-            />
-          </div>
-          <div className="flex items-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => void resolvePatient()} disabled={loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              <span className="ml-2">Load account &amp; list</span>
-            </Button>
-          </div>
-        </div>
+        )}
 
         <div className="space-y-2">
-          <Label htmlFor="file-up">Upload file (JPEG, PNG, WebP, PDF)</Label>
+          <Label htmlFor="file-up">Upload new document</Label>
           <Input
             id="file-up"
             type="file"
             accept="image/jpeg,image/png,image/webp,application/pdf"
-            disabled={uploading || !patientId.trim() || !token.trim()}
+            disabled={uploading || !patientId}
             onChange={(e) => void onUpload(e)}
           />
-          {uploading && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Processing OCR…</p>}
+          {uploading && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Analyzing Document...</p>}
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -227,7 +190,7 @@ export function MedicalDocumentsSection() {
                   variant="outline"
                   size="sm"
                   className="w-full sm:w-auto"
-                  disabled={downloadBusy || !token.trim()}
+                  disabled={downloadBusy}
                   onClick={() => void onDownload()}
                 >
                   {downloadBusy ? (

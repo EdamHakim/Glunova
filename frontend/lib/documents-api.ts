@@ -1,4 +1,4 @@
-const base = () => process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://127.0.0.1:8000'
+const base = () => process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://localhost:8000'
 
 const apiPrefix = () => process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1'
 
@@ -19,30 +19,32 @@ export type MedicalDocumentRow = {
   created_at: string
 }
 
-export async function fetchCurrentUser(token: string) {
+export async function fetchCurrentUser() {
   const r = await fetch(`${base()}${apiPrefix()}/users/me`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   })
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<{ id: string; role: string; full_name: string }>
 }
 
-export async function listDocuments(token: string, patientId: string, page = 1, pageSize = 20) {
+export async function listDocuments(patientId: string, page = 1, pageSize = 20) {
   const q = new URLSearchParams({ patient_id: patientId, page: String(page), page_size: String(pageSize) })
   const r = await fetch(`${base()}${apiPrefix()}/documents?${q}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   })
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<{ items: MedicalDocumentRow[]; total: number }>
 }
 
-export async function uploadDocument(token: string, patientId: string, file: File) {
+export async function uploadDocument(patientId: string, file: File) {
   const fd = new FormData()
   fd.append('patient_id', patientId)
   fd.append('file', file)
   const r = await fetch(`${base()}${apiPrefix()}/documents`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: 'include',
     body: fd,
   })
   if (!r.ok) throw new Error(await r.text())
@@ -53,9 +55,9 @@ export type DocumentDownloadResult =
   | { kind: 'url'; url: string }
   | { kind: 'blob'; blob: Blob; filename: string }
 
-export async function requestDocumentDownload(token: string, docId: string): Promise<DocumentDownloadResult> {
+export async function requestDocumentDownload(docId: string): Promise<DocumentDownloadResult> {
   const r = await fetch(`${base()}${apiPrefix()}/documents/${docId}/download`, {
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: 'include',
   })
   const ct = r.headers.get('content-type') || ''
   if (ct.includes('application/json')) {

@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "users",
     "clinical",
     "documents",
@@ -85,7 +86,7 @@ LLM_MAX_CHARS = int(os.getenv("LLM_MAX_CHARS", "50000"))
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "core.auth_authenticator.JWTCookieAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
 }
@@ -95,8 +96,24 @@ SIMPLE_JWT = {
     "ALGORITHM": "HS256",
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_COOKIE": "access_token",
+    "AUTH_COOKIE_HTTP_ONLY": True,
+    "AUTH_COOKIE_PATH": "/",
+    "AUTH_COOKIE_SAMESITE": "Lax",
+    "AUTH_COOKIE_SECURE": False,
+    "REFRESH_COOKIE": "refresh_token",
+    "REFRESH_COOKIE_HTTP_ONLY": True,
+    "REFRESH_COOKIE_PATH": "/",
+    "REFRESH_COOKIE_SAMESITE": "Lax",
+    "REFRESH_COOKIE_SECURE": False,
 }
 
 CORS_ALLOWED_ORIGINS = [
+    os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
+]
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = [
     os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"),
 ]
