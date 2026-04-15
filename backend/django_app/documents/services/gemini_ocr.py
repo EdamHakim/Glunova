@@ -49,12 +49,15 @@ def parse_gemini_json_response(text: str) -> dict[str, Any]:
 
 def run_gemini_ocr(file_bytes: bytes, mime_type: str) -> dict[str, Any]:
     api_key = getattr(settings, "GEMINI_API_KEY", "") or ""
-    if not api_key.strip():
+    api_key = api_key.strip()
+    if not api_key:
         raise RuntimeError("GEMINI_API_KEY not configured")
 
     import google.generativeai as genai
+    import os
+    os.environ["GOOGLE_API_KEY"] = api_key
 
-    genai.configure(api_key=api_key)
+    genai.configure(api_key=api_key, transport="rest")
     model_name = getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash")
     model = genai.GenerativeModel(model_name)
     response = model.generate_content(

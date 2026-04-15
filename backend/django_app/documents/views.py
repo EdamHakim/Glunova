@@ -170,3 +170,21 @@ class DocumentDownloadView(APIView):
             as_attachment=True,
             filename=doc.original_filename,
         )
+
+from django.conf import settings
+import urllib.request
+import json
+class DebugGeminiView(APIView):
+    permission_classes = []
+    def get(self, request):
+        api_key = getattr(settings, "GEMINI_API_KEY", "").strip()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        data = json.dumps({"contents": [{"parts": [{"text": "Hello"}]}]}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req) as response:
+                return Response(json.loads(response.read().decode()))
+        except urllib.error.HTTPError as e:
+            return Response({"error_code": e.code, "error_body": json.loads(e.read().decode())})
+
+
