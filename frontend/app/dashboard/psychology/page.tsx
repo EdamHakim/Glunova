@@ -6,9 +6,9 @@ import { Progress } from '@/components/ui/progress'
 
 export default function PsychologyPage() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Psychology & Mental Wellness</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Psychology & Mental Wellness</h1>
         <p className="text-muted-foreground mt-2">AI-powered emotional health tracking and therapy sessions</p>
       </div>
 
@@ -184,7 +184,7 @@ export default function PsychologyPage() {
                 <span className="font-medium">Happiness</span>
                 <span className="text-sm text-muted-foreground">72/100</span>
               </div>
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {[65, 70, 68, 72, 75, 78, 72].map((value, idx) => (
                   <div key={idx} className="flex flex-col items-center">
                     <div
@@ -202,7 +202,7 @@ export default function PsychologyPage() {
                 <span className="font-medium">Anxiety</span>
                 <span className="text-sm text-muted-foreground">35/100</span>
               </div>
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {[42, 38, 40, 35, 32, 30, 35].map((value, idx) => (
                   <div key={idx} className="flex flex-col items-center">
                     <div
@@ -220,7 +220,7 @@ export default function PsychologyPage() {
                 <span className="font-medium">Energy Level</span>
                 <span className="text-sm text-muted-foreground">68/100</span>
               </div>
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {[60, 65, 62, 68, 70, 75, 68].map((value, idx) => (
                   <div key={idx} className="flex flex-col items-center">
                     <div

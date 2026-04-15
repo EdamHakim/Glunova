@@ -73,14 +73,14 @@ function getSeverityColor(severity: string) {
 
 export default function MonitoringPage() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Monitoring & Analytics</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Monitoring & Analytics</h1>
         <p className="text-muted-foreground mt-2">Real-time patient health monitoring and risk stratification</p>
       </div>
 
       <Tabs defaultValue="alerts" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 sm:h-10 sm:grid-cols-3 sm:gap-0">
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="progression">Progression</TabsTrigger>
@@ -99,10 +99,10 @@ export default function MonitoringPage() {
                   key={alert.id}
                   className="p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="flex gap-4 flex-1">
-                      <AlertCircle
-                        className={`h-5 w-5 mt-0.5 flex-shrink-0 ${
+                        <AlertCircle
+                        className={`h-5 w-5 mt-0.5 shrink-0 ${
                           alert.severity === 'Critical'
                             ? 'text-destructive'
                             : alert.severity === 'High'
@@ -115,7 +115,7 @@ export default function MonitoringPage() {
                         <p className="text-sm text-muted-foreground mt-1">{alert.description}</p>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
                       <Badge className={getSeverityColor(alert.severity)}>
                         {alert.severity}
                       </Badge>

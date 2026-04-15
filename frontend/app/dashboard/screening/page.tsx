@@ -116,7 +116,7 @@ export default function ScreeningPage() {
 
   if (sessionLoading) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6 p-4 sm:p-6">
         <p className="text-sm text-muted-foreground">Loading session…</p>
       </div>
     )
@@ -124,7 +124,7 @@ export default function ScreeningPage() {
 
   if (!sessionUser || sessionUser.role !== 'patient') {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6 p-4 sm:p-6">
         <Card className="max-w-lg">
           <CardHeader>
             <CardTitle>Screening unavailable</CardTitle>
@@ -144,7 +144,7 @@ export default function ScreeningPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <Dialog open={isResultModalOpen} onOpenChange={setIsResultModalOpen}>
         <DialogContent>
           <DialogHeader>
@@ -186,7 +186,7 @@ export default function ScreeningPage() {
       </Dialog>
 
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Non-Invasive Screening</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Non-Invasive Screening</h1>
         <p className="text-muted-foreground mt-2">AI-powered health assessment using voice, tongue, and eye imaging</p>
       </div>
 
@@ -272,7 +272,7 @@ export default function ScreeningPage() {
         <CardContent>
           <div className="space-y-4">
             <div className="p-4 border border-border rounded-lg">
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <span className="font-medium">Overall Risk Score</span>
                 <Badge className="text-lg px-3 py-1">{riskPercent}</Badge>
               </div>

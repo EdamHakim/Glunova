@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   LayoutDashboard,
   Stethoscope,
@@ -68,7 +68,7 @@ export default function Sidebar() {
   }, [user])
 
   return (
-    <aside className="w-64 border-r border-border bg-sidebar text-sidebar-foreground flex flex-col">
+    <aside className="hidden w-64 border-r border-border bg-sidebar text-sidebar-foreground lg:flex lg:flex-col">
       <div className="flex items-center gap-3 border-b border-sidebar-border px-6 py-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
           G

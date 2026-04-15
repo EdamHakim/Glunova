@@ -7,10 +7,10 @@ import PatientSummary from '@/components/dashboard/patient-summary'
 
 export default function Dashboard() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Dashboard</h1>
         <p className="text-muted-foreground mt-2">Welcome back, Dr. Sarah. Here&apos;s your patient overview.</p>
       </div>
 

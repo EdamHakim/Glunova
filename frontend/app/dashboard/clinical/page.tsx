@@ -41,9 +41,9 @@ const prioritizedPatients = [
 
 export default function ClinicalPage() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Clinical Decision Support</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Clinical Decision Support</h1>
         <p className="text-muted-foreground mt-2">AI-powered clinical insights and patient prioritization</p>
       </div>
 
@@ -112,9 +112,9 @@ export default function ClinicalPage() {
                   'border-border'
                 }`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div className="flex-shrink-0">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-4 sm:flex-1">
+                    <div className="shrink-0">
                       <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center font-bold">
                         {patient.rank}
                       </div>
@@ -124,8 +124,8 @@ export default function ClinicalPage() {
                       <p className="text-sm text-muted-foreground mt-0.5">{patient.issue}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
+                  <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                    <div className="sm:text-right">
                       <Badge
                         className={
                           patient.risk === 'Critical' ? 'bg-destructive/10 text-destructive border-destructive/20' :
@@ -232,7 +232,7 @@ export default function ClinicalPage() {
         <CardContent>
           <div className="space-y-4">
             <div className="p-4 border border-border rounded-lg">
-              <div className="flex items-start justify-between mb-3">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     <AvatarImage src="https://api.dicebear.com/7.x/avataaars/svg?seed=John" />
@@ -254,7 +254,7 @@ export default function ClinicalPage() {
             </div>
 
             <div className="p-4 border border-border rounded-lg">
-              <div className="flex items-start justify-between mb-3">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     <AvatarImage src="https://api.dicebear.com/7.x/avataaars/svg?seed=Emily" />

@@ -74,25 +74,25 @@ export default function SignupPage() {
       <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-health-success/10 rounded-full blur-[120px] pointer-events-none" />
       
-      <div className="w-full max-w-lg relative z-10">
+      <div className="relative z-10 w-full max-w-lg">
         {/* Logo Section */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-primary shadow-lg shadow-primary/25 mb-4 transform hover:scale-105 transition-transform">
             <span className="text-primary-foreground font-bold text-2xl">G</span>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-foreground">Glunova</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Glunova</h1>
           <p className="text-muted-foreground mt-2 font-medium">Join our AI healthcare platform</p>
         </div>
 
         {/* Signup Card */}
-        <div className="bg-card/80 backdrop-blur-sm rounded-2xl shadow-xl border border-border/50 p-8">
+        <div className="bg-card/80 backdrop-blur-sm rounded-2xl shadow-xl border border-border/50 p-5 sm:p-8">
           <div className="mb-8">
             <h2 className="text-2xl font-semibold text-foreground">Create Account</h2>
             <p className="text-muted-foreground mt-1.5 font-medium">Get started with personalized health insights</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* First Name */}
               <div className="space-y-2">
                 <Label htmlFor="first_name" className="text-sm font-semibold ml-1 text-foreground">
@@ -131,7 +131,7 @@ export default function SignupPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* Username Input */}
               <div className="space-y-2">
                 <Label htmlFor="username" className="text-sm font-semibold ml-1 text-foreground">
@@ -173,7 +173,7 @@ export default function SignupPage() {
             {/* Role Selection */}
             <div className="space-y-2">
               <Label className="text-sm font-semibold ml-1 text-foreground">Account Type</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {(['patient', 'doctor', 'caregiver'] as Role[]).map((r) => (
                   <button
                     key={r}
@@ -306,12 +306,12 @@ export default function SignupPage() {
               <div className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-4 text-muted-foreground font-medium text-xs px-2">Or continue with</span>
+              <span className="bg-card px-2 text-muted-foreground font-medium text-xs">Or continue with</span>
             </div>
           </div>
 
           {/* Social Signup */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <Button variant="outline" className="h-10 bg-background/50 hover:bg-muted font-medium transition-all">
               <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

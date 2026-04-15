@@ -6,14 +6,14 @@ import { Progress } from '@/components/ui/progress'
 
 export default function NutritionPage() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Nutrition & Physical Activity</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Nutrition & Physical Activity</h1>
         <p className="text-muted-foreground mt-2">Track meals, nutrition, and exercise recommendations</p>
       </div>
 
       <Tabs defaultValue="nutrition" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 sm:h-10 sm:grid-cols-3 sm:gap-0">
           <TabsTrigger value="nutrition">Nutrition</TabsTrigger>
           <TabsTrigger value="exercise">Exercise</TabsTrigger>
           <TabsTrigger value="ai-coach">AI Coach</TabsTrigger>
@@ -104,7 +104,7 @@ export default function NutritionPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="p-4 border border-border rounded-lg">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-medium">Breakfast</p>
                     <p className="text-sm text-muted-foreground mt-1">Oatmeal with berries, honey, and milk</p>
@@ -113,7 +113,7 @@ export default function NutritionPage() {
                     420 cal
                   </span>
                 </div>
-                <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Carbs: 75g</span>
                   <span>Protein: 12g</span>
                   <span>Fat: 8g</span>
@@ -121,7 +121,7 @@ export default function NutritionPage() {
               </div>
 
               <div className="p-4 border border-border rounded-lg">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-medium">Lunch</p>
                     <p className="text-sm text-muted-foreground mt-1">Grilled chicken salad with olive oil dressing</p>
@@ -130,7 +130,7 @@ export default function NutritionPage() {
                     520 cal
                   </span>
                 </div>
-                <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Carbs: 35g</span>
                   <span>Protein: 38g</span>
                   <span>Fat: 22g</span>
@@ -138,7 +138,7 @@ export default function NutritionPage() {
               </div>
 
               <div className="p-4 border border-border rounded-lg">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-medium">Snack</p>
                     <p className="text-sm text-muted-foreground mt-1">Apple with almond butter</p>
@@ -147,7 +147,7 @@ export default function NutritionPage() {
                     200 cal
                   </span>
                 </div>
-                <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Carbs: 25g</span>
                   <span>Protein: 8g</span>
                   <span>Fat: 7g</span>
@@ -155,7 +155,7 @@ export default function NutritionPage() {
               </div>
 
               <div className="p-4 border border-border rounded-lg">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-medium">Dinner</p>
                     <p className="text-sm text-muted-foreground mt-1">Salmon with broccoli and brown rice</p>
@@ -164,7 +164,7 @@ export default function NutritionPage() {
                     700 cal
                   </span>
                 </div>
-                <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Carbs: 55g</span>
                   <span>Protein: 42g</span>
                   <span>Fat: 18g</span>
@@ -208,23 +208,23 @@ export default function NutritionPage() {
               <div className="p-4 bg-muted rounded-lg">
                 <h4 className="font-medium mb-3">Weekly Activity Log</h4>
                 <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
+                  <div className="flex flex-col gap-1 text-sm sm:flex-row sm:justify-between">
                     <span>Monday - Walking</span>
                     <span className="text-muted-foreground">32 mins, 2.1 km</span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex flex-col gap-1 text-sm sm:flex-row sm:justify-between">
                     <span>Tuesday - Swimming</span>
                     <span className="text-muted-foreground">45 mins, 1200m</span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex flex-col gap-1 text-sm sm:flex-row sm:justify-between">
                     <span>Wednesday - Walking</span>
                     <span className="text-muted-foreground">28 mins, 1.9 km</span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex flex-col gap-1 text-sm sm:flex-row sm:justify-between">
                     <span>Thursday - Rest Day</span>
                     <span className="text-muted-foreground">Light stretching</span>
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex flex-col gap-1 text-sm sm:flex-row sm:justify-between">
                     <span>Friday - Resistance</span>
                     <span className="text-muted-foreground">35 mins, 8 exercises</span>
                   </div>

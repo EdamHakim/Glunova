@@ -37,7 +37,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 relative overflow-hidden">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8 sm:py-10 relative overflow-hidden">
       {/* Decorative background elements */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-health-info/10 rounded-full blur-[120px] pointer-events-none" />
@@ -48,12 +48,12 @@ function LoginForm() {
           <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-primary shadow-lg shadow-primary/25 mb-4 transform hover:scale-105 transition-transform">
             <span className="text-primary-foreground font-bold text-2xl">G</span>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-foreground">Glunova</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Glunova</h1>
           <p className="text-muted-foreground mt-2 font-medium">Elevating Diabetes Care with AI</p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-card/80 backdrop-blur-sm rounded-2xl shadow-xl border border-border/50 p-8">
+        <div className="bg-card/80 backdrop-blur-sm rounded-2xl shadow-xl border border-border/50 p-5 sm:p-8">
           <div className="mb-8">
             <h2 className="text-2xl font-semibold text-foreground">Welcome Back</h2>
             <p className="text-muted-foreground mt-1.5">Sign in to access your health dashboard</p>
@@ -148,7 +148,7 @@ function LoginForm() {
           </div>
 
           {/* Social Login */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <Button
               variant="outline"
               className="h-11 border-border bg-background/50 hover:bg-muted font-medium transition-all"
@@ -197,7 +197,7 @@ function LoginForm() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-muted-foreground mt-8 flex justify-center gap-4">
+        <p className="mt-8 flex flex-wrap justify-center gap-2 text-center text-xs text-muted-foreground sm:gap-4">
           <Link href="#" className="hover:text-primary transition-colors">
             Terms of Service
           </Link>

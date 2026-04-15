@@ -1,6 +1,7 @@
 'use client'
 
-import { Bell, Search, Settings, LogOut, User } from 'lucide-react'
+import Link from 'next/link'
+import { Bell, Search, Settings, LogOut, User, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -13,7 +14,17 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAuth } from '@/components/auth-context'
-import { useRouter } from 'next/navigation'
+
+const mobileNavItems = [
+  { label: 'Dashboard', href: '/dashboard' },
+  { label: 'Screening', href: '/dashboard/screening' },
+  { label: 'Monitoring', href: '/dashboard/monitoring' },
+  { label: 'Nutrition', href: '/dashboard/nutrition' },
+  { label: 'Psychology', href: '/dashboard/psychology' },
+  { label: 'Care Circle', href: '/dashboard/care-circle' },
+  { label: 'Clinical', href: '/dashboard/clinical' },
+  { label: 'Settings', href: '/dashboard/settings' },
+]
 
 export default function Navbar() {
   const { user, logout } = useAuth()
@@ -23,18 +34,32 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="border-b border-border bg-card px-6 py-4 flex items-center justify-between">
-      <div className="flex items-center gap-4 flex-1">
-        <div className="relative w-64">
+    <nav className="border-b border-border bg-card px-4 py-3 sm:px-6 sm:py-4">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="lg:hidden">
+              <Menu className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            {mobileNavItems.map((item) => (
+              <DropdownMenuItem key={item.href} asChild>
+                <Link href={item.href}>{item.label}</Link>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search patients, records..."
             className="pl-10 bg-background border-input"
           />
         </div>
-      </div>
 
-      <div className="flex items-center gap-4">
+        <div className="ml-auto flex items-center gap-2 sm:gap-4">
         <Button
           variant="ghost"
           size="icon"
@@ -76,6 +101,7 @@ export default function Navbar() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </div>
     </nav>
   )

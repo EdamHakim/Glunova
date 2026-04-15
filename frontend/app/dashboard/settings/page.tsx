@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Palette, Type, Globe, Lock, Bell } from 'lucide-react'
+import { Palette, Type, Globe, Lock, Bell, Eye, Volume2 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -24,9 +24,9 @@ export default function SettingsPage() {
     setMounted(true)
   }, [])
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Settings</h1>
         <p className="text-muted-foreground mt-2">Manage accessibility, preferences, and account settings</p>
       </div>
 
@@ -43,7 +43,7 @@ export default function SettingsPage() {
           {mounted && (
             <div>
               <label className="text-sm font-medium">Theme</label>
-              <div className="grid grid-cols-3 gap-4 mt-3">
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
               <button
                 onClick={() => setTheme('light')}
                 className={`p-4 rounded-lg transition-colors ${
@@ -86,7 +86,7 @@ export default function SettingsPage() {
               <Eye className="h-4 w-4" />
               High Contrast Mode
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2 sm:items-center">
               <Switch />
               <span className="text-sm text-muted-foreground">Increased visibility for text and UI elements</span>
             </div>
@@ -94,7 +94,7 @@ export default function SettingsPage() {
 
           <div>
             <label className="text-sm font-medium mb-3 block">Color Scheme</label>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button className="h-10 w-10 rounded-full bg-health-success hover:ring-2 ring-offset-2 ring-primary" />
               <button className="h-10 w-10 rounded-full bg-health-info hover:ring-2 ring-offset-2 ring-primary" />
               <button className="h-10 w-10 rounded-full bg-health-warning hover:ring-2 ring-offset-2 ring-primary" />
@@ -116,7 +116,7 @@ export default function SettingsPage() {
         <CardContent className="space-y-6">
           <div>
             <label className="text-sm font-medium">Font Size</label>
-            <div className="flex gap-2 mt-3">
+            <div className="mt-3 flex flex-wrap gap-2">
               {['Small', 'Normal', 'Large', 'Extra Large'].map((size) => (
                 <button
                   key={size}
@@ -137,7 +137,7 @@ export default function SettingsPage() {
               <Eye className="h-4 w-4" />
               Dyslexia-Friendly Font
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2 sm:items-center">
               <Switch />
               <span className="text-sm text-muted-foreground">Use OpenDyslexic font for better readability</span>
             </div>
@@ -148,7 +148,7 @@ export default function SettingsPage() {
               Line Height
             </label>
             <Select defaultValue="normal">
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-full sm:w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -194,7 +194,7 @@ export default function SettingsPage() {
               <Volume2 className="h-4 w-4" />
               Text-to-Speech
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2 sm:items-center">
               <Switch />
               <span className="text-sm text-muted-foreground">Enable audio narration of text content</span>
             </div>
@@ -212,7 +212,7 @@ export default function SettingsPage() {
           <CardDescription>Control how and when you receive alerts</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 sm:items-center">
             <div>
               <p className="font-medium text-sm">Critical Alerts</p>
               <p className="text-xs text-muted-foreground">High-risk patient updates</p>
@@ -220,7 +220,7 @@ export default function SettingsPage() {
             <Switch defaultChecked />
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 sm:items-center">
             <div>
               <p className="font-medium text-sm">Daily Summary</p>
               <p className="text-xs text-muted-foreground">End-of-day health report</p>
@@ -228,7 +228,7 @@ export default function SettingsPage() {
             <Switch defaultChecked />
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 sm:items-center">
             <div>
               <p className="font-medium text-sm">Appointment Reminders</p>
               <p className="text-xs text-muted-foreground">Upcoming screening notifications</p>
@@ -236,7 +236,7 @@ export default function SettingsPage() {
             <Switch defaultChecked />
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 sm:items-center">
             <div>
               <p className="font-medium text-sm">Care Circle Messages</p>
               <p className="text-xs text-muted-foreground">Family & caregiver notifications</p>
@@ -278,15 +278,15 @@ export default function SettingsPage() {
           <CardDescription>Application version and diagnostics</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <div className="flex justify-between">
+          <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
             <span className="text-muted-foreground">Application Version</span>
             <span className="font-medium">1.0.0</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
             <span className="text-muted-foreground">Last Updated</span>
             <span className="font-medium">April 12, 2026</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-muted-foreground">Platform</span>
             <Badge variant="outline">Glunova AI v3.2</Badge>
           </div>
@@ -295,6 +295,3 @@ export default function SettingsPage() {
     </div>
   )
 }
-
-// Import icons we're using
-import { Eye, Volume2 } from 'lucide-react'

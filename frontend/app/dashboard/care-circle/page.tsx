@@ -52,9 +52,9 @@ const updates = [
 
 export default function CareCirclePage() {
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Care Circle</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Care Circle</h1>
         <p className="text-muted-foreground mt-2">Connect with family, caregivers, and healthcare providers</p>
       </div>
 
@@ -71,7 +71,7 @@ export default function CareCirclePage() {
           {familyMembers.map((member, idx) => (
             <div
               key={idx}
-              className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
+              className="flex flex-col gap-3 border border-border p-4 rounded-lg transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex items-center gap-4">
                 <Avatar className="h-10 w-10">
@@ -83,7 +83,7 @@ export default function CareCirclePage() {
                   <p className="text-xs text-muted-foreground">{member.role}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 self-end sm:self-auto">
                 <Badge variant="outline" className="bg-health-success/10 text-health-success border-health-success/20">
                   {member.status}
                 </Badge>
@@ -130,11 +130,11 @@ export default function CareCirclePage() {
             <div className="p-4 border border-border rounded-lg bg-muted/30">
               <h4 className="font-medium mb-2">Medications</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center justify-between">
+                <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <span>Metformin 500mg</span>
                   <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">Twice daily</span>
                 </li>
-                <li className="flex items-center justify-between">
+                <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <span>Lisinopril 10mg</span>
                   <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">Once daily</span>
                 </li>
