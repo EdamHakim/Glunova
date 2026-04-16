@@ -4,6 +4,7 @@ import base64
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from threading import Lock
 
 import numpy as np
 import torch
@@ -27,6 +28,16 @@ from screening.config import (
 
 def _sigmoid(value: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-value))
+
+
+def _resolve_checkpoint_state_dict(checkpoint: dict | torch.Tensor) -> dict:
+    if not isinstance(checkpoint, dict):
+        raise ValueError("Unsupported checkpoint format: expected dict-like state_dict.")
+    if "state_dict" in checkpoint and isinstance(checkpoint["state_dict"], dict):
+        return checkpoint["state_dict"]
+    if "model_state_dict" in checkpoint and isinstance(checkpoint["model_state_dict"], dict):
+        return checkpoint["model_state_dict"]
+    return checkpoint
 
 
 def _circular_mask_tensor(image_tensor: np.ndarray) -> np.ndarray:
@@ -68,8 +79,10 @@ class TonguePtService:
     def __init__(self, model_path: Path = PT_MODEL_PATH, threshold: float = DEFAULT_THRESHOLD):
         self.model_path = model_path
         self.threshold = threshold
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model: nn.Module | None = None
         self._grad_cam: GradCAM | None = None
+        self._load_lock = Lock()
 
     @property
     def is_loaded(self) -> bool:
@@ -78,18 +91,22 @@ class TonguePtService:
     def ensure_loaded(self) -> None:
         if self._model is not None and self._grad_cam is not None:
             return
-        if not self.model_path.exists():
-            raise FileNotFoundError(
-                "PyTorch checkpoint not found at "
-                f"{self.model_path.as_posix()}."
-            )
+        with self._load_lock:
+            if self._model is not None and self._grad_cam is not None:
+                return
+            if not self.model_path.exists():
+                raise FileNotFoundError(
+                    "PyTorch checkpoint not found at "
+                    f"{self.model_path.as_posix()}."
+                )
 
-        model = _build_model()
-        state_dict = torch.load(self.model_path, map_location="cpu")
-        model.load_state_dict(state_dict)
-        model.eval()
-        self._model = model
-        self._grad_cam = GradCAM(model=model, target_layers=[model.layer4[-1]])
+            model = _build_model().to(self.device)
+            checkpoint = torch.load(self.model_path, map_location=self.device)
+            state_dict = _resolve_checkpoint_state_dict(checkpoint)
+            model.load_state_dict(state_dict, strict=True)
+            model.eval()
+            self._model = model
+            self._grad_cam = GradCAM(model=model, target_layers=[model.layer4[-1]])
 
     def preprocess_image_bytes(self, image_bytes: bytes) -> tuple[torch.Tensor, np.ndarray]:
         try:
@@ -97,25 +114,25 @@ class TonguePtService:
         except UnidentifiedImageError as exc:
             raise ValueError("Uploaded file is not a valid image.") from exc
 
-        image = image.resize((INPUT_SIZE, INPUT_SIZE))
+        image = image.resize((INPUT_SIZE, INPUT_SIZE), Image.Resampling.BICUBIC)
         rgb_np = np.asarray(image, dtype=np.float32) / 255.0
-        image_np = rgb_np.copy()
-        image_np = np.transpose(image_np, (2, 0, 1))
+        image_chw = np.transpose(rgb_np.copy(), (2, 0, 1))
 
         mean = np.asarray(NORM_MEAN, dtype=np.float32)[:, np.newaxis, np.newaxis]
         std = np.asarray(NORM_STD, dtype=np.float32)[:, np.newaxis, np.newaxis]
-        image_np = (image_np - mean) / std
-        image_np = _circular_mask_tensor(image_np)
+        image_chw = (image_chw - mean) / std
+        image_chw = _circular_mask_tensor(image_chw)
 
-        batch = np.expand_dims(image_np.astype(np.float32), axis=0)
-        return torch.from_numpy(batch), rgb_np
+        batch = np.expand_dims(image_chw.astype(np.float32), axis=0)
+        input_tensor = torch.from_numpy(batch).to(self.device)
+        return input_tensor, rgb_np
 
     def predict(self, image_bytes: bytes) -> TongueInferenceResult:
         self.ensure_loaded()
         assert self._model is not None
 
         input_tensor, _ = self.preprocess_image_bytes(image_bytes)
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
 
         logit = float(logits[0])
@@ -136,7 +153,7 @@ class TonguePtService:
         assert self._grad_cam is not None
 
         input_tensor, rgb_np = self.preprocess_image_bytes(image_bytes)
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
 
         probability = float(_sigmoid(logits)[0])
