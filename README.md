@@ -107,25 +107,6 @@ cd backend/fastapi_ai
 python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-## Tongue PyTorch Inference
-
-Artifacts:
-
-- Input checkpoint: `backend/fastapi_ai/screening/models/tongue/resnet50_best.pt`
-
-Run multipart inference request:
-
-```bash
-curl -X POST "http://localhost:8001/screening/tongue/infer" \
-  -H "Authorization: Bearer <jwt_token>" \
-  -F "patient_id=1" \
-  -F "image=@/absolute/path/to/tongue.jpg"
-```
-
-Model readiness endpoint:
-
-- `GET http://localhost:8001/screening/tongue/health`
-
 ## Run Frontend
 
 ```bash
