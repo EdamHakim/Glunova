@@ -4,7 +4,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-from django.core.files.storage import default_storage
 from django.http import FileResponse
 from uuid import uuid4
 
@@ -124,35 +123,3 @@ class DocumentDownloadView(APIView):
                 )
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-class DebugGeminiView(APIView):
-    permission_classes = [] 
-
-    def get(self, request):
-        from .services.gemini_ocr import perform_ocr
-        import os
-        from PIL import Image
-        import io
-
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        if not api_key:
-             return Response({"status": "error", "message": "No API key found in env"})
-
-        try:
-            dummy_img = Image.new('RGB', (100, 100), color = 'red')
-            img_byte_arr = io.BytesIO()
-            dummy_img.save(img_byte_arr, format='JPEG')
-            
-            result = perform_ocr(img_byte_arr.getvalue(), "image/jpeg")
-            return Response({
-                "status": "success",
-                "message": "Gemini API reached",
-                "ocr_sample": result[:100] if result else "No text returned"
-            })
-        except Exception as e:
-            import traceback
-            return Response({
-                "status": "error",
-                "message": str(e),
-                "trace": traceback.format_exc()
-            }, status=500)

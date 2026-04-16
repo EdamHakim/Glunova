@@ -1,4 +1,4 @@
-"""Conservative merge: rules win for clinical numerics; Gemini text only if grounded in OCR."""
+"""Conservative merge: rules win for clinical numerics; LLM text only if grounded in OCR."""
 
 from __future__ import annotations
 
@@ -49,12 +49,12 @@ def _evidence_ok(evidence: str | None, raw: str) -> bool:
 def merge_and_validate(
     raw_ocr_text: str,
     rules: dict[str, Any],
-    gemini_extracted: dict[str, Any] | None,
+    llm_extracted: dict[str, Any] | None,
     field_evidence: dict[str, str] | None,
 ) -> dict[str, Any]:
     final = copy.deepcopy(rules)
     raw = raw_ocr_text or ""
-    if not gemini_extracted:
+    if not llm_extracted:
         try:
             return ExtractedPayload.model_validate(final).model_dump(mode="json")
         except ValidationError:
@@ -62,8 +62,8 @@ def merge_and_validate(
 
     fe = field_evidence or {}
 
-    # Document type / date: prefer Gemini only if evidence or matches rule unknown
-    dt = gemini_extracted.get("document_type")
+    # Document type / date: prefer LLM only if evidence or matches rule unknown
+    dt = llm_extracted.get("document_type")
     if isinstance(dt, str) and dt in (
         "prescription",
         "lab_report",
@@ -73,14 +73,14 @@ def merge_and_validate(
         if final.get("document_type") == "unknown" or _evidence_ok(fe.get("document_type"), raw):
             final["document_type"] = dt
 
-    gd = gemini_extracted.get("date")
+    gd = llm_extracted.get("date")
     if isinstance(gd, str) and _evidence_ok(fe.get("date"), raw):
         final["date"] = gd
     elif isinstance(gd, str) and gd in raw:
         final["date"] = gd
 
     # Patient block (text only with evidence)
-    gp = gemini_extracted.get("patient") if isinstance(gemini_extracted.get("patient"), dict) else {}
+    gp = llm_extracted.get("patient") if isinstance(llm_extracted.get("patient"), dict) else {}
     fp = final.setdefault("patient", {"name": None, "dob": None, "id": None})
     for key in ("name", "dob", "id"):
         val = gp.get(key) if isinstance(gp, dict) else None
@@ -89,8 +89,8 @@ def merge_and_validate(
             if _evidence_ok(fe.get(path), raw) or val in raw or val.lower() in raw.lower():
                 fp[key] = val.strip()
 
-    # Vitals: keep rules BP/HR; allow Gemini only if substring in raw
-    gv = gemini_extracted.get("vitals") if isinstance(gemini_extracted.get("vitals"), dict) else {}
+    # Vitals: keep rules BP/HR; allow LLM only if substring in raw
+    gv = llm_extracted.get("vitals") if isinstance(llm_extracted.get("vitals"), dict) else {}
     fv = final.setdefault("vitals", {"blood_pressure": None, "heart_rate": None})
     for key in ("blood_pressure", "heart_rate"):
         rv = fv.get(key)
@@ -100,8 +100,8 @@ def merge_and_validate(
                 fv[key] = gv_val.strip()
         # numerics from rules already in fv from rules snapshot
 
-    # Labs: append Gemini rows whose name appears in raw
-    g_labs = gemini_extracted.get("labs")
+    # Labs: append LLM rows whose name appears in raw
+    g_labs = llm_extracted.get("labs")
     if isinstance(g_labs, list):
         existing = {(l.get("name"), l.get("value")) for l in final.get("labs", []) if isinstance(l, dict)}
         for row in g_labs:
@@ -121,8 +121,8 @@ def merge_and_validate(
                 )
                 existing.add(tup)
 
-    # Medications: Gemini name must appear in raw
-    g_meds = gemini_extracted.get("medications")
+    # Medications: LLM name must appear in raw
+    g_meds = llm_extracted.get("medications")
     if isinstance(g_meds, list):
         seen = {json.dumps(m, sort_keys=True) for m in final.get("medications", [])}
         for row in g_meds:
@@ -147,7 +147,7 @@ def merge_and_validate(
                 final.setdefault("medications", []).append(entry)
                 seen.add(key)
 
-    notes = gemini_extracted.get("notes")
+    notes = llm_extracted.get("notes")
     if isinstance(notes, str) and notes.strip() and _evidence_ok(fe.get("notes"), raw):
         final["notes"] = notes.strip()
 

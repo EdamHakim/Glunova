@@ -1,4 +1,4 @@
-"""Ingest → storage → Gemini (optional) → rules → merge → persist fields on MedicalDocument."""
+"""Ingest → storage → local OCR → Groq extraction (optional) → rules → merge."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from django.conf import settings
 from documents.models import MedicalDocument
 
 from .extraction_rules import run_rule_validation
-from .gemini_ocr import GeminiQuotaExceeded, normalize_ocr_text, run_gemini_ocr
+from .groq_extract import run_groq_structured_extract
+from .local_ocr import extract_local_ocr_text
 from .merge_validate import merge_and_validate
 from .storage import upload_medical_file
 
@@ -25,6 +26,15 @@ _ALLOWED_MIMES = frozenset(
         "application/pdf",
     }
 )
+
+
+def normalize_ocr_text(raw: str) -> str:
+    if not raw:
+        return ""
+    t = raw.replace("\r\n", "\n")
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
 
 
 def safe_filename(name: str) -> str:
@@ -44,33 +54,33 @@ def process_document_upload(doc: MedicalDocument, file_bytes: bytes, mime_type: 
     upload_medical_file(doc.storage_path, file_bytes, mime_type)
 
     raw_ocr = ""
-    gemini_extracted: dict | None = None
+    llm_extracted: dict | None = None
     field_evidence: dict | None = None
     llm_status = MedicalDocument.LlmRefinementStatus.SKIPPED
     llm_provider = None
 
-    api_key = (getattr(settings, "GEMINI_API_KEY", "") or "").strip()
-    if api_key:
+    raw_ocr = normalize_ocr_text(
+        extract_local_ocr_text(file_bytes, mime_type, getattr(settings, "OCR_LANGUAGE", "eng"))
+    )
+
+    api_key = (getattr(settings, "GROQ_API_KEY", "") or "").strip()
+    if raw_ocr and api_key:
         try:
-            payload = run_gemini_ocr(file_bytes, mime_type)
-            raw_ocr = normalize_ocr_text(str(payload.get("raw_text", "")))
-            gem = payload.get("extracted")
-            gemini_extracted = gem if isinstance(gem, dict) else None
+            payload = run_groq_structured_extract(raw_ocr)
+            extracted = payload.get("extracted")
+            llm_extracted = extracted if isinstance(extracted, dict) else None
             fe = payload.get("field_evidence")
             field_evidence = fe if isinstance(fe, dict) else None
             llm_status = MedicalDocument.LlmRefinementStatus.OK
-            llm_provider = getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash")
-        except GeminiQuotaExceeded as exc:
-            logger.info("Gemini OCR quota limited (fallback to rules): %s", exc)
-            llm_status = MedicalDocument.LlmRefinementStatus.SKIPPED
+            llm_provider = getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
         except Exception as exc:
-            logger.warning("Gemini OCR failed (fallback to rules): %s", exc, exc_info=True)
+            logger.warning("Groq extraction failed (fallback to rules): %s", exc, exc_info=True)
             llm_status = MedicalDocument.LlmRefinementStatus.FAILED
     else:
         llm_status = MedicalDocument.LlmRefinementStatus.SKIPPED
 
     rules_snapshot = run_rule_validation(raw_ocr)
-    merged = merge_and_validate(raw_ocr, rules_snapshot, gemini_extracted, field_evidence)
+    merged = merge_and_validate(raw_ocr, rules_snapshot, llm_extracted, field_evidence)
 
     doc_type = merged.get("document_type") or rules_snapshot.get("document_type")
 

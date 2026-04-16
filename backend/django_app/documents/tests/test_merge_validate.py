@@ -5,10 +5,10 @@ from documents.services.merge_validate import merge_and_validate
 
 
 class MergeValidateTests(SimpleTestCase):
-    def test_rules_win_bp_when_gemini_ungrounded(self):
+    def test_rules_win_bp_when_llm_ungrounded(self):
         raw = "Blood pressure 120/80 today."
         rules = run_rule_validation(raw)
-        gem = {
+        llm = {
             "patient": {"name": None, "dob": None, "id": None},
             "document_type": "unknown",
             "date": None,
@@ -18,13 +18,13 @@ class MergeValidateTests(SimpleTestCase):
             "notes": None,
         }
         fe = {}
-        merged = merge_and_validate(raw, rules, gem, fe)
+        merged = merge_and_validate(raw, rules, llm, fe)
         self.assertEqual(merged["vitals"]["blood_pressure"], "120/80")
 
-    def test_gemini_name_with_evidence(self):
+    def test_llm_name_with_evidence(self):
         raw = "Patient name: Jane Doe presented for follow-up."
         rules = run_rule_validation(raw)
-        gem = {
+        llm = {
             "patient": {"name": "Jane Doe", "dob": None, "id": None},
             "document_type": "unknown",
             "date": None,
@@ -34,5 +34,5 @@ class MergeValidateTests(SimpleTestCase):
             "notes": None,
         }
         fe = {"patient.name": "Jane Doe"}
-        merged = merge_and_validate(raw, rules, gem, fe)
+        merged = merge_and_validate(raw, rules, llm, fe)
         self.assertEqual(merged["patient"]["name"], "Jane Doe")
