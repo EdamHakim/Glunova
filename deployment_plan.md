@@ -22,6 +22,7 @@
 
 - Run workloads on **Azure Container Apps** with separate apps for Django (port 8000) and FastAPI (port 8001).
 - Configure **environment variables and secrets** in each app: `DATABASE_URL`, `DJANGO_SECRET_KEY`, `JWT_SHARED_SECRET`, `FRONTEND_ORIGINS`, `DJANGO_DEBUG=false`, Supabase keys, etc. Run `./deploy.sh print-env-hint` for a checklist.
+- **Cookies / auth with a static frontend on another domain:** the UI is still a normal browser app; HttpOnly JWT cookies work with `fetch(..., credentials: 'include')` **if** Django CORS includes your Static Web App origin (`FRONTEND_ORIGINS`) **and** cookies use `SameSite=None` with `Secure` on HTTPS. Set `DJANGO_COOKIE_SAMESITE=None` on Django in production when the site and API are on different hosts (the default `Lax` is fine for typical local dev).
 - **Scaling:** raise FastAPI **CPU/memory and max replicas** in the Portal or `az containerapp update` if inference latency or queue depth requires it; Django can stay smaller.
 - After first deploy, run **Django migrations** once (exec into the Django app or use a release job): `python manage.py migrate`.
 

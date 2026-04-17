@@ -36,6 +36,12 @@ elif _cookie_secure_raw in ("0", "false", "no", "off"):
 else:
     COOKIE_SECURE = not DEBUG
 
+# Cross-origin SPA (e.g. Static Web Apps → Container Apps): use DJANGO_COOKIE_SAMESITE=None
+# (requires HTTPS / COOKIE_SECURE). Default Lax matches same-site dev (localhost:3000 → :8000 is often treated as same-site for cookies in some browsers, but production split domains need None).
+_cookie_samesite = os.getenv("DJANGO_COOKIE_SAMESITE", "Lax").strip() or "Lax"
+if _cookie_samesite.lower() == "none" and not COOKIE_SECURE:
+    raise ValueError("DJANGO_COOKIE_SAMESITE=None requires secure cookies (HTTPS); set DJANGO_DEBUG=false or DJANGO_COOKIE_SECURE=true")
+
 ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
@@ -134,12 +140,12 @@ SIMPLE_JWT = {
     "AUTH_COOKIE": "access_token",
     "AUTH_COOKIE_HTTP_ONLY": True,
     "AUTH_COOKIE_PATH": "/",
-    "AUTH_COOKIE_SAMESITE": "Lax",
+    "AUTH_COOKIE_SAMESITE": _cookie_samesite,
     "AUTH_COOKIE_SECURE": COOKIE_SECURE,
     "REFRESH_COOKIE": "refresh_token",
     "REFRESH_COOKIE_HTTP_ONLY": True,
     "REFRESH_COOKIE_PATH": "/",
-    "REFRESH_COOKIE_SAMESITE": "Lax",
+    "REFRESH_COOKIE_SAMESITE": _cookie_samesite,
     "REFRESH_COOKIE_SECURE": COOKIE_SECURE,
 }
 

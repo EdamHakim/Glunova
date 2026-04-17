@@ -124,6 +124,7 @@ Django (glunova-django):
   JWT_SHARED_SECRET       Must match FastAPI jwt_shared_secret
   DJANGO_DEBUG=false
   FRONTEND_ORIGINS        https://your-swa.azurestaticapps.net (comma-separated if several)
+  DJANGO_COOKIE_SAMESITE  None  (required when UI and API are on different sites; needs HTTPS / secure cookies)
   SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_STORAGE_BUCKET (if used)
   GROQ_API_KEY, etc.
 
