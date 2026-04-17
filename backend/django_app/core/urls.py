@@ -9,4 +9,5 @@ urlpatterns = [
     path("api/auth/token/refresh/", GlunovaTokenRefreshView.as_view(), name="token_refresh"),
     path("api/auth/logout/", LogoutView.as_view(), name="logout"),
     path("api/v1/", include("documents.urls")),
+    path("api/v1/", include("clinical.urls")),
 ]

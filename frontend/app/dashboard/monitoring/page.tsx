@@ -1,10 +1,15 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { AlertCircle, Clock } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/components/auth-context'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { listMedications, type PatientMedicationRow } from '@/lib/medications-api'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const alerts = [
   {
@@ -74,8 +79,25 @@ function getSeverityColor(severity: string) {
   }
 }
 
+function getMedicationBadgeClass(status: string) {
+  switch (status) {
+    case 'matched':
+      return 'bg-health-success/10 text-health-success border-health-success/20'
+    case 'ambiguous':
+      return 'bg-health-warning/10 text-health-warning border-health-warning/20'
+    case 'failed':
+      return 'bg-destructive/10 text-destructive border-destructive/20'
+    default:
+      return 'bg-muted text-muted-foreground border-border'
+  }
+}
+
 export default function MonitoringPage() {
   const { user } = useAuth()
+  const [patientId, setPatientId] = useState('')
+  const [medications, setMedications] = useState<PatientMedicationRow[]>([])
+  const [medicationError, setMedicationError] = useState<string | null>(null)
+  const [medicationLoading, setMedicationLoading] = useState(false)
   const role = user?.role
   const isCaregiver = role === 'caregiver'
   const isDoctor = role === 'doctor'
@@ -85,12 +107,131 @@ export default function MonitoringPage() {
       ? 'Follow linked patient updates, reminders, and high-level alerts.'
       : 'Track your health alerts, timeline, and progression over time.'
 
+  useEffect(() => {
+    if (user?.role === 'patient') {
+      setPatientId(user.id)
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!patientId) {
+      setMedications([])
+      return
+    }
+
+    let cancelled = false
+    setMedicationLoading(true)
+    setMedicationError(null)
+    void listMedications(patientId)
+      .then((payload) => {
+        if (!cancelled) {
+          setMedications(payload.items)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setMedicationError(error instanceof Error ? error.message : 'Failed to load medications')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMedicationLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [patientId])
+
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Monitoring & Analytics</h1>
         <p className="text-muted-foreground mt-2">{intro}</p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>My Medications</CardTitle>
+          <CardDescription>
+            Verified prescription medications are persisted from uploaded documents. Always confirm treatment details with a clinician or pharmacist.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {user?.role !== 'patient' && (
+            <div className="max-w-sm space-y-2">
+              <Label htmlFor="monitoring-patient-id">Patient ID</Label>
+              <Input
+                id="monitoring-patient-id"
+                placeholder="Enter accessible patient ID"
+                value={patientId}
+                onChange={(event) => setPatientId(event.target.value)}
+              />
+            </div>
+          )}
+
+          {medicationError && <p className="text-sm text-destructive">{medicationError}</p>}
+
+          {!patientId && (
+            <p className="text-sm text-muted-foreground">
+              Enter a patient ID to consult medications you have access to.
+            </p>
+          )}
+
+          {patientId && medicationLoading && (
+            <p className="text-sm text-muted-foreground">Loading medications...</p>
+          )}
+
+          {patientId && !medicationLoading && medications.length === 0 && !medicationError && (
+            <p className="text-sm text-muted-foreground">No persisted medications available for this patient yet.</p>
+          )}
+
+          {medications.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Medication</TableHead>
+                  <TableHead>Dosage & Frequency</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Source</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {medications.map((medication) => (
+                  <TableRow key={medication.id}>
+                    <TableCell className="whitespace-normal">
+                      <div className="font-medium">{medication.name_display || medication.name_raw}</div>
+                      {medication.name_display && medication.name_display !== medication.name_raw && (
+                        <div className="text-xs text-muted-foreground">OCR: {medication.name_raw}</div>
+                      )}
+                      {medication.rxcui && (
+                        <div className="text-xs text-muted-foreground">RxCUI: {medication.rxcui}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
+                      {[medication.dosage, medication.frequency, medication.duration, medication.route]
+                        .filter(Boolean)
+                        .join(' · ') || 'Not available'}
+                    </TableCell>
+                    <TableCell className="whitespace-normal">
+                      <Badge variant="outline" className={getMedicationBadgeClass(medication.verification_status)}>
+                        {medication.verification_status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-sm">
+                      <div>{medication.source_document_filename}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(medication.source_document_created_at).toLocaleDateString()}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="alerts" className="w-full">
         <TabsList className="grid h-auto w-full grid-cols-1 gap-2 sm:h-10 sm:grid-cols-3 sm:gap-0">

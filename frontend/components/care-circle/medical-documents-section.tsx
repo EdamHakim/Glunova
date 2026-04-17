@@ -12,6 +12,7 @@ import {
   requestDocumentDownload,
   uploadDocument,
   type ExtractedDocument,
+  type MedicationExtractionRow,
   type MedicalDocumentRow,
 } from '@/lib/documents-api'
 
@@ -28,6 +29,19 @@ function formatExtraction(ex: ExtractedDocument | null) {
 }
 
 import { useAuth } from '@/components/auth-context'
+
+function getVerificationBadgeClass(status?: string) {
+  switch (status) {
+    case 'matched':
+      return 'bg-health-success/10 text-health-success border-health-success/20'
+    case 'ambiguous':
+      return 'bg-health-warning/10 text-health-warning border-health-warning/20'
+    case 'failed':
+      return 'bg-destructive/10 text-destructive border-destructive/20'
+    default:
+      return 'bg-muted text-muted-foreground border-border'
+  }
+}
 
 export function MedicalDocumentsSection() {
   const { user } = useAuth()
@@ -110,8 +124,8 @@ export function MedicalDocumentsSection() {
   }
 
   const extraction = selected?.extracted_json ?? null
-  const meds: Array<Record<string, unknown>> = Array.isArray(extraction?.medications)
-    ? (extraction!.medications as Array<Record<string, unknown>>)
+  const meds: MedicationExtractionRow[] = Array.isArray(extraction?.medications)
+    ? extraction!.medications
     : []
 
   return (
@@ -210,11 +224,25 @@ export function MedicalDocumentsSection() {
                     <p className="font-medium mb-1">Medications</p>
                     <ul className="list-disc pl-4 space-y-1">
                       {meds.map((m, i) => (
-                        <li key={i}>
-                          {[m.name, m.dosage, m.frequency]
-                            .map((x) => (typeof x === 'string' ? x : x != null ? String(x) : ''))
-                            .filter(Boolean)
-                            .join(' · ') || JSON.stringify(m)}
+                        <li key={i} className="space-y-1">
+                          <div>
+                            {[m.name, m.dosage, m.frequency]
+                              .map((x) => (typeof x === 'string' ? x : x != null ? String(x) : ''))
+                              .filter(Boolean)
+                              .join(' · ') || JSON.stringify(m)}
+                          </div>
+                          {m.verification && (
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <Badge variant="outline" className={getVerificationBadgeClass(m.verification.status)}>
+                                {m.verification.status ?? 'unverified'}
+                              </Badge>
+                              {m.verification.name_display && <span>RxNorm: {m.verification.name_display}</span>}
+                              {m.verification.rxcui && <span>RxCUI {m.verification.rxcui}</span>}
+                              {m.verification.note && (
+                                <span className="text-muted-foreground">{m.verification.note}</span>
+                              )}
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>

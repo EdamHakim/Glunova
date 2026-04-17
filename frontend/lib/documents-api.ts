@@ -10,7 +10,24 @@ const base = () => {
 const apiPrefix = () => process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1'
 
 export type ExtractedDocument = Record<string, unknown> & {
-  medications?: Array<Record<string, unknown>>
+  medications?: MedicationExtractionRow[]
+}
+
+export type MedicationVerification = {
+  status?: 'matched' | 'ambiguous' | 'unverified' | 'failed'
+  rxcui?: string | null
+  name_display?: string | null
+  candidates?: Array<Record<string, unknown>>
+  note?: string | null
+}
+
+export type MedicationExtractionRow = Record<string, unknown> & {
+  name?: string
+  dosage?: string | null
+  frequency?: string | null
+  duration?: string | null
+  route?: string | null
+  verification?: MedicationVerification
 }
 
 export type MedicalDocumentRow = {
