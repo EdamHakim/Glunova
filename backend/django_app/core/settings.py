@@ -27,6 +27,15 @@ def _parse_frontend_origins():
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+
+_cookie_secure_raw = os.getenv("DJANGO_COOKIE_SECURE", "").strip().lower()
+if _cookie_secure_raw in ("1", "true", "yes", "on"):
+    COOKIE_SECURE = True
+elif _cookie_secure_raw in ("0", "false", "no", "off"):
+    COOKIE_SECURE = False
+else:
+    COOKIE_SECURE = not DEBUG
+
 ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
@@ -126,12 +135,12 @@ SIMPLE_JWT = {
     "AUTH_COOKIE_HTTP_ONLY": True,
     "AUTH_COOKIE_PATH": "/",
     "AUTH_COOKIE_SAMESITE": "Lax",
-    "AUTH_COOKIE_SECURE": False,
+    "AUTH_COOKIE_SECURE": COOKIE_SECURE,
     "REFRESH_COOKIE": "refresh_token",
     "REFRESH_COOKIE_HTTP_ONLY": True,
     "REFRESH_COOKIE_PATH": "/",
     "REFRESH_COOKIE_SAMESITE": "Lax",
-    "REFRESH_COOKIE_SECURE": False,
+    "REFRESH_COOKIE_SECURE": COOKIE_SECURE,
 }
 
 CORS_ALLOWED_ORIGINS = _parse_frontend_origins()
