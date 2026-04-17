@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
-# Glunova: build Docker images, push to ACR, roll out Azure Container Apps.
-# Prerequisites: Docker, Azure CLI (`az`), `az login`, extensions:
-#   az extension add --name containerapp --upgrade
-#
-# Setup: copy deploy.env.example -> deploy.env and set names for your subscription.
+# Glunova VM stack: build Docker images, optional push to ACR, optional Static Web export.
+# Optional: load vm.env and/or deploy.env (see vm.env.example, deploy.env.example).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-if [[ -f deploy.env ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source deploy.env
-  set +a
-fi
+for envf in vm.env deploy.env; do
+  if [[ -f "$envf" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$envf"
+    set +a
+  fi
+done
 
 require_az() {
   command -v az >/dev/null 2>&1 || {
-    echo "Azure CLI (az) not found. Install from https://learn.microsoft.com/cli/azure/install-azure-cli" >&2
+    echo "Azure CLI (az) not found." >&2
     exit 1
   }
 }
@@ -43,15 +42,15 @@ image_tag() {
   date +%Y%m%d%H%M%S
 }
 
-docker_build() {
+build() {
   require_docker
   docker compose build
 }
 
-acr_push() {
+push() {
   require_docker
   require_az
-  : "${AZURE_ACR_NAME:?Set AZURE_ACR_NAME in deploy.env}"
+  : "${AZURE_ACR_NAME:?Set AZURE_ACR_NAME in vm.env or deploy.env}"
   local tag
   tag="$(image_tag)"
   local acr_server="${AZURE_ACR_NAME}.azurecr.io"
@@ -68,32 +67,20 @@ acr_push() {
   echo "Pushed:"
   echo "  $django_repo"
   echo "  $fastapi_repo"
-  echo "Set IMAGE_TAG=$tag for rollout (or export IMAGE_TAG before rollout)."
   export IMAGE_TAG="$tag"
+  echo "IMAGE_TAG=$tag (export before docker pull on the VM if you use pinned tags)."
 }
 
-rollout() {
-  require_az
-  : "${AZURE_RESOURCE_GROUP:?Set AZURE_RESOURCE_GROUP in deploy.env}"
-  : "${AZURE_CONTAINERAPP_DJANGO:?Set AZURE_CONTAINERAPP_DJANGO in deploy.env}"
-  : "${AZURE_CONTAINERAPP_FASTAPI:?Set AZURE_CONTAINERAPP_FASTAPI in deploy.env}"
-  : "${AZURE_ACR_NAME:?Set AZURE_ACR_NAME in deploy.env}"
-  local tag
-  tag="$(image_tag)"
-  local acr_server="${AZURE_ACR_NAME}.azurecr.io"
-  local django_repo="${acr_server}/glunova-django:${tag}"
-  local fastapi_repo="${acr_server}/glunova-fastapi:${tag}"
-
-  az containerapp update \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --name "$AZURE_CONTAINERAPP_DJANGO" \
-    --image "$django_repo"
-  az containerapp update \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --name "$AZURE_CONTAINERAPP_FASTAPI" \
-    --image "$fastapi_repo"
-
-  echo "Container Apps updated to tag ${tag}."
+save() {
+  require_docker
+  local out="${ROOT}/dist/glunova-images-$(image_tag).tar"
+  mkdir -p "$ROOT/dist"
+  docker save \
+    glunova-django_app:latest \
+    glunova-fastapi_ai:latest \
+    -o "$out"
+  echo "Wrote $out — copy to the VM and run: docker load -i $(basename "$out")"
+  echo "(nginx uses public nginx:1.27-alpine; the VM pulls it on first compose up.)"
 }
 
 frontend_swa_build() {
@@ -111,64 +98,80 @@ frontend_swa_build() {
   mkdir -p "$ROOT/frontend/out"
   docker cp "${cid}:/app/out/." "$ROOT/frontend/out/"
   docker rm "$cid" >/dev/null
-  echo "Wrote $ROOT/frontend/out — deploy this folder to Azure Static Web Apps."
+  echo "Wrote $ROOT/frontend/out — deploy to Azure Static Web Apps."
 }
 
 print_env_hint() {
   cat <<'EOF'
-Set these on each Container App (secrets via --secrets, then reference in --env-vars):
+VM / Docker Compose (backend/.env on the host, passed into containers):
 
-Django (glunova-django):
-  DATABASE_URL            Supabase Postgres (sslmode=require)
+  DATABASE_URL              Supabase Postgres (sslmode=require)
   DJANGO_SECRET_KEY
-  JWT_SHARED_SECRET       Must match FastAPI jwt_shared_secret
-  DJANGO_DEBUG=false
-  FRONTEND_ORIGINS        https://your-swa.azurestaticapps.net (comma-separated if several)
-  DJANGO_COOKIE_SAMESITE  None  (required when UI and API are on different sites; needs HTTPS / secure cookies)
-  SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_STORAGE_BUCKET (if used)
-  GROQ_API_KEY, etc.
+  JWT_SHARED_SECRET         Same value on Django and FastAPI (core/settings)
+  FRONTEND_ORIGINS          https://<your-static-web-app>.azurestaticapps.net
+  DJANGO_DEBUG=false        production
+  DJANGO_COOKIE_SAMESITE    None if UI and API are different sites (HTTPS + secure cookies)
 
-FastAPI (glunova-fastapi):
-  JWT_SHARED_SECRET       Same as Django
-  DATABASE_URL            If SQLAlchemy features need it
-  FRONTEND_ORIGINS        Same as Django
+FastAPI tongue model (pick one):
 
-After first deploy, run Django migrations once, for example:
-  az containerapp exec -g <rg> -n <django-app> --command "python manage.py migrate"
-(or use a one-off Job / release pipeline)
+  TONGUE_PT_MODEL_PATH      Absolute path to resnet50_best.pt (bind mount or baked image)
+  TONGUE_PT_MODEL_URL       Optional HTTPS URL (e.g. Blob SAS); downloaded at startup if path missing
 
-PyTorch checkpoint (tongue model) is gitignored. Copy resnet50_best.pt into the image build
-context or mount from Azure Files / download from Blob at startup (see deployment_plan.md).
+Static Web App build: set NEXT_PUBLIC_DJANGO_API_URL and NEXT_PUBLIC_FASTAPI_API_URL to the same
+public origin if you terminate everything behind Nginx on the VM (e.g. http://<vm-ip> for both).
+
+Optional Azure Container Apps (legacy): ./deploy.sh push && ./deploy.sh aca-rollout (needs deploy.env + containerapp extension).
 EOF
+}
+
+aca_rollout() {
+  require_az
+  : "${AZURE_RESOURCE_GROUP:?}"
+  : "${AZURE_CONTAINERAPP_DJANGO:?}"
+  : "${AZURE_CONTAINERAPP_FASTAPI:?}"
+  : "${AZURE_ACR_NAME:?}"
+  local tag
+  tag="$(image_tag)"
+  local acr_server="${AZURE_ACR_NAME}.azurecr.io"
+  az containerapp update --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_CONTAINERAPP_DJANGO" \
+    --image "${acr_server}/glunova-django:${tag}"
+  az containerapp update --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_CONTAINERAPP_FASTAPI" \
+    --image "${acr_server}/glunova-fastapi:${tag}"
+  echo "Container Apps updated to ${tag}."
 }
 
 usage() {
   cat <<'EOF'
 Usage: ./deploy.sh <command>
 
-  docker-build       Build Django + FastAPI images (docker compose build)
-  acr-push           Tag glunova-* images and push to AZURE_ACR_NAME
-  rollout            Update both Container Apps to IMAGE_TAG (or current git SHA)
-  all                docker-build, then acr-push, then rollout
-  frontend-swa-build Static Next export via Node container (writes frontend/out)
-  print-env-hint     List recommended Container Apps environment variables
+  build              docker compose build (Django, FastAPI, Nginx config mount)
+  push               tag + push Django/FastAPI images to AZURE_ACR_NAME (needs az acr login)
+  save               docker save both app images to dist/*.tar (for air-gapped VM load)
+  all                build + push (no VM start)
+  frontend-swa-build static Next export -> frontend/out
+  print-env-hint     environment variable checklist
 
-One-time Azure resources: run scripts/azure/provision.sh after configuring deploy.env
+Optional Container Apps:
+  aca-rollout        update two Container Apps to current IMAGE_TAG / git SHA (needs deploy.env)
+
+VM lifecycle (Azure CLI): ./start.sh  ./stop.sh  (configure vm.env first)
 EOF
 }
 
 cmd="${1:-}"
 case "$cmd" in
-  docker-build) docker_build ;;
-  acr-push) acr_push ;;
-  rollout) rollout ;;
+  build) build ;;
+  push) push ;;
+  save) save ;;
   all)
-    docker_build
-    acr_push
-    rollout
+    build
+    push
     ;;
   frontend-swa-build) frontend_swa_build ;;
   print-env-hint) print_env_hint ;;
+  aca-rollout) aca_rollout ;;
+  docker-build) build ;; # alias
+  acr-push) push ;;      # alias
   ""|-h|--help|help) usage ;;
   *)
     echo "Unknown command: $cmd" >&2

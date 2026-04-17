@@ -1,73 +1,76 @@
 ## Architecture overview
 
-- **Frontend:** Next.js (static export for Azure Static Web Apps)
-- **Backend:** Django (API / business logic) and FastAPI (ML-heavy services), each in its own container
-- **Database:** Supabase (PostgreSQL + optional storage) — no Azure-hosted database required
+| Tier | What | Billing |
+|------|------|---------|
+| Always on | **Next.js** static export → **Azure Static Web Apps** (free) | Free tier |
+| Always on | **Supabase** (Postgres + optional storage) | Free tier |
+| On demand | **Azure VM** `Standard_B4ms` (16 GB RAM): **Docker Compose** → **Nginx** + **Django** + **FastAPI** | VM only while started; use `./stop.sh` to **deallocate** and stop compute charges |
+
+Nginx listens on **port 80** and routes:
+
+- `/api/`, `/admin/`, `/static/`, `/media/` → Django (port 8000 in the network)
+- Everything else (e.g. `/screening`, `/docs`, `/health`) → FastAPI (port 8001)
+
+Django and FastAPI are still published on **8000** and **8001** for local debugging; on the VM you can restrict the NSG to **80** (and 22 for SSH) only.
 
 ---
 
-## Deployment plan
+## VM: first-time setup
 
-### 1. Containerization
-
-- Docker images: `backend/django_app/Dockerfile`, `backend/fastapi_ai/Dockerfile`, and `docker-compose.yml` at repo root.
-- Static frontend export: `frontend/Dockerfile.swa` (builds `frontend/out` for Static Web Apps).
-- FastAPI image pulls CUDA-capable PyTorch (large). For smaller CPU-only images later, pin CPU wheels in `requirements.txt` or use a separate Dockerfile variant.
-
-### 2. Container registry
-
-- Push Django and FastAPI images to **Azure Container Registry (ACR)** using `./deploy.sh acr-push` (see below).
-
-### 3. Backend deployment
-
-- Run workloads on **Azure Container Apps** with separate apps for Django (port 8000) and FastAPI (port 8001).
-- Configure **environment variables and secrets** in each app: `DATABASE_URL`, `DJANGO_SECRET_KEY`, `JWT_SHARED_SECRET`, `FRONTEND_ORIGINS`, `DJANGO_DEBUG=false`, Supabase keys, etc. Run `./deploy.sh print-env-hint` for a checklist.
-- **Cookies / auth with a static frontend on another domain:** the UI is still a normal browser app; HttpOnly JWT cookies work with `fetch(..., credentials: 'include')` **if** Django CORS includes your Static Web App origin (`FRONTEND_ORIGINS`) **and** cookies use `SameSite=None` with `Secure` on HTTPS. Set `DJANGO_COOKIE_SAMESITE=None` on Django in production when the site and API are on different hosts (the default `Lax` is fine for typical local dev).
-- **Scaling:** raise FastAPI **CPU/memory and max replicas** in the Portal or `az containerapp update` if inference latency or queue depth requires it; Django can stay smaller.
-- After first deploy, run **Django migrations** once (exec into the Django app or use a release job): `python manage.py migrate`.
-
-### 4. Frontend deployment
-
-- Build static assets: `./deploy.sh frontend-swa-build` (writes `frontend/out`). Set `NEXT_PUBLIC_DJANGO_API_URL`, `NEXT_PUBLIC_FASTAPI_API_URL`, and optionally `NEXT_PUBLIC_API_URL` to your **HTTPS** Container App URLs before building.
-- Create an **Azure Static Web Apps** resource (free tier is fine), deploy the `frontend/out` folder and `frontend/staticwebapp.config.json` (Portal upload, GitHub Action, or [Azure Static Web Apps CLI](https://learn.microsoft.com/azure/static-web-apps/get-started-cli)).
-
-### 5. Database connection
-
-- Set `DATABASE_URL` on the Django (and FastAPI, if used) Container Apps to your Supabase connection string (`sslmode=require`). No Azure PostgreSQL required.
-
-### 6. ML model storage
-
-- Tongue checkpoint path: `backend/fastapi_ai/screening/models/` (gitignored). For production, either bake the `.pt` into a private image build, mount **Azure Files**, or download from **Azure Blob Storage** at container startup and point `TonguePtService` to that path (lazy load already supported).
+1. Create a **Linux** VM (Ubuntu 22.04 LTS), size **Standard_B4ms**, open NSG ports **22** (SSH) and **80** (HTTP).
+2. Install Docker Engine + Compose plugin on the VM ([Docker docs](https://docs.docker.com/engine/install/ubuntu/)).
+3. Clone this repo on the VM, create **`backend/.env`** (see repo `README.md`).
+4. **`./deploy.sh print-env-hint`** for required variables (DB, secrets, `FRONTEND_ORIGINS`, cookies, model URL/path).
+5. From the repo root on the VM: `docker compose up -d` (or `make backend-rebuild`).
 
 ---
 
-## Prerequisites
-
-1. [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine).
-2. [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli): `az login`, pick subscription, then:
-   - `az extension add --name containerapp --upgrade`
-3. Copy `deploy.env.example` to `deploy.env` and set globally unique `AZURE_ACR_NAME` (alphanumeric, 5–50 chars) and other names.
-
----
-
-## First-time Azure setup (ordered)
+## Images: build, push, or save
 
 ```bash
-./scripts/azure/provision.sh              # RG, ACR, Log Analytics, Container Apps env
-./deploy.sh docker-build
-./deploy.sh acr-push                      # needs deploy.env + az acr login
-./scripts/azure/create-container-apps.sh  # creates both apps from images in ACR
+./deploy.sh build          # docker compose build
+./deploy.sh push           # tag + push to ACR (set AZURE_ACR_NAME in vm.env or deploy.env)
+./deploy.sh save           # write dist/*.tar for docker load on an air-gapped VM
+./deploy.sh all            # build + push
 ```
 
-Then in Azure Portal (or CLI), add **secrets/env** to both Container Apps, set **FRONTEND_ORIGINS** to your Static Web App URL, run migrations, and build the frontend with public API URLs before uploading `frontend/out`.
+On the VM, if using ACR: `az acr login -n <name>` then `docker compose pull` (after you change compose to use registry images — optional advanced step) or build directly on the VM with `docker compose build`.
 
 ---
 
-## Redeployment workflow
+## Static frontend (SWA)
+
+Point **`NEXT_PUBLIC_DJANGO_API_URL`** and **`NEXT_PUBLIC_FASTAPI_API_URL`** at the same public base if everything goes through Nginx, e.g. `http://<vm-public-ip>` (or HTTPS if you terminate TLS in front of Nginx later).
 
 ```bash
-./deploy.sh all                 # docker-build + acr-push + rollout (uses deploy.env)
-./deploy.sh frontend-swa-build # optional: refresh static site output
+export NEXT_PUBLIC_DJANGO_API_URL='http://<vm-ip>'
+export NEXT_PUBLIC_FASTAPI_API_URL='http://<vm-ip>'
+./deploy.sh frontend-swa-build
 ```
 
-For backend-only iteration: `./deploy.sh rollout` after setting `IMAGE_TAG` to the tag you pushed.
+Deploy **`frontend/out`** to Static Web Apps.
+
+---
+
+## VM lifecycle (your workstation)
+
+```bash
+cp vm.env.example vm.env   # set AZURE_RESOURCE_GROUP, AZURE_VM_NAME
+./start.sh                 # az vm start
+./stop.sh                  # az vm deallocate (recommended when idle)
+```
+
+Requires **Azure CLI** and `az login`.
+
+---
+
+## Tongue model (FastAPI)
+
+- **`TONGUE_PT_MODEL_PATH`**: absolute path to `resnet50_best.pt` (file share, bind mount, or baked in a private image build).
+- **`TONGUE_PT_MODEL_URL`**: HTTPS URL (e.g. time-limited Blob SAS). If set, the file is downloaded at process startup before routes load, then `TONGUE_PT_MODEL_PATH` is set to the saved path (default `/tmp/glunova_models/resnet50_best.pt`).
+
+---
+
+## Optional: Azure Container Apps
+
+If you still use Container Apps from an earlier layout: `./scripts/azure/provision.sh`, `./scripts/azure/create-container-apps.sh`, then `./deploy.sh push` and `./deploy.sh aca-rollout` with **`deploy.env`** filled in.

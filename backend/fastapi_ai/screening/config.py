@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 
 MODEL_DIR = Path(__file__).resolve().parent / "models" / "tongue"
-PT_MODEL_PATH = MODEL_DIR / "resnet50_best.pt"
+_override = os.getenv("TONGUE_PT_MODEL_PATH", "").strip()
+PT_MODEL_PATH = Path(_override) if _override else MODEL_DIR / "resnet50_best.pt"
 
 INPUT_SIZE = 224
 NORM_MEAN = (0.485, 0.456, 0.406)

@@ -53,11 +53,12 @@ From repository root:
 docker compose up --build
 ```
 
-Backend URLs:
+Backend URLs (with **Nginx** on port **80** in Compose):
 
-- Django API: `http://localhost:8000`
-- FastAPI API: `http://localhost:8001`
-- FastAPI docs: `http://localhost:8001/docs`
+- **Through Nginx:** `http://localhost` — `/api/`, `/admin/` → Django; `/screening`, `/docs`, `/health`, etc. → FastAPI
+- Direct (debug): Django `http://localhost:8000`, FastAPI `http://localhost:8001` and `http://localhost:8001/docs`
+
+For production behind a single VM IP, point the Static Web App build at the same origin for both `NEXT_PUBLIC_DJANGO_API_URL` and `NEXT_PUBLIC_FASTAPI_API_URL` (see `deployment_plan.md`).
 
 ## Run Backend (Local)
 

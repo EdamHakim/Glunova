@@ -1,6 +1,15 @@
+import logging
+import os
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+
+from screening.model_bootstrap import ensure_tongue_checkpoint
+
+# Run before screening (and config) imports resolve PT_MODEL_PATH.
+ensure_tongue_checkpoint()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
 from clinic.router import router as clinic_router
 from kids.router import router as kids_router

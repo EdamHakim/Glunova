@@ -1,5 +1,7 @@
 .env
 deploy.env
+vm.env
+dist/
 __pycache__/
 *.py[cod]
 backend/fastapi_ai/screening/models/
