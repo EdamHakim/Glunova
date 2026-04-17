@@ -21,7 +21,8 @@
 ## Documents OCR pipeline (Care Circle)
 
 - Django app `documents` owns `MedicalDocument` storage metadata, RBAC, and REST routes under `/api/v1/`.
-- Upload flow: validate MIME/size → persist row → **Supabase Storage** when `SUPABASE_*` env vars are set, otherwise **Django `default_storage`** under `MEDIA_ROOT` → **local OCR** for raw text → optional **Groq** structured extraction → **rule pass** (`extraction_rules`) → **conservative merge** (`merge_validate`) → save `extracted_json` / `extracted_json_rules` / `raw_ocr_text`.
+- Upload flow: validate MIME/size → persist row → **Supabase Storage** when `SUPABASE_*` env vars are set, otherwise **Django `default_storage`** under `MEDIA_ROOT` → delegate file to **FastAPI AI extraction** for OCR / rules / merge / medication verification → save `extracted_json` / `extracted_json_rules` / `raw_ocr_text` in Django.
+- OCR observability is lightweight by design today: FastAPI attaches `_ocr_meta` inside `extracted_json_rules` so we can capture raster fallback usage, confidence availability, and low-quality signals without a schema migration.
 - **Doctor** access uses `clinical.CarePlan` (assigned patient). **Caregiver** access uses `documents.PatientCaregiverLink` (create links in Django admin). **Patient** is limited to their own `user.id`.
 
 ## Screening PyTorch pipeline

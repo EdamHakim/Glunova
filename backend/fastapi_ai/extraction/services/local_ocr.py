@@ -3,21 +3,51 @@
 from __future__ import annotations
 
 from io import BytesIO
-from core.config import settings
+from typing import Any
+
+
+_PDF_TEXT_MIN_CHARS = 80
+_LOW_OCR_TEXT_MIN_CHARS = 20
+_PDF_RASTER_MAX_PAGES = 5
+_PDF_RASTER_DPI = 200
+
 
 def extract_local_ocr_text(file_bytes: bytes, mime_type: str, language: str = "eng") -> str:
+    return extract_local_ocr_payload(file_bytes, mime_type, language)["text"]
+
+
+def extract_local_ocr_payload(file_bytes: bytes, mime_type: str, language: str = "eng") -> dict[str, Any]:
+    meta: dict[str, Any] = {
+        "mime_type": mime_type,
+        "ocr_engine": "tesseract",
+        "source": "unsupported",
+        "used_raster_fallback": False,
+        "average_confidence": None,
+        "confidence_available": False,
+        "low_quality": False,
+        "note": None,
+    }
+
     if mime_type == "application/pdf":
         text = _extract_pdf_text(file_bytes)
-        # Using a fallback threshold for OCR on PDFs if text extraction is too short
-        min_chars = 80 
-        if len(text.strip()) >= min_chars:
-            return text
-        return _extract_pdf_image_text(file_bytes, language)
+        if len(text.strip()) >= _PDF_TEXT_MIN_CHARS:
+            meta["source"] = "pdf_text"
+            return {"text": text, "meta": meta}
+
+        raster = _extract_pdf_image_payload(file_bytes, language)
+        meta.update(raster["meta"])
+        meta["source"] = "pdf_raster"
+        meta["used_raster_fallback"] = True
+        return {"text": raster["text"], "meta": meta}
 
     if mime_type.startswith("image/"):
-        return _extract_image_text(file_bytes, language)
+        image_payload = _extract_image_payload(file_bytes, language)
+        meta.update(image_payload["meta"])
+        meta["source"] = "image"
+        return {"text": image_payload["text"], "meta": meta}
 
-    return ""
+    meta["note"] = "Unsupported MIME type for local OCR"
+    return {"text": "", "meta": meta}
 
 
 def _extract_pdf_text(file_bytes: bytes) -> str:
@@ -43,16 +73,30 @@ def _extract_pdf_text(file_bytes: bytes) -> str:
 
 
 def _extract_pdf_image_text(file_bytes: bytes, language: str) -> str:
+    return _extract_pdf_image_payload(file_bytes, language)["text"]
+
+
+def _extract_pdf_image_payload(file_bytes: bytes, language: str) -> dict[str, Any]:
+    meta: dict[str, Any] = {
+        "source": "pdf_raster",
+        "used_raster_fallback": True,
+        "average_confidence": None,
+        "confidence_available": False,
+        "page_count": 0,
+        "low_quality": False,
+        "note": None,
+    }
     try:
         from pdf2image import convert_from_bytes
     except ImportError:
-        return ""
+        meta["note"] = "pdf2image is not installed; raster OCR skipped"
+        meta["low_quality"] = True
+        return {"text": "", "meta": meta}
 
     try:
-        # Configuration matches settings defaults
-        max_pages = 5
-        dpi = 200
-        poppler_path = None # Assumed to be in system PATH for the Docker container
+        max_pages = _PDF_RASTER_MAX_PAGES
+        dpi = _PDF_RASTER_DPI
+        poppler_path = None
         images = convert_from_bytes(
             file_bytes,
             dpi=dpi,
@@ -62,14 +106,30 @@ def _extract_pdf_image_text(file_bytes: bytes, language: str) -> str:
             poppler_path=poppler_path,
         )
     except Exception:
-        return ""
+        meta["note"] = "PDF rasterization failed; OCR unavailable for scanned PDF"
+        meta["low_quality"] = True
+        return {"text": "", "meta": meta}
 
     chunks: list[str] = []
+    confidences: list[float] = []
     for index, image in enumerate(images, start=1):
-        page_text = _extract_image_text(_image_to_png_bytes(image), language)
+        page_payload = _extract_image_payload(_image_to_png_bytes(image), language)
+        page_text = page_payload["text"]
+        page_meta = page_payload["meta"]
         if page_text:
             chunks.append(f"[page {index}]\n{page_text}")
-    return "\n\n".join(chunks).strip()
+        if isinstance(page_meta.get("average_confidence"), (int, float)):
+            confidences.append(float(page_meta["average_confidence"]))
+
+    text = "\n\n".join(chunks).strip()
+    meta["page_count"] = len(images)
+    if confidences:
+        meta["average_confidence"] = round(sum(confidences) / len(confidences), 2)
+        meta["confidence_available"] = True
+    if len(text.strip()) < _LOW_OCR_TEXT_MIN_CHARS:
+        meta["low_quality"] = True
+        meta["note"] = "OCR low confidence - please retake photo"
+    return {"text": text, "meta": meta}
 
 
 def _image_to_png_bytes(image) -> bytes:
@@ -118,15 +178,69 @@ def _tesseract_config() -> str:
 
 
 def _extract_image_text(file_bytes: bytes, language: str) -> str:
+    return _extract_image_payload(file_bytes, language)["text"]
+
+
+def _extract_image_payload(file_bytes: bytes, language: str) -> dict[str, Any]:
+    meta: dict[str, Any] = {
+        "source": "image",
+        "average_confidence": None,
+        "confidence_available": False,
+        "low_quality": False,
+        "note": None,
+    }
     try:
         import pytesseract
         from PIL import Image
     except ImportError:
-        return ""
+        meta["note"] = "pytesseract or Pillow is not installed"
+        meta["low_quality"] = True
+        return {"text": "", "meta": meta}
 
     try:
         with Image.open(BytesIO(file_bytes)) as image:
             prepared = _prepare_image(image)
-            return pytesseract.image_to_string(prepared, lang=language, config=_tesseract_config()).strip()
+            text = pytesseract.image_to_string(prepared, lang=language, config=_tesseract_config()).strip()
+            confidence = _compute_average_confidence(prepared, language)
+            if confidence is not None:
+                meta["average_confidence"] = confidence
+                meta["confidence_available"] = True
+            if len(text.strip()) < _LOW_OCR_TEXT_MIN_CHARS:
+                meta["low_quality"] = True
+                meta["note"] = "OCR low confidence - please retake photo"
+            return {"text": text, "meta": meta}
     except Exception:
-        return ""
+        meta["low_quality"] = True
+        meta["note"] = "Image OCR failed"
+        return {"text": "", "meta": meta}
+
+
+def _compute_average_confidence(image, language: str) -> float | None:
+    try:
+        import pytesseract
+    except ImportError:
+        return None
+
+    try:
+        data = pytesseract.image_to_data(
+            image,
+            lang=language,
+            config=_tesseract_config(),
+            output_type=pytesseract.Output.DICT,
+        )
+    except Exception:
+        return None
+
+    confidences: list[float] = []
+    for raw_confidence in data.get("conf", []):
+        try:
+            confidence = float(raw_confidence)
+        except (TypeError, ValueError):
+            continue
+        if confidence >= 0:
+            confidences.append(confidence)
+
+    if not confidences:
+        return None
+
+    return round(sum(confidences) / len(confidences), 2)

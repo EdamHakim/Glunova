@@ -130,9 +130,7 @@ def process_document_upload(doc: MedicalDocument, file_bytes: bytes, mime_type: 
             merged = data.get("extracted_json", {})
             rules_snapshot = data.get("extracted_json_rules", {})
             field_evidence = data.get("field_evidence", {})
-            raw_ocr = merged.get("raw_ocr_text", "") # We could have FastAPI return this but it's often better to just get the final JSON
-            # Actually, my FastAPI router doesn't return raw_ocr_text currently. 
-            # I should update FastAPI to return it if Django needs to persist it.
+            raw_ocr = data.get("raw_ocr_text", "")
             
             llm_status = MedicalDocument.LlmRefinementStatus.OK
             llm_provider = getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
