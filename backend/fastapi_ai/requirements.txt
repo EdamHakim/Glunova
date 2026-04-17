@@ -10,3 +10,10 @@ pillow>=10.0
 torch>=2.3
 torchvision>=0.18
 grad-cam>=1.5
+# Extraction dependencies
+groq>=0.11.0
+pytesseract>=0.3.10
+pypdf>=5.0
+pdf2image>=1.17
+python-dateutil>=2.9
+httpx>=0.27.0

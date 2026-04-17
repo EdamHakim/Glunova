@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from django.conf import settings
+from core.config import settings
 
 GROQ_EXTRACTION_PROMPT = """
 You are a medical document extraction system.
@@ -38,11 +38,11 @@ def _parse_json_response(text: str) -> dict[str, Any]:
 
 
 def run_groq_structured_extract(raw_ocr_text: str) -> dict[str, Any]:
-    api_key = getattr(settings, "GROQ_API_KEY", "").strip().strip("'\"")
+    api_key = (settings.groq_api_key or "").strip().strip("'\"")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY not configured")
 
-    model_name = getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    model_name = settings.groq_model
     prompt = f"{GROQ_EXTRACTION_PROMPT}\n\nOCR text:\n{raw_ocr_text}"
 
     try:

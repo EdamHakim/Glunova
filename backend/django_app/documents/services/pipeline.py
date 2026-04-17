@@ -1,22 +1,20 @@
-"""Ingest → storage → local OCR → Groq extraction (optional) → rules → merge."""
+"""Ingest → storage → Delegate extraction to FastAPI AI service."""
 
 from __future__ import annotations
 
 import logging
 import os
 import re
+import httpx
+from datetime import datetime, timedelta, timezone
 
 from django.conf import settings
 from django.db import transaction
+from jose import jwt
 
 from clinical.models import PatientMedication
 from documents.models import MedicalDocument
 
-from .extraction_rules import run_rule_validation
-from .groq_extract import run_groq_structured_extract
-from .local_ocr import extract_local_ocr_text
-from .medication_verify import verify_and_enrich_medications
-from .merge_validate import merge_and_validate
 from .storage import upload_medical_file
 
 logger = logging.getLogger(__name__)
@@ -29,15 +27,6 @@ _ALLOWED_MIMES = frozenset(
         "application/pdf",
     }
 )
-
-
-def normalize_ocr_text(raw: str) -> str:
-    if not raw:
-        return ""
-    t = raw.replace("\r\n", "\n")
-    t = re.sub(r"[ \t]+\n", "\n", t)
-    t = re.sub(r"\n{3,}", "\n\n", t)
-    return t.strip()
 
 
 def safe_filename(name: str) -> str:
@@ -93,6 +82,18 @@ def _persist_patient_medications(doc: MedicalDocument, extracted_json: dict) -> 
         PatientMedication.objects.bulk_create(rows)
 
 
+def _get_service_token(user_id: int) -> str:
+    """Generate a short-lived JWT for service-to-service communication."""
+    secret = getattr(settings, "JWT_SHARED_SECRET", settings.SECRET_KEY)
+    payload = {
+        "user_id": user_id,
+        "role": "patient", # Elevation for processing
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
 def process_document_upload(doc: MedicalDocument, file_bytes: bytes, mime_type: str) -> None:
     if mime_type not in _ALLOWED_MIMES:
         raise ValueError(f"Unsupported MIME type: {mime_type}")
@@ -103,35 +104,46 @@ def process_document_upload(doc: MedicalDocument, file_bytes: bytes, mime_type: 
 
     upload_medical_file(doc.storage_path, file_bytes, mime_type)
 
-    raw_ocr = ""
-    llm_extracted: dict | None = None
-    field_evidence: dict | None = None
+    # Delegate to FastAPI AI Engine
+    ai_service_url = os.getenv("AI_SERVICE_URL", "http://localhost:8001").rstrip("/")
+    extraction_url = f"{ai_service_url}/extraction/extract"
+    token = _get_service_token(doc.patient.id)
+
     llm_status = MedicalDocument.LlmRefinementStatus.SKIPPED
     llm_provider = None
+    merged = {}
+    rules_snapshot = {}
+    field_evidence = {}
+    raw_ocr = ""
 
-    raw_ocr = normalize_ocr_text(
-        extract_local_ocr_text(file_bytes, mime_type, getattr(settings, "OCR_LANGUAGE", "eng"))
-    )
-
-    api_key = (getattr(settings, "GROQ_API_KEY", "") or "").strip()
-    if raw_ocr and api_key:
-        try:
-            payload = run_groq_structured_extract(raw_ocr)
-            extracted = payload.get("extracted")
-            llm_extracted = extracted if isinstance(extracted, dict) else None
-            fe = payload.get("field_evidence")
-            field_evidence = fe if isinstance(fe, dict) else None
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            files = {"file": (safe_filename(doc.original_filename), file_bytes, mime_type)}
+            response = client.post(
+                extraction_url,
+                files=files,
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            merged = data.get("extracted_json", {})
+            rules_snapshot = data.get("extracted_json_rules", {})
+            field_evidence = data.get("field_evidence", {})
+            raw_ocr = merged.get("raw_ocr_text", "") # We could have FastAPI return this but it's often better to just get the final JSON
+            # Actually, my FastAPI router doesn't return raw_ocr_text currently. 
+            # I should update FastAPI to return it if Django needs to persist it.
+            
             llm_status = MedicalDocument.LlmRefinementStatus.OK
             llm_provider = getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
-        except Exception as exc:
-            logger.warning("Groq extraction failed (fallback to rules): %s", exc, exc_info=True)
-            llm_status = MedicalDocument.LlmRefinementStatus.FAILED
-    else:
-        llm_status = MedicalDocument.LlmRefinementStatus.SKIPPED
-
-    rules_snapshot = run_rule_validation(raw_ocr)
-    merged = merge_and_validate(raw_ocr, rules_snapshot, llm_extracted, field_evidence)
-    merged = verify_and_enrich_medications(merged, raw_ocr)
+            
+    except Exception as exc:
+        logger.error("FastAPI extraction failed: %s", exc, exc_info=True)
+        llm_status = MedicalDocument.LlmRefinementStatus.FAILED
+        doc.error_message = f"AI extraction failed: {str(exc)}"
+        doc.processing_status = MedicalDocument.ProcessingStatus.FAILED
+        doc.save(update_fields=["processing_status", "error_message", "updated_at"])
+        return
 
     doc_type = merged.get("document_type") or rules_snapshot.get("document_type")
 

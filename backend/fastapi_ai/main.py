@@ -7,6 +7,7 @@ from kids.router import router as kids_router
 from nutrition.router import router as nutrition_router
 from psychology.router import router as psychology_router
 from screening.router import router as screening_router
+from extraction.router import router as extraction_router
 
 app = FastAPI(title="Glunova AI Engine")
 
@@ -28,6 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(screening_router)
+app.include_router(extraction_router)
 app.include_router(clinic_router)
 app.include_router(psychology_router)
 app.include_router(nutrition_router)

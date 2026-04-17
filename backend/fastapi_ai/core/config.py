@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     jwt_shared_secret: str = "dev-secret"
     jwt_algorithm: str = "HS256"
     database_url: str = "postgresql+psycopg://glunova:glunova@localhost:5432/glunova"
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+    ocr_language: str = "eng"
 
 
 settings = Settings()

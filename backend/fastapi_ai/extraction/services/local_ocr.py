@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from io import BytesIO
-
-from django.conf import settings
-
+from core.config import settings
 
 def extract_local_ocr_text(file_bytes: bytes, mime_type: str, language: str = "eng") -> str:
     if mime_type == "application/pdf":
         text = _extract_pdf_text(file_bytes)
-        min_chars = int(getattr(settings, "OCR_PDF_TEXT_MIN_CHARS", 80))
+        # Using a fallback threshold for OCR on PDFs if text extraction is too short
+        min_chars = 80 
         if len(text.strip()) >= min_chars:
             return text
         return _extract_pdf_image_text(file_bytes, language)
@@ -50,9 +49,10 @@ def _extract_pdf_image_text(file_bytes: bytes, language: str) -> str:
         return ""
 
     try:
-        max_pages = int(getattr(settings, "OCR_PDF_MAX_PAGES", 5))
-        dpi = int(getattr(settings, "OCR_PDF_RASTER_DPI", 200))
-        poppler_path = (getattr(settings, "POPPLER_PATH", "") or "").strip() or None
+        # Configuration matches settings defaults
+        max_pages = 5
+        dpi = 200
+        poppler_path = None # Assumed to be in system PATH for the Docker container
         images = convert_from_bytes(
             file_bytes,
             dpi=dpi,
@@ -83,8 +83,8 @@ def _prepare_image(image):
 
     prepared = ImageOps.exif_transpose(image).convert("L")
     width, height = prepared.size
-    max_dim = int(getattr(settings, "OCR_IMAGE_MAX_DIM", 2200))
-    min_dim = int(getattr(settings, "OCR_IMAGE_MIN_DIM", 1200))
+    max_dim = 2200
+    min_dim = 1200
 
     longest_side = max(width, height)
     shortest_side = min(width, height)
@@ -101,19 +101,19 @@ def _prepare_image(image):
         )
         prepared = prepared.resize(resized)
 
-    contrast = float(getattr(settings, "OCR_IMAGE_CONTRAST", 1.35))
+    contrast = 1.35
     if contrast != 1.0:
         prepared = ImageEnhance.Contrast(prepared).enhance(contrast)
 
-    threshold = int(getattr(settings, "OCR_IMAGE_THRESHOLD", 170))
-    if bool(getattr(settings, "OCR_IMAGE_BINARIZE", True)):
-        prepared = prepared.point(lambda value: 255 if value >= threshold else 0)
+    threshold = 170
+    # Always binarize for OCR in this context
+    prepared = prepared.point(lambda value: 255 if value >= threshold else 0)
     return prepared
 
 
 def _tesseract_config() -> str:
-    psm = int(getattr(settings, "TESSERACT_PSM", 6))
-    oem = int(getattr(settings, "TESSERACT_OEM", 3))
+    psm = 6
+    oem = 3
     return f"--psm {psm} --oem {oem}"
 
 
