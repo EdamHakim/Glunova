@@ -27,6 +27,7 @@ class PatientMedicationAdmin(admin.ModelAdmin):
         "source_document",
         "updated_at",
     )
+    list_filter = ("verification_status",)
     search_fields = (
         "patient__username",
         "name_raw",
