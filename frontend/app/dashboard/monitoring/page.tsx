@@ -220,10 +220,22 @@ export default function MonitoringPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="whitespace-normal text-sm">
+                      {medication.source_document_preview_url ? (
+                        <img
+                          src={medication.source_document_preview_url}
+                          alt={medication.source_document_filename}
+                          className="mb-2 h-16 w-16 rounded-md border border-border object-cover"
+                        />
+                      ) : null}
                       <div>{medication.source_document_filename}</div>
                       <div className="text-xs text-muted-foreground">
                         {new Date(medication.source_document_created_at).toLocaleDateString()}
                       </div>
+                      {medication.source_document_count > 1 && (
+                        <div className="text-xs text-muted-foreground">
+                          Also seen in {medication.source_document_count - 1} other document{medication.source_document_count > 2 ? 's' : ''}
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

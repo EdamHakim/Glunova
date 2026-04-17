@@ -11,6 +11,7 @@ supabase>=2.6.0
 Pillow>=10.0
 pytesseract>=0.3.10
 pypdf>=5.0
+pdf2image>=1.17
 python-dateutil>=2.9
 pydantic>=2.6
 websockets>=14.0

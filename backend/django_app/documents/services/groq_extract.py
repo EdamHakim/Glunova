@@ -16,13 +16,8 @@ Input:
 Tasks:
 1. Extract structured fields into exactly this JSON shape:
    {
-     "patient": { "name": null or string, "dob": "YYYY-MM-DD" or null, "id": null or string },
      "document_type": one of "prescription"|"lab_report"|"medical_report"|"unknown",
-     "date": "YYYY-MM-DD" or null,
-     "vitals": { "blood_pressure": null or string, "heart_rate": null or string },
-     "labs": [{ "name": string, "value": string, "unit": null or string }],
      "medications": [{ "name": string, "dosage": null or string, "frequency": null or string, "duration": null or string, "route": null or string }],
-     "notes": null or string
    }
 2. field_evidence must map dot-path keys (for example "patient.name", "date", "notes") to an exact verbatim substring from the OCR text supporting the field. If unsure, omit the key.
 3. Return ONLY valid JSON with keys: extracted, field_evidence.

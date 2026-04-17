@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponseRedirect
 from uuid import uuid4
 
 from .models import MedicalDocument
@@ -133,5 +133,29 @@ class DocumentDownloadView(APIView):
                     as_attachment=True,
                     filename=payload["filename"],
                 )
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class DocumentPreviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        doc = get_object_or_404(MedicalDocument, pk=pk)
+        if not can_access_patient_documents(request.user, doc.patient_id):
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+        if not doc.mime_type.startswith("image/"):
+            return Response({"detail": "Preview is only available for image documents"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            payload = create_download_payload(doc)
+            if payload["type"] == "url":
+                return HttpResponseRedirect(payload["url"])
+            return FileResponse(
+                payload["content"],
+                as_attachment=False,
+                filename=payload["filename"],
+                content_type=doc.mime_type,
+            )
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

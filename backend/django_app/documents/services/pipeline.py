@@ -54,6 +54,7 @@ def _persist_patient_medications(doc: MedicalDocument, extracted_json: dict) -> 
         return
 
     rows: list[PatientMedication] = []
+    seen_keys: set[tuple[str, str, str, str, str]] = set()
     for medication in medications:
         if not isinstance(medication, dict):
             continue
@@ -61,6 +62,16 @@ def _persist_patient_medications(doc: MedicalDocument, extracted_json: dict) -> 
         if not isinstance(raw_name, str) or not raw_name.strip():
             continue
         verification = medication.get("verification") if isinstance(medication.get("verification"), dict) else {}
+        dedupe_key = (
+            str(verification.get("rxcui") or "").strip().lower(),
+            raw_name.strip().lower(),
+            str(medication.get("dosage") or "").strip().lower(),
+            str(medication.get("frequency") or "").strip().lower(),
+            str(medication.get("route") or "").strip().lower(),
+        )
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
         rows.append(
             PatientMedication(
                 patient=doc.patient,

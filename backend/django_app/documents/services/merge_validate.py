@@ -24,13 +24,8 @@ class MedRow(BaseModel):
 
 
 class ExtractedPayload(BaseModel):
-    patient: dict[str, Any] = Field(default_factory=dict)
     document_type: str = "unknown"
-    date: str | None = None
-    vitals: dict[str, Any] = Field(default_factory=dict)
-    labs: list[LabRow] = Field(default_factory=list)
     medications: list[MedRow] = Field(default_factory=list)
-    notes: str | None = None
 
 
 def _norm(s: str) -> str:
@@ -73,54 +68,6 @@ def merge_and_validate(
         if final.get("document_type") == "unknown" or _evidence_ok(fe.get("document_type"), raw):
             final["document_type"] = dt
 
-    gd = llm_extracted.get("date")
-    if isinstance(gd, str) and _evidence_ok(fe.get("date"), raw):
-        final["date"] = gd
-    elif isinstance(gd, str) and gd in raw:
-        final["date"] = gd
-
-    # Patient block (text only with evidence)
-    gp = llm_extracted.get("patient") if isinstance(llm_extracted.get("patient"), dict) else {}
-    fp = final.setdefault("patient", {"name": None, "dob": None, "id": None})
-    for key in ("name", "dob", "id"):
-        val = gp.get(key) if isinstance(gp, dict) else None
-        if isinstance(val, str) and val.strip():
-            path = f"patient.{key}"
-            if _evidence_ok(fe.get(path), raw) or val in raw or val.lower() in raw.lower():
-                fp[key] = val.strip()
-
-    # Vitals: keep rules BP/HR; allow LLM only if substring in raw
-    gv = llm_extracted.get("vitals") if isinstance(llm_extracted.get("vitals"), dict) else {}
-    fv = final.setdefault("vitals", {"blood_pressure": None, "heart_rate": None})
-    for key in ("blood_pressure", "heart_rate"):
-        rv = fv.get(key)
-        gv_val = gv.get(key) if isinstance(gv, dict) else None
-        if isinstance(gv_val, str) and gv_val.strip():
-            if (rv is None or rv == gv_val) and (gv_val in raw or gv_val.replace(" ", "") in raw.replace(" ", "")):
-                fv[key] = gv_val.strip()
-        # numerics from rules already in fv from rules snapshot
-
-    # Labs: append LLM rows whose name appears in raw
-    g_labs = llm_extracted.get("labs")
-    if isinstance(g_labs, list):
-        existing = {(l.get("name"), l.get("value")) for l in final.get("labs", []) if isinstance(l, dict)}
-        for row in g_labs:
-            if not isinstance(row, dict):
-                continue
-            name = row.get("name")
-            if not isinstance(name, str) or name not in raw and name.lower() not in raw.lower():
-                continue
-            tup = (name, str(row.get("value", "")))
-            if tup not in existing:
-                final.setdefault("labs", []).append(
-                    {
-                        "name": name,
-                        "value": str(row.get("value", "")),
-                        "unit": row.get("unit"),
-                    }
-                )
-                existing.add(tup)
-
     # Medications: LLM name must appear in raw
     g_meds = llm_extracted.get("medications")
     if isinstance(g_meds, list):
@@ -146,10 +93,6 @@ def merge_and_validate(
             if key not in seen:
                 final.setdefault("medications", []).append(entry)
                 seen.add(key)
-
-    notes = llm_extracted.get("notes")
-    if isinstance(notes, str) and notes.strip() and _evidence_ok(fe.get("notes"), raw):
-        final["notes"] = notes.strip()
 
     try:
         return ExtractedPayload.model_validate(final).model_dump(mode="json")

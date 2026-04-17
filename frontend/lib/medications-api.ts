@@ -17,6 +17,9 @@ export type PatientMedicationRow = {
   source_document_id: string
   source_document_filename: string
   source_document_created_at: string
+  source_document_mime_type: string
+  source_document_preview_url: string | null
+  source_document_count: number
   name_raw: string
   name_display: string | null
   rxcui: string | null

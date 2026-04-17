@@ -146,13 +146,8 @@ def _detect_doc_type(text: str) -> str:
 
 def empty_schema() -> dict[str, Any]:
     return {
-        "patient": {"name": None, "dob": None, "id": None},
         "document_type": "unknown",
-        "date": None,
-        "vitals": {"blood_pressure": None, "heart_rate": None},
-        "labs": [],
         "medications": [],
-        "notes": None,
     }
 
 
@@ -160,9 +155,5 @@ def run_rule_validation(raw_text: str) -> dict[str, Any]:
     text = raw_text or ""
     base = empty_schema()
     base["document_type"] = _detect_doc_type(text)
-    base["date"] = _primary_date(text)
-    base["vitals"]["blood_pressure"] = _extract_bp(text)
-    base["vitals"]["heart_rate"] = _extract_hr(text)
-    base["labs"] = _extract_labs(text)
     base["medications"] = _extract_meds(text)
     return base

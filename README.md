@@ -17,6 +17,8 @@ AI-powered healthcare platform focused on diabetes monitoring, prevention, and c
 - pnpm
 - Docker Desktop (optional, for containerized backend)
 - GNU Make (optional, for shortcut commands)
+- Tesseract OCR installed locally for Django OCR features
+- Poppler installed locally if you want scanned PDF OCR fallback outside Docker
 
 ## Environment Setup
 
@@ -28,6 +30,25 @@ Create `backend/.env` (or copy from `backend/.env.example`) and set:
 - `DJANGO_DEBUG` (usually `true` for dev)
 
 Local startup scripts automatically load variables from `backend/.env`.
+
+OCR-related environment variables you can tune in `backend/.env`:
+
+```bash
+OCR_LANGUAGE=eng
+TESSERACT_PSM=6
+TESSERACT_OEM=3
+OCR_PDF_TEXT_MIN_CHARS=80
+OCR_PDF_MAX_PAGES=5
+OCR_PDF_RASTER_DPI=200
+OCR_IMAGE_MAX_DIM=2200
+OCR_IMAGE_MIN_DIM=1200
+OCR_IMAGE_CONTRAST=1.35
+OCR_IMAGE_BINARIZE=true
+OCR_IMAGE_THRESHOLD=170
+POPPLER_PATH=
+```
+
+`OCR_LANGUAGE` supports multi-language packs such as `eng+fra` when those Tesseract language files are installed.
 
 ## Run Backend (Docker)
 
@@ -52,6 +73,8 @@ From repository root:
 ```bash
 docker compose up --build
 ```
+
+The Django Docker image now installs `tesseract-ocr`, `tesseract-ocr-eng`, and `poppler-utils`, which enables image OCR plus scanned-PDF raster fallback in containers.
 
 Backend URLs:
 
@@ -107,6 +130,12 @@ Run FastAPI in another terminal:
 cd backend/fastapi_ai
 python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
+
+For local OCR support:
+
+- Linux: install `tesseract-ocr`, desired language packs such as `tesseract-ocr-fra`, and `poppler-utils`.
+- Windows: install Tesseract plus the needed `tessdata` language packs, install Poppler, and set `POPPLER_PATH` if `pdftoppm` is not on `PATH`.
+- If Poppler is missing, scanned PDFs gracefully fall back to the existing text-only PDF extraction path.
 
 ## Run Frontend
 

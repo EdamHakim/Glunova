@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from os.path import basename
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -39,11 +40,10 @@ def upload_medical_file(storage_path: str, data: bytes, content_type: str) -> No
     default_storage.save(storage_path, ContentFile(data))
 
 
-def create_download_payload(storage_path: str) -> tuple[str, str]:
-    """
-    Returns (kind, value): ('redirect', signed_url) for Supabase,
-    or ('django_storage', storage_path) for default_storage-backed files.
-    """
+def create_download_payload(document_or_path) -> dict[str, object]:
+    storage_path = getattr(document_or_path, "storage_path", document_or_path)
+    original_filename = getattr(document_or_path, "original_filename", basename(storage_path))
+
     if _supabase_configured():
         from supabase import create_client
 
@@ -53,8 +53,12 @@ def create_download_payload(storage_path: str) -> tuple[str, str]:
         url = signed.get("signedURL") or signed.get("signedUrl")
         if not url:
             raise RuntimeError("Could not create signed URL")
-        return "redirect", url
+        return {"type": "url", "url": url}
 
     if not default_storage.exists(storage_path):
         raise FileNotFoundError(storage_path)
-    return "django_storage", storage_path
+    return {
+        "type": "file",
+        "content": default_storage.open(storage_path, "rb"),
+        "filename": original_filename,
+    }
