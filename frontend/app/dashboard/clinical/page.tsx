@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import RoleGuard from '@/components/auth/role-guard'
 
 const prioritizedPatients = [
   {
@@ -41,59 +42,64 @@ const prioritizedPatients = [
 
 export default function ClinicalPage() {
   return (
-    <div className="space-y-6 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Clinical Decision Support</h1>
-        <p className="text-muted-foreground mt-2">AI-powered clinical insights and patient prioritization</p>
-      </div>
+    <RoleGuard
+      allowedRoles={['doctor']}
+      title="Clinical support unavailable"
+      description="Clinical decision support is reserved for doctor accounts."
+    >
+      <div className="space-y-6 p-4 sm:p-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Clinical Decision Support</h1>
+          <p className="text-muted-foreground mt-2">AI-powered clinical insights and patient prioritization</p>
+        </div>
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Critical Cases</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-destructive">2</div>
-            <p className="text-xs text-destructive flex items-center gap-1 mt-1">
-              <AlertTriangle className="h-3 w-3" /> Require immediate attention
-            </p>
-          </CardContent>
-        </Card>
+        {/* Key Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Critical Cases</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-destructive">2</div>
+              <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+                <AlertTriangle className="h-3 w-3" /> Require immediate attention
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">High Risk</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-health-danger">5</div>
-            <p className="text-xs text-health-danger mt-1">Follow-up recommended</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">High Risk</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-health-danger">5</div>
+              <p className="text-xs text-health-danger mt-1">Follow-up recommended</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Stable Patients</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-health-success">17</div>
-            <p className="text-xs text-health-success mt-1">Routine monitoring</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Stable Patients</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-health-success">17</div>
+              <p className="text-xs text-health-success mt-1">Routine monitoring</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Review</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-primary">8</div>
-            <p className="text-xs text-muted-foreground mt-1">Medical image analysis</p>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Pending Review</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-primary">8</div>
+              <p className="text-xs text-muted-foreground mt-1">Medical image analysis</p>
+            </CardContent>
+          </Card>
+        </div>
 
       {/* Patient Prioritization List */}
-      <Card>
+        <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5" />
@@ -148,10 +154,10 @@ export default function ClinicalPage() {
             ))}
           </div>
         </CardContent>
-      </Card>
+        </Card>
 
       {/* Medical Image Analysis */}
-      <Card>
+        <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ImageIcon className="h-5 w-5" />
@@ -218,10 +224,10 @@ export default function ClinicalPage() {
             </div>
           </div>
         </CardContent>
-      </Card>
+        </Card>
 
       {/* Pre-Consultation Summary */}
-      <Card>
+        <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Stethoscope className="h-5 w-5" />
@@ -276,7 +282,8 @@ export default function ClinicalPage() {
             </div>
           </div>
         </CardContent>
-      </Card>
-    </div>
+        </Card>
+      </div>
+    </RoleGuard>
   )
 }

@@ -14,9 +14,16 @@ import {
   Settings,
 } from 'lucide-react'
 import { useAuth } from '@/components/auth-context'
+import type { UserRole } from '@/lib/auth'
 
-const menuItems = [
-// ... (rest same, skipping for clarity if using replace_file_content)
+type MenuItem = {
+  label: string
+  href: string
+  icon: typeof LayoutDashboard
+  allowedRoles?: UserRole[]
+}
+
+const menuItems: MenuItem[] = [
   {
     label: 'Dashboard',
     href: '/dashboard',
@@ -26,7 +33,7 @@ const menuItems = [
     label: 'Screening',
     href: '/dashboard/screening',
     icon: Stethoscope,
-    patientOnly: true,
+    allowedRoles: ['patient'],
   },
   {
     label: 'Monitoring',
@@ -52,6 +59,7 @@ const menuItems = [
     label: 'Clinical Support',
     href: '/dashboard/clinical',
     icon: Clinic,
+    allowedRoles: ['doctor'],
   },
 ]
 
@@ -61,10 +69,7 @@ export default function Sidebar() {
 
   const visibleMenuItems = useMemo(() => {
     const role = user?.role
-    return menuItems.filter((item) => {
-      if (!('patientOnly' in item) || !item.patientOnly) return true
-      return role === 'patient'
-    })
+    return menuItems.filter((item) => !item.allowedRoles || (role != null && item.allowedRoles.includes(role)))
   }, [user])
 
   return (

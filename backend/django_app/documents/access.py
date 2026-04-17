@@ -21,5 +21,13 @@ def can_access_patient_documents(actor: User, patient_pk: int) -> bool:
     return False
 
 
+def parse_patient_pk(raw_patient_pk: object) -> int | None:
+    try:
+        patient_pk = int(raw_patient_pk)
+    except (TypeError, ValueError):
+        return None
+    return patient_pk if patient_pk > 0 else None
+
+
 def patient_exists(patient_pk: int) -> bool:
     return User.objects.filter(pk=patient_pk).exists()

@@ -14,6 +14,6 @@ class StoryRequest(BaseModel):
 @router.post("/story")
 def build_story(
     payload: StoryRequest,
-    _claims: dict = Depends(require_roles("patient", "caregiver")),
+    _claims: dict = Depends(require_roles("patient")),
 ) -> dict:
     return {"patient_id": payload.patient_id, "title": "Glucose Heroes", "prompt_used": payload.prompt}

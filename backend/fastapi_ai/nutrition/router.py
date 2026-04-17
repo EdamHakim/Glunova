@@ -15,7 +15,7 @@ class MealLogRequest(BaseModel):
 @router.post("/analyze-meal")
 def analyze_meal(
     payload: MealLogRequest,
-    _claims: dict = Depends(require_roles("patient", "doctor")),
+    _claims: dict = Depends(require_roles("patient")),
 ) -> dict:
     gi_band = "high" if payload.estimated_carbs_g > 75 else "moderate"
     return {"patient_id": payload.patient_id, "gi_band": gi_band}

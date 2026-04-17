@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from .models import MedicalDocument
 from .serializers import MedicalDocumentSerializer, MedicalDocumentListSerializer
+from .access import can_access_patient_documents, parse_patient_pk, patient_exists
 from .services.pipeline import process_document_upload
 from .services.storage import create_download_payload
 
@@ -34,12 +35,16 @@ class DocumentListCreateView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request):
-        patient_id = request.query_params.get("patient_id")
-        if not patient_id:
+        raw_patient_id = request.query_params.get("patient_id")
+        if not raw_patient_id:
             return Response({"detail": "patient_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Check permissions: doctor/caregiver can see anything, patient only their own
-        if request.user.role == 'patient' and str(request.user.id) != str(patient_id):
+
+        patient_id = parse_patient_pk(raw_patient_id)
+        if patient_id is None:
+            return Response({"detail": "patient_id must be a positive integer"}, status=status.HTTP_400_BAD_REQUEST)
+        if not patient_exists(patient_id):
+            return Response({"detail": "Patient not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_access_patient_documents(request.user, patient_id):
             return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
         docs = MedicalDocument.objects.filter(patient_id=patient_id).order_by("-created_at")
@@ -47,14 +52,22 @@ class DocumentListCreateView(APIView):
         return Response({"items": serializer.data, "total": docs.count()})
 
     def post(self, request):
-        patient_id = request.data.get("patient_id")
+        raw_patient_id = request.data.get("patient_id")
         file = request.FILES.get("file")
 
-        if not patient_id or not file:
+        if not raw_patient_id or not file:
             return Response(
                 {"detail": "patient_id and file are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        patient_id = parse_patient_pk(raw_patient_id)
+        if patient_id is None:
+            return Response({"detail": "patient_id must be a positive integer"}, status=status.HTTP_400_BAD_REQUEST)
+        if not patient_exists(patient_id):
+            return Response({"detail": "Patient not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_access_patient_documents(request.user, patient_id):
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
             mime_type = file.content_type
@@ -70,6 +83,7 @@ class DocumentListCreateView(APIView):
             # Create the record in PENDING state
             doc = MedicalDocument.objects.create(
                 patient_id=patient_id,
+                uploaded_by=request.user,
                 original_filename=original_filename,
                 mime_type=mime_type,
                 storage_path=storage_path,
@@ -94,9 +108,8 @@ class DocumentDetailView(APIView):
 
     def get(self, request, pk):
         doc = get_object_or_404(MedicalDocument, pk=pk)
-        # Permission check
-        if request.user.role == 'patient' and str(request.user.id) != str(doc.patient_id):
-             return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+        if not can_access_patient_documents(request.user, doc.patient_id):
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
              
         serializer = MedicalDocumentSerializer(doc)
         return Response(serializer.data)
@@ -107,8 +120,7 @@ class DocumentDownloadView(APIView):
 
     def get(self, request, pk):
         doc = get_object_or_404(MedicalDocument, pk=pk)
-        # Permission check
-        if request.user.role == 'patient' and str(request.user.id) != str(doc.patient_id):
+        if not can_access_patient_documents(request.user, doc.patient_id):
             return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
         try:

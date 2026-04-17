@@ -14,6 +14,6 @@ class EmotionRequest(BaseModel):
 @router.post("/emotion-detect")
 def emotion_detect(
     payload: EmotionRequest,
-    _claims: dict = Depends(require_roles("patient", "doctor", "caregiver")),
+    _claims: dict = Depends(require_roles("patient")),
 ) -> dict:
     return {"patient_id": payload.patient_id, "emotion": "neutral", "support_needed": False}

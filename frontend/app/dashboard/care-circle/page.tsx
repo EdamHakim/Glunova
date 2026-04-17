@@ -1,9 +1,12 @@
+'use client'
+
 import { MessageSquare, FileText, Bell, Users } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { MedicalDocumentsSection } from '@/components/care-circle/medical-documents-section'
+import { useAuth } from '@/components/auth-context'
 
 const familyMembers = [
   {
@@ -32,33 +35,39 @@ const updates = [
     from: 'Mary Anderson',
     message: 'How are you feeling today? Let me know if you need anything.',
     time: '2 hours ago',
-    type: 'message',
   },
   {
     id: 2,
     from: 'System',
     message: 'Care plan updated: Added new exercise routine',
     time: '1 day ago',
-    type: 'update',
   },
   {
     id: 3,
     from: 'Dr. Patricia Smith',
     message: 'Great progress! Keep up with the monitoring.',
     time: '2 days ago',
-    type: 'message',
   },
 ]
 
 export default function CareCirclePage() {
+  const { user } = useAuth()
+  const role = user?.role
+  const canClinicallyEdit = role === 'doctor'
+  const intro =
+    role === 'doctor'
+      ? 'Coordinate with caregivers and keep shared care plans aligned for assigned patients.'
+      : role === 'caregiver'
+        ? 'Stay informed, help with routines, and support the linked patient day to day.'
+        : 'Connect with family, caregivers, and healthcare providers.'
+
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Care Circle</h1>
-        <p className="text-muted-foreground mt-2">Connect with family, caregivers, and healthcare providers</p>
+        <p className="text-muted-foreground mt-2">{intro}</p>
       </div>
 
-      {/* Family Members */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -76,7 +85,7 @@ export default function CareCirclePage() {
               <div className="flex items-center gap-4">
                 <Avatar className="h-10 w-10">
                   <AvatarImage src={member.avatar} />
-                  <AvatarFallback>{member.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                  <AvatarFallback>{member.name.split(' ').map((n) => n[0]).join('')}</AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="font-medium">{member.name}</p>
@@ -98,7 +107,6 @@ export default function CareCirclePage() {
 
       <MedicalDocumentsSection />
 
-      {/* Shared Care Plan */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -106,62 +114,47 @@ export default function CareCirclePage() {
               <FileText className="h-5 w-5" />
               Shared Care Plan
             </CardTitle>
-            <CardDescription>Current health management plan</CardDescription>
+            <CardDescription>
+              {canClinicallyEdit
+                ? 'Shared plan you can refine with medical guidance'
+                : 'Current health plan shared with the care circle'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-4 border border-border rounded-lg bg-muted/30">
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
               <h4 className="font-medium mb-2">Daily Routine</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-health-success" />
-                  Morning: Check blood pressure & glucose levels
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-health-success" />
-                  Midday: Walk for 30 minutes
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-health-success" />
-                  Evening: Log meals & evening stretching
-                </li>
+                <li>Morning: Check blood pressure and glucose levels</li>
+                <li>Midday: Walk for 30 minutes</li>
+                <li>Evening: Log meals and complete stretching</li>
               </ul>
             </div>
-
-            <div className="p-4 border border-border rounded-lg bg-muted/30">
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
               <h4 className="font-medium mb-2">Medications</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                  <span>Metformin 500mg</span>
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">Twice daily</span>
-                </li>
-                <li className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                  <span>Lisinopril 10mg</span>
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">Once daily</span>
-                </li>
+                <li>Metformin 500mg • Twice daily</li>
+                <li>Lisinopril 10mg • Once daily</li>
               </ul>
             </div>
-
-            <div className="p-4 border border-border rounded-lg bg-muted/30">
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
               <h4 className="font-medium mb-2">Goals</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-health-info" />
-                  Reduce HbA1c by 0.5% in 3 months
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-health-info" />
-                  Achieve stable blood pressure readings
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-health-info" />
-                  Increase exercise frequency to 5x per week
-                </li>
+                <li>Reduce HbA1c by 0.5% in 3 months</li>
+                <li>Achieve stable blood pressure readings</li>
+                <li>Increase exercise frequency to 5x per week</li>
               </ul>
+            </div>
+            <div className="rounded-lg border border-dashed border-border p-4">
+              <p className="font-medium">{canClinicallyEdit ? 'Doctor note' : 'Participation note'}</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                {canClinicallyEdit
+                  ? 'You can update this plan clinically, but document and monitoring access remain relationship-scoped.'
+                  : 'You can follow this plan and coordinate around it, but medically authoritative edits remain clinician-led.'}
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Notifications & Updates */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -171,10 +164,7 @@ export default function CareCirclePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {updates.map((update) => (
-              <div
-                key={update.id}
-                className="p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors"
-              >
+              <div key={update.id} className="p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
                 <p className="font-medium text-sm">{update.from}</p>
                 <p className="text-sm text-muted-foreground mt-1">{update.message}</p>
                 <p className="text-xs text-muted-foreground mt-2">{update.time}</p>
@@ -187,14 +177,17 @@ export default function CareCirclePage() {
         </Card>
       </div>
 
-      {/* Caregiver Chat */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
             Family Support Chat
           </CardTitle>
-          <CardDescription>Connect with caregivers and family</CardDescription>
+          <CardDescription>
+            {role === 'doctor'
+              ? 'Coordinate next steps with the support network'
+              : 'Connect with caregivers and family'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -211,18 +204,16 @@ export default function CareCirclePage() {
                     <p className="text-sm">Pretty good! Risk score is down to 45.</p>
                   </div>
                 </div>
-                <div className="flex justify-start">
-                  <div className="bg-primary/10 text-primary px-3 py-2 rounded-lg max-w-xs">
-                    <p className="text-sm font-medium">Mary</p>
-                    <p className="text-sm">That&apos;s wonderful! Keep it up!</p>
-                  </div>
-                </div>
               </div>
             </div>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="Message your care team..."
+                placeholder={
+                  role === 'doctor'
+                    ? 'Share a care-plan update with the support team...'
+                    : 'Message your care team...'
+                }
                 className="flex-1 px-3 py-2 border border-border rounded-lg bg-background text-sm"
               />
               <Button size="icon">
