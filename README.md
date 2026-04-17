@@ -12,6 +12,7 @@ AI-powered healthcare platform focused on diabetes monitoring, prevention, and c
 ## Prerequisites
 
 - Python 3.11+
+- uv (for Python dependency management)
 - Node.js 20+
 - pnpm
 - Docker Desktop (optional, for containerized backend)
@@ -63,7 +64,7 @@ Backend URLs:
 Install dependencies once:
 
 ```bash
-pip install -r backend/requirements.txt
+uv pip install -r backend/requirements.txt
 ```
 
 Run both backends with one command:

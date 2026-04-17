@@ -9,7 +9,7 @@ if not exist backend\.env (
 )
 
 echo [1/3] Installing backend dependencies...
-python -m pip install -r backend\requirements.txt
+uv pip install -r backend\requirements.txt
 if errorlevel 1 goto :fail
 
 echo [2/3] Running Django migrations...

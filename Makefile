@@ -15,5 +15,3 @@ backend-rebuild:
 backend-local:
 	scripts\\start_backends_local.bat
 
-backend-local-unix:
-	bash scripts/start_backends_local.sh
