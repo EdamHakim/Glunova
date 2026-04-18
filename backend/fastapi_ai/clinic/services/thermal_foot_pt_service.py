@@ -50,6 +50,18 @@ def _build_model() -> nn.Module:
     )
 
 
+def _normalize_cam_for_display(cam: np.ndarray) -> np.ndarray:
+    """Stretch CAM to full [0, 1] per image so low-contrast saliency stays visible."""
+    x = np.asarray(cam, dtype=np.float32)
+    x = np.maximum(x, 0.0)
+    lo, hi = float(x.min()), float(x.max())
+    if hi - lo < 1e-6:
+        return np.zeros_like(x)
+    x = (x - lo) / (hi - lo)
+    # Slight gamma: emphasize peaks without crushing mid-tones
+    return np.clip(np.power(x, 0.85), 0.0, 1.0)
+
+
 def _to_base64_jpeg(image_np: np.ndarray) -> str:
     image_uint8 = np.clip(image_np * 255.0, 0, 255).astype(np.uint8)
     image = Image.fromarray(image_uint8)
@@ -182,13 +194,14 @@ class ThermalFootPtService:
                 targets=[ClassifierOutputTarget(POSITIVE_CLASS_INDEX)],
             )[0]
 
-        heat = np.clip(grayscale_cam, 0.0, 1.0)
+        heat = _normalize_cam_for_display(grayscale_cam)
 
         heat_rgb = np.stack(
-            [heat, np.clip(heat * 0.6 + 0.2, 0, 1), np.clip(1.0 - heat, 0, 1)],
+            [heat, np.clip(heat * 0.55 + 0.15, 0, 1), np.clip(1.0 - heat * 0.95, 0, 1)],
             axis=-1,
         )
-        overlay = np.clip(rgb_np * 0.55 + heat_rgb * 0.45, 0.0, 1.0)
+        # Weight heatmap more than base so attribution is easy to see on thermal palettes
+        overlay = np.clip(rgb_np * 0.38 + heat_rgb * 0.62, 0.0, 1.0)
 
         return {
             "heatmap_base64": _to_base64_jpeg(overlay),
