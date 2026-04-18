@@ -1,143 +1,71 @@
 # Glunova
 
-AI-powered healthcare platform focused on diabetes monitoring, prevention, and care coordination.
+AI-assisted diabetes care platform: non-invasive screening, monitoring, nutrition and activity, psychology, kids engagement, care circle, clinic decision support, and accessible care. See [functionnalities_context.md](functionnalities_context.md) for the full feature matrix and team assignments.
 
-## Architecture
+**Innova Team · ESPRIT · Class 3IA3 · 2026**
 
-- `frontend/`: Next.js user interface.
-- `backend/django_app`: core API for authentication, RBAC, and clinical data management.
-- `backend/fastapi_ai`: AI engine for screening, psychology, nutrition, clinic, and kids services.
-- Shared PostgreSQL on Supabase via `DATABASE_URL`.
+## Architecture (high level)
+
+```mermaid
+flowchart LR
+  Browser[Browser]
+  Next[Next.js_frontend]
+  Django[Django_API]
+  FastAPI[FastAPI_AI]
+  DB[(PostgreSQL)]
+
+  Browser --> Next
+  Next --> Django
+  Next --> FastAPI
+  Django --> DB
+  FastAPI --> DB
+```
+
+Django owns identity, RBAC, and relational data; FastAPI serves AI-heavy paths. Both use the same PostgreSQL database. Details: [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md).
+
+## Repository layout
+
+| Path | Role |
+|------|------|
+| [frontend/](frontend/) | Next.js 16, React 19, TypeScript, Tailwind ([package.json](frontend/package.json)) |
+| [backend/django_app/](backend/django_app/) | Auth, RBAC, migrations, REST APIs, document metadata and orchestration |
+| [backend/fastapi_ai/](backend/fastapi_ai/) | OCR/extraction, screening inference, AI routes; OpenAPI at `/docs` |
+| [docker-compose.yml](docker-compose.yml) | `django_app` → port **8000**, `fastapi_ai` → port **8001** |
+| [Makefile](Makefile) | Docker backend targets (`backend-up`, `backend-down`, etc.) and local Windows backends |
+| [scripts/start_backends_local.bat](scripts/start_backends_local.bat) | Local Django + FastAPI (Windows) |
 
 ## Prerequisites
 
-- Python 3.11+
-- uv (for Python dependency management)
-- Node.js 20+
-- pnpm
-- Docker Desktop (optional, for containerized backend)
-- GNU Make (optional, for shortcut commands)
-- Tesseract OCR installed locally for Django OCR features
-- Poppler installed locally if you want scanned PDF OCR fallback outside Docker
+- **Backends:** Python 3 with [`uv`](https://github.com/astral-sh/uv) (used by the local script) or compatible pip workflow; PostgreSQL reachable via `DATABASE_URL`.
+- **Front end:** Node.js 22+ and [pnpm](https://pnpm.io/).
+- **Docker (optional):** Docker Compose, if you run backends in containers instead of locally.
 
-## Environment Setup
+## Environment variables
 
-Create `backend/.env` (or copy from `backend/.env.example`) and set:
+Create **`backend/.env`** before starting backends (Docker or local). At minimum, set a PostgreSQL connection string:
 
-- `DATABASE_URL` (Supabase PostgreSQL URL with `sslmode=require`)
-- `DJANGO_SECRET_KEY`
-- `JWT_SHARED_SECRET`
-- `DJANGO_DEBUG` (usually `true` for dev)
+- `DATABASE_URL` — required (e.g. Supabase or local Postgres). See [backend/README.md](backend/README.md).
 
-Local startup scripts automatically load variables from `backend/.env`.
+Optional **frontend** overrides (defaults use the same host as the page on ports 8000 / 8001 — see [frontend/lib/auth.ts](frontend/lib/auth.ts)):
 
-OCR-related environment variables you can tune in `backend/.env`:
+- `NEXT_PUBLIC_DJANGO_API_URL`
+- `NEXT_PUBLIC_FASTAPI_API_URL`
 
-```bash
-OCR_LANGUAGE=eng
-TESSERACT_PSM=6
-TESSERACT_OEM=3
-OCR_PDF_TEXT_MIN_CHARS=80
-OCR_PDF_MAX_PAGES=5
-OCR_PDF_RASTER_DPI=200
-OCR_IMAGE_MAX_DIM=2200
-OCR_IMAGE_MIN_DIM=1200
-OCR_IMAGE_CONTRAST=1.35
-OCR_IMAGE_BINARIZE=true
-OCR_IMAGE_THRESHOLD=170
-POPPLER_PATH=
-```
+## How to run
 
-`OCR_LANGUAGE` supports multi-language packs such as `eng+fra` when those Tesseract language files are installed.
+### Backends
 
-## Run Backend (Docker)
-
-Quick start with Makefile:
-
-```bash
-make backend-rebuild
-```
-
-Useful commands:
-
-```bash
-make backend-up
-make backend-logs
-make backend-down
-```
-
-`make backend-up` runs in foreground and streams logs directly.
-
-From repository root:
-
-```bash
-docker compose up --build
-```
-
-The Django Docker image now installs `tesseract-ocr`, `tesseract-ocr-eng`, and `poppler-utils`, which enables image OCR plus scanned-PDF raster fallback in containers.
-
-Backend URLs:
-
-- Django API: `http://localhost:8000`
-- FastAPI API: `http://localhost:8001`
-- FastAPI docs: `http://localhost:8001/docs`
-
-## Run Backend (Local)
-
-Install dependencies once:
-
-```bash
-uv pip install -r backend/requirements.txt
-```
-
-Run both backends with one command:
+From the repository root:
 
 ```bash
 make backend-local
 ```
 
-On Linux/macOS (or Git Bash), use:
+This runs [scripts/start_backends_local.bat](scripts/start_backends_local.bat) (installs backend deps with `uv`, runs migrations, starts Django on **8000** and FastAPI on **8001** in separate windows). Requires `backend/.env` and a Windows environment with `make` and the script available.
 
-```bash
-make backend-local-unix
-```
+**Docker alternative:** `docker compose up --build` from the repo root, or `make backend-up` / `make backend-rebuild` — see [Makefile](Makefile) and [backend/README.md](backend/README.md).
 
-Or use the script directly:
-
-```bash
-bash scripts/start_backends_local.sh
-```
-
-Windows script:
-
-```bat
-scripts\start_backends_local.bat
-```
-
-Manual alternative:
-
-Run Django:
-
-```bash
-cd backend/django_app
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
-```
-
-Run FastAPI in another terminal:
-
-```bash
-cd backend/fastapi_ai
-python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
-```
-
-For local OCR support:
-
-- Linux: install `tesseract-ocr`, desired language packs such as `tesseract-ocr-fra`, and `poppler-utils`.
-- Windows: install Tesseract plus the needed `tessdata` language packs, install Poppler, and set `POPPLER_PATH` if `pdftoppm` is not on `PATH`.
-- If Poppler is missing, scanned PDFs gracefully fall back to the existing text-only PDF extraction path.
-
-## Run Frontend
+### Frontend
 
 ```bash
 cd frontend
@@ -145,10 +73,18 @@ pnpm install
 pnpm dev
 ```
 
-Frontend URL:
-- App: `http://localhost:3000`
+Run the backends first so authentication and API calls work end to end.
 
-## Notes
-- Session persistence is handled by rolling `refresh_token` cookies.
-- Cross-origin credentials (CORS) are enabled for `localhost:3000` to `localhost:8000/8001`.
-- Database migrations must be run in Django to enable the token blacklist: `python manage.py migrate`.
+## Service URLs
+
+| Service | URL |
+|---------|-----|
+| Django API | http://localhost:8000 |
+| FastAPI | http://localhost:8001 |
+| FastAPI OpenAPI | http://localhost:8001/docs |
+
+## Further reading
+
+- [functionnalities_context.md](functionnalities_context.md) — objectives, platform axes, and feature ownership.
+- [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md) — JWT auth, RBAC, documents OCR pipeline, screening models.
+- [backend/README.md](backend/README.md) — hybrid backend overview and Docker-focused run notes.
