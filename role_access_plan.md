@@ -1,6 +1,12 @@
-# Glunova Role Access Plan
+# 🧩 Glunova Role Access Plan
+
+[![Scope](https://img.shields.io/badge/Scope-access%20matrix-555555)](README.md)
 
 This document defines the recommended role-based access model for the current Glunova platform.
+
+**Related:** [README](README.md) · [features.md](features.md) · [rbac_implementation_plan.md](rbac_implementation_plan.md)
+
+---
 
 ## Roles
 

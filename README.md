@@ -8,7 +8,7 @@
 [![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL-4169e1)](https://www.postgresql.org/)
 [![TypeScript](https://img.shields.io/badge/Lang-TypeScript-3178c6)](https://www.typescriptlang.org/)
 
-**Glunova** is an AI-assisted diabetes care platform: non-invasive screening, monitoring, nutrition and activity, psychology, kids engagement, care circle, clinic decision support, and accessible care. For the full feature matrix and team assignments, see [functionnalities_context.md](functionnalities_context.md).
+**Glunova** is an AI-assisted diabetes care platform: non-invasive screening, monitoring, nutrition and activity, psychology, kids engagement, care circle, clinic decision support, and accessible care. For the full feature matrix and team assignments, see [features.md](features.md).
 
 ### 🎓 Academic context
 
@@ -20,7 +20,7 @@ Developed by **Innova Team** · **ESPRIT** · **Class 3IA3** · **2026**.
 
 ## 👥 Innova Team
 
-Feature ownership and full roster: [functionnalities_context.md](functionnalities_context.md)
+Feature ownership and full roster: [features.md](features.md)
 
 ---
 
@@ -154,9 +154,11 @@ Start the backends first so authentication and API calls work end to end.
 
 ## 📚 Further reading
 
-- [functionnalities_context.md](functionnalities_context.md) — objectives, platform axes, and feature ownership
+- [features.md](features.md) — objectives, platform axes, and feature ownership
 - [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md) — JWT auth, RBAC, documents OCR pipeline, screening models
 - [backend/README.md](backend/README.md) — hybrid backend overview and Docker-focused notes
+- [role_access_plan.md](role_access_plan.md) — recommended role-based access model
+- [rbac_implementation_plan.md](rbac_implementation_plan.md) — RBAC implementation plan for the codebase
 
 ---
 

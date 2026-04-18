@@ -1,4 +1,13 @@
-# Glunova Backend Architecture
+# 🏛 Glunova Backend Architecture
+
+[![Django](https://img.shields.io/badge/Identity-Django-092e20)](https://www.djangoproject.com/)
+[![FastAPI](https://img.shields.io/badge/AI-FastAPI-009688)](https://fastapi.tiangolo.com/)
+
+How the hybrid backend is split, how auth works, and how major pipelines are organized.
+
+**Related:** [README](README.md) · [README (repo root)](../README.md) · [features.md](../features.md)
+
+---
 
 ## Service split
 

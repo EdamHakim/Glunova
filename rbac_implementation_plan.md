@@ -1,6 +1,12 @@
-# Glunova RBAC Implementation Plan
+# 🔐 Glunova RBAC Implementation Plan
+
+[![Scope](https://img.shields.io/badge/Scope-RBAC-555555)](README.md)
 
 This document turns the role access matrix into a concrete implementation plan for the current codebase.
+
+**Related:** [README](README.md) · [features.md](features.md) · [role_access_plan.md](role_access_plan.md)
+
+---
 
 ## Goal
 

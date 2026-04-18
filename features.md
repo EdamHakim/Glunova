@@ -1,12 +1,15 @@
-# Glunova AI Platform
+# 📋 Glunova — Feature Matrix & AI Operations
 
-## Objectives Tree — AI Operations Reference
+[![ESPRIT](https://img.shields.io/badge/ESPRIT-3IA3-003366)](https://esprit.tn/)
+[![Matrix](https://img.shields.io/badge/Content-feature%20matrix-0066cc)](features.md#platform-axes-overview)
+
+Living reference for **platform axes**, **sub-features**, **AI operations**, and **assignments**. For setup and architecture, see the [README](README.md); for backend internals, [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md). RBAC planning: [role_access_plan.md](role_access_plan.md), [rbac_implementation_plan.md](rbac_implementation_plan.md).
 
 **Innova Team • ESPRIT • Class 3IA3 • 2026**
 
 ---
 
-## Platform Axes Overview
+## Platform axes overview
 
 | Platform Axis                 | Core AI Purpose                                                                                      |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -137,4 +140,13 @@
 ---
 
 **Supervised by:** Mme Jihene Hlel • Mr Fedi Baccar • Mme Widad Askri
+
 **Innova Team • ESPRIT • Class 3IA3 • 2026**
+
+---
+
+## Related docs
+
+- [README.md](README.md) — install, repo layout, service URLs
+- [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md) — auth, OCR, screening pipelines
+- [role_access_plan.md](role_access_plan.md) · [rbac_implementation_plan.md](rbac_implementation_plan.md) — access model and implementation plan
