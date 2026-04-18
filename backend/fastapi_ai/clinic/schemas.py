@@ -19,6 +19,7 @@ class ThermalFootModelHealthResponse(BaseModel):
     model_file_exists: bool
     model_loaded: bool
     model_path: str
+    detail: str | None = None
 
 
 class ThermalFootGradcamResponse(BaseModel):

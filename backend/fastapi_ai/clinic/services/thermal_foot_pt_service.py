@@ -9,6 +9,7 @@ from threading import Lock
 import numpy as np
 import timm
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image, UnidentifiedImageError
 from pytorch_grad_cam import GradCAM
@@ -24,8 +25,8 @@ from clinic.config import (
     NORM_MEAN,
     NORM_STD,
     POSITIVE_CLASS_INDEX,
-    PT_MODEL_PATH,
     TIMM_BACKBONE,
+    resolve_pt_model_path,
 )
 
 
@@ -71,13 +72,23 @@ class ThermalFootInferenceResult:
 class ThermalFootPtService:
     """Binary diabetes risk from foot thermal / infrared images (RGB upload)."""
 
-    def __init__(self, model_path: Path = PT_MODEL_PATH, threshold: float = DEFAULT_THRESHOLD):
-        self.model_path = model_path
+    def __init__(
+        self,
+        model_path: Path | None = None,
+        threshold: float = DEFAULT_THRESHOLD,
+    ):
+        self._model_path_override = model_path
         self.threshold = threshold
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model: nn.Module | None = None
         self._grad_cam: GradCAM | None = None
         self._load_lock = Lock()
+
+    @property
+    def model_path(self) -> Path:
+        if self._model_path_override is not None:
+            return self._model_path_override
+        return resolve_pt_model_path()
 
     @property
     def is_loaded(self) -> bool:
@@ -93,8 +104,8 @@ class ThermalFootPtService:
                 raise FileNotFoundError(
                     "PyTorch checkpoint not found at "
                     f"{self.model_path.as_posix()}. "
-                    "Copy resnet50_best.pt from ThermoFU training (see "
-                    "clinic/models/thermalFoot/thermofu-training.ipynb) or set "
+                    "Add best_model_resnet50.pt (ThermoFU export) or resnet50_best.pt "
+                    "(training checkpoints) under clinic/models/thermalFoot/, or set "
                     "THERMAL_FOOT_PT_PATH to your .pt file."
                 )
 

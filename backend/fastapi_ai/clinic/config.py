@@ -2,8 +2,23 @@ import os
 from pathlib import Path
 
 MODEL_DIR = Path(__file__).resolve().parent / "models" / "thermalFoot"
-_default_pt = MODEL_DIR / "resnet50_best.pt"
-PT_MODEL_PATH = Path(os.environ.get("THERMAL_FOOT_PT_PATH", str(_default_pt)))
+# Notebook export uses best_model_resnet50.pt; raw Kaggle training saves resnet50_best.pt.
+_CHECKPOINT_CANDIDATES = ("best_model_resnet50.pt", "resnet50_best.pt")
+
+
+def resolve_pt_model_path() -> Path:
+    """Resolve checkpoint path at use time so backend/.env is applied reliably."""
+    env = os.environ.get("THERMAL_FOOT_PT_PATH")
+    if env:
+        return Path(env)
+    for name in _CHECKPOINT_CANDIDATES:
+        candidate = MODEL_DIR / name
+        if candidate.is_file():
+            return candidate
+    return MODEL_DIR / _CHECKPOINT_CANDIDATES[0]
+
+
+PT_MODEL_PATH = resolve_pt_model_path()
 
 INPUT_SIZE = 224
 NORM_MEAN = (0.485, 0.456, 0.406)

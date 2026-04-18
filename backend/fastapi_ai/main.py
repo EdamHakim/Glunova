@@ -1,6 +1,15 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Same file as Django: backend/.env (Docker Compose also passes it via env_file).
+_backend_root = Path(__file__).resolve().parent.parent
+load_dotenv(_backend_root / ".env", override=True)
+
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
 from clinic.router import router as clinic_router
 from kids.router import router as kids_router

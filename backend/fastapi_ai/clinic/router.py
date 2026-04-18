@@ -84,6 +84,11 @@ async def infer_thermal_foot_diabetes(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Thermal foot checkpoint could not be loaded: {exc}",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -112,12 +117,25 @@ async def infer_thermal_foot_diabetes(
 def thermal_foot_model_health(
     _claims: dict = Depends(require_roles("doctor")),
 ) -> ThermalFootModelHealthResponse:
-    model_exists = _thermal_foot_service.model_path.exists()
+    path = _thermal_foot_service.model_path
+    model_exists = path.exists()
+    detail: str | None = None
+    if model_exists:
+        try:
+            _thermal_foot_service.ensure_loaded()
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            detail = str(exc)
+    status = "missing_model"
+    if model_exists and detail is None:
+        status = "ok"
+    elif model_exists and detail is not None:
+        status = "load_failed"
     return ThermalFootModelHealthResponse(
-        status="ok" if model_exists else "missing_model",
+        status=status,
         model_file_exists=model_exists,
         model_loaded=_thermal_foot_service.is_loaded,
-        model_path=_thermal_foot_service.model_path.as_posix(),
+        model_path=path.as_posix(),
+        detail=detail,
     )
 
 
@@ -155,6 +173,11 @@ async def thermal_foot_gradcam(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Thermal foot checkpoint could not be loaded: {exc}",
         ) from exc
     except ValueError as exc:
         raise HTTPException(
