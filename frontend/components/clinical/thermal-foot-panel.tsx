@@ -25,6 +25,7 @@ type ThermalFootResult = {
   threshold_used: number
   model_name: string
   heatmapBase64?: string
+  heatmapError?: string
 }
 
 export function ThermalFootPanel() {
@@ -116,6 +117,12 @@ export function ThermalFootPanel() {
       if (gradRes.ok) {
         const gradData = await gradRes.json()
         next.heatmapBase64 = gradData.heatmap_base64
+      } else {
+        const errBody = await gradRes.json().catch(() => ({}))
+        next.heatmapError =
+          typeof errBody?.detail === 'string'
+            ? errBody.detail
+            : `Grad-CAM request failed (${gradRes.status}).`
       }
 
       setResult(next)
@@ -177,6 +184,9 @@ export function ThermalFootPanel() {
                     className="w-full max-h-64 object-contain rounded bg-muted"
                   />
                 </div>
+              ) : null}
+              {result.heatmapError ? (
+                <p className="text-sm text-destructive">{result.heatmapError}</p>
               ) : null}
             </div>
           ) : null}

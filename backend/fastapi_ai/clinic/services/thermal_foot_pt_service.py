@@ -83,6 +83,8 @@ class ThermalFootPtService:
         self._model: nn.Module | None = None
         self._grad_cam: GradCAM | None = None
         self._load_lock = Lock()
+        # GradCAM + autograd are not thread-safe; parallel requests corrupt hooks / backward.
+        self._inference_lock = Lock()
 
     @property
     def model_path(self) -> Path:
@@ -143,8 +145,9 @@ class ThermalFootPtService:
         assert self._model is not None
 
         input_tensor, _ = self.preprocess_image_bytes(image_bytes)
-        with torch.inference_mode():
-            logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
+        with self._inference_lock:
+            with torch.inference_mode():
+                logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
 
         logit = float(logits[POSITIVE_CLASS_INDEX])
         probs = F.softmax(torch.from_numpy(logits), dim=0).numpy()
@@ -165,18 +168,20 @@ class ThermalFootPtService:
         assert self._grad_cam is not None
 
         input_tensor, rgb_np = self.preprocess_image_bytes(image_bytes)
-        with torch.inference_mode():
-            logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
+        with self._inference_lock:
+            with torch.inference_mode():
+                logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
 
-        probs = F.softmax(torch.from_numpy(logits), dim=0).numpy()
-        probability = float(probs[POSITIVE_CLASS_INDEX])
-        prediction_index = 1 if probability >= self.threshold else 0
-        prediction_label = CLASS_LABELS[prediction_index]
+            probs = F.softmax(torch.from_numpy(logits), dim=0).numpy()
+            probability = float(probs[POSITIVE_CLASS_INDEX])
+            prediction_index = 1 if probability >= self.threshold else 0
+            prediction_label = CLASS_LABELS[prediction_index]
 
-        grayscale_cam = self._grad_cam(
-            input_tensor=input_tensor,
-            targets=[ClassifierOutputTarget(POSITIVE_CLASS_INDEX)],
-        )[0]
+            grayscale_cam = self._grad_cam(
+                input_tensor=input_tensor,
+                targets=[ClassifierOutputTarget(POSITIVE_CLASS_INDEX)],
+            )[0]
+
         heat = np.clip(grayscale_cam, 0.0, 1.0)
 
         heat_rgb = np.stack(
