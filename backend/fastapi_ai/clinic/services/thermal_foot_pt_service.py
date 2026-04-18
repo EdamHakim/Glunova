@@ -7,27 +7,26 @@ from pathlib import Path
 from threading import Lock
 
 import numpy as np
+import timm
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
 from PIL import Image, UnidentifiedImageError
 from pytorch_grad_cam import GradCAM
-from torchvision import models as tv_models
-from torchvision.models import ResNet50_Weights
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
 from clinic.config import (
     CLASS_LABELS,
+    CLASSIFIER_DROPOUT,
     DEFAULT_THRESHOLD,
     INPUT_SIZE,
     MODEL_NAME,
     MODEL_VERSION,
     NORM_MEAN,
     NORM_STD,
+    POSITIVE_CLASS_INDEX,
     PT_MODEL_PATH,
+    TIMM_BACKBONE,
 )
-
-
-def _sigmoid(value: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-value))
 
 
 def _resolve_checkpoint_state_dict(checkpoint: dict | torch.Tensor) -> dict:
@@ -41,9 +40,13 @@ def _resolve_checkpoint_state_dict(checkpoint: dict | torch.Tensor) -> dict:
 
 
 def _build_model() -> nn.Module:
-    model = tv_models.resnet50(weights=ResNet50_Weights.DEFAULT)
-    model.fc = nn.Sequential(nn.Dropout(0.4), nn.Linear(2048, 1))
-    return model
+    """Match thermofu-training.ipynb: timm ResNet-50, binary softmax head."""
+    return timm.create_model(
+        TIMM_BACKBONE,
+        pretrained=False,
+        num_classes=2,
+        drop_rate=CLASSIFIER_DROPOUT,
+    )
 
 
 def _to_base64_jpeg(image_np: np.ndarray) -> str:
@@ -56,7 +59,7 @@ def _to_base64_jpeg(image_np: np.ndarray) -> str:
 
 @dataclass
 class ThermalFootInferenceResult:
-    logit: float
+    logit: float  # raw logit for DF class (see POSITIVE_CLASS_INDEX)
     probability: float
     prediction_index: int
     prediction_label: str
@@ -90,7 +93,9 @@ class ThermalFootPtService:
                 raise FileNotFoundError(
                     "PyTorch checkpoint not found at "
                     f"{self.model_path.as_posix()}. "
-                    "Place the trained weights there or set THERMAL_FOOT_PT_PATH."
+                    "Copy resnet50_best.pt from ThermoFU training (see "
+                    "clinic/models/thermalFoot/thermofu-training.ipynb) or set "
+                    "THERMAL_FOOT_PT_PATH to your .pt file."
                 )
 
             model = _build_model().to(self.device)
@@ -99,7 +104,10 @@ class ThermalFootPtService:
             model.load_state_dict(state_dict, strict=True)
             model.eval()
             self._model = model
-            self._grad_cam = GradCAM(model=model, target_layers=[model.layer4[-1]])
+            self._grad_cam = GradCAM(
+                model=model,
+                target_layers=[model.layer4[-1]],
+            )
 
     def preprocess_image_bytes(self, image_bytes: bytes) -> tuple[torch.Tensor, np.ndarray]:
         try:
@@ -127,8 +135,9 @@ class ThermalFootPtService:
         with torch.inference_mode():
             logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
 
-        logit = float(logits[0])
-        probability = float(_sigmoid(np.asarray([logit]))[0])
+        logit = float(logits[POSITIVE_CLASS_INDEX])
+        probs = F.softmax(torch.from_numpy(logits), dim=0).numpy()
+        probability = float(probs[POSITIVE_CLASS_INDEX])
         prediction_idx = 1 if probability >= self.threshold else 0
 
         return ThermalFootInferenceResult(
@@ -148,11 +157,15 @@ class ThermalFootPtService:
         with torch.inference_mode():
             logits = self._model(input_tensor).detach().cpu().numpy().reshape(-1)
 
-        probability = float(_sigmoid(logits)[0])
+        probs = F.softmax(torch.from_numpy(logits), dim=0).numpy()
+        probability = float(probs[POSITIVE_CLASS_INDEX])
         prediction_index = 1 if probability >= self.threshold else 0
         prediction_label = CLASS_LABELS[prediction_index]
 
-        grayscale_cam = self._grad_cam(input_tensor=input_tensor)[0]
+        grayscale_cam = self._grad_cam(
+            input_tensor=input_tensor,
+            targets=[ClassifierOutputTarget(POSITIVE_CLASS_INDEX)],
+        )[0]
         heat = np.clip(grayscale_cam, 0.0, 1.0)
 
         heat_rgb = np.stack(

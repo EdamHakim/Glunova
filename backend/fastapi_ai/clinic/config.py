@@ -10,6 +10,14 @@ NORM_MEAN = (0.485, 0.456, 0.406)
 NORM_STD = (0.229, 0.224, 0.225)
 DEFAULT_THRESHOLD = 0.5
 
+# ThermoFU training (thermofu-training.ipynb): timm ImageFolder order is typically
+# ["DF", "NO DF"] so the DF (diabetes) row of softmax is index 0. Override if your
+# checkpoint used a different folder order.
+POSITIVE_CLASS_INDEX = int(os.environ.get("THERMAL_FOOT_POSITIVE_IDX", "0"))
+
+TIMM_BACKBONE = "resnet50"
+CLASSIFIER_DROPOUT = 0.30
+
 CLASS_LABELS = {
     0: "nondiabetes",
     1: "diabetes",
