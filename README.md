@@ -37,8 +37,9 @@ Django owns identity, RBAC, and relational data; FastAPI serves AI-heavy paths. 
 ## Prerequisites
 
 - **Backends:** Python 3 with [`uv`](https://github.com/astral-sh/uv) (used by the local script) or compatible pip workflow; PostgreSQL reachable via `DATABASE_URL`.
-- **Front end:** Node.js 22+ and [pnpm](https://pnpm.io/).
+- **Front end:** Node.js 22+ and [pnpm](https://pnpm.io/). Install pnpm globally with npm: `npm install -g pnpm`.
 - **Docker (optional):** Docker Compose, if you run backends in containers instead of locally.
+- **Make (optional):** [Makefile](Makefile) targets such as `make backend-local` or `make backend-up` need GNU Make on your `PATH`. On Windows, install it with [Chocolatey](https://chocolatey.org/) from an elevated shell: `choco install make`. If you do not use `make`, run the underlying commands directly (for example `scripts\start_backends_local.bat` from the repo root on Windows, or `docker compose` as documented below).
 
 ## Environment variables
 
@@ -61,7 +62,7 @@ From the repository root:
 make backend-local
 ```
 
-This runs [scripts/start_backends_local.bat](scripts/start_backends_local.bat) (installs backend deps with `uv`, runs migrations, starts Django on **8000** and FastAPI on **8001** in separate windows). Requires `backend/.env` and a Windows environment with `make` and the script available.
+This runs [scripts/start_backends_local.bat](scripts/start_backends_local.bat): it creates a **`.venv`** in the repo root if missing, installs backend deps into it with `uv`, runs migrations, then starts Django on **8000** and FastAPI on **8001** in separate windows. Requires `backend/.env`, Windows, and `make` installed (see **Prerequisites**). You can also run that `.bat` file directly without `make`.
 
 **Docker alternative:** `docker compose up --build` from the repo root, or `make backend-up` / `make backend-rebuild` — see [Makefile](Makefile) and [backend/README.md](backend/README.md).
 

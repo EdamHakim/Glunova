@@ -2,23 +2,32 @@
 setlocal
 
 cd /d "%~dp0\.."
+set "ROOT=%cd%"
 
 if not exist backend\.env (
   echo Missing backend\.env file.
   exit /b 1
 )
 
-echo [1/3] Installing backend dependencies...
+if not exist "%ROOT%\.venv\Scripts\python.exe" (
+  echo Creating virtual environment .venv ...
+  uv venv .venv
+  if errorlevel 1 goto :fail
+)
+
+echo [1/3] Installing backend dependencies into .venv ...
 uv pip install -r backend\requirements.txt
 if errorlevel 1 goto :fail
 
+set "PY=%ROOT%\.venv\Scripts\python.exe"
+
 echo [2/3] Running Django migrations...
-python backend\django_app\manage.py migrate
+"%PY%" backend\django_app\manage.py migrate
 if errorlevel 1 goto :fail
 
 echo [3/3] Starting Django and FastAPI in separate windows...
-start "Glunova Django" cmd /k "cd /d %cd% && python backend\django_app\manage.py runserver 0.0.0.0:8000"
-start "Glunova FastAPI" cmd /k "cd /d %cd% && python -m uvicorn --app-dir backend/fastapi_ai main:app --host 0.0.0.0 --port 8001 --reload"
+start "Glunova Django" /D "%ROOT%" "%PY%" backend\django_app\manage.py runserver 0.0.0.0:8000
+start "Glunova FastAPI" /D "%ROOT%" "%PY%" -m uvicorn --app-dir backend/fastapi_ai main:app --host 0.0.0.0 --port 8001 --reload
 
 echo Backends started:
 echo - Django: http://localhost:8000
