@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import RoleGuard from '@/components/auth/role-guard'
+import { ThermalFootPanel } from '@/components/clinical/thermal-foot-panel'
 
 const prioritizedPatients = [
   {
@@ -97,6 +98,8 @@ export default function ClinicalPage() {
             </CardContent>
           </Card>
         </div>
+
+        <ThermalFootPanel />
 
       {/* Patient Prioritization List */}
         <Card>
