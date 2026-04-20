@@ -10,4 +10,7 @@ urlpatterns = [
     path("api/auth/logout/", LogoutView.as_view(), name="logout"),
     path("api/v1/", include("documents.urls")),
     path("api/v1/", include("clinical.urls")),
+    path("api/v1/", include("monitoring.urls")),
+    path("api/v1/", include("nutrition.urls")),
+    path("api/v1/", include("carecircle.urls")),
 ]

@@ -1,18 +1,67 @@
-import { AlertCircle, TrendingDown, TrendingUp } from 'lucide-react'
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import { AlertCircle, TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import HealthTrendChart from '@/components/dashboard/health-trend-chart'
 import PatientSummary from '@/components/dashboard/patient-summary'
+import RoleGuard from '@/components/auth/role-guard'
+import { getDashboardOverview, type DashboardOverview } from '@/lib/dashboard-api'
 
 export default function Dashboard() {
+  const [overview, setOverview] = useState<DashboardOverview | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void getDashboardOverview()
+      .then((payload) => {
+        if (!cancelled) setOverview(payload)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load dashboard')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const trendData = useMemo(
+    () =>
+      (overview?.trend ?? []).map((point) => ({
+        date: point.date,
+        riskScore: Math.round(point.risk_score * 100),
+        confidence: Math.round(point.confidence * 100),
+      })),
+    [overview],
+  )
+
+  const recentPatients = useMemo(
+    () =>
+      (overview?.recent_patients ?? []).map((patient) => ({
+        id: patient.id,
+        name: patient.name,
+        riskLevel: patient.risk_level,
+        lastScreening: new Date(patient.last_assessment).toLocaleString(),
+        status: patient.status,
+      })),
+    [overview],
+  )
+
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <RoleGuard
+      allowedRoles={['doctor']}
+      title="Dashboard unavailable"
+      description="The overview dashboard is accessible only to doctor accounts."
+    >
+      <div className="space-y-6 p-4 sm:p-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Dashboard</h1>
-        <p className="text-muted-foreground mt-2">Welcome back, Dr. Sarah. Here&apos;s your patient overview.</p>
+        <p className="text-muted-foreground mt-2">Overview of your assigned patient cohort.</p>
       </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -21,9 +70,9 @@ export default function Dashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Active Patients</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">24</div>
+            <div className="text-2xl font-bold">{overview?.stats.active_patients ?? 0}</div>
             <p className="text-xs text-health-success flex items-center gap-1 mt-1">
-              <TrendingUp className="h-3 w-3" /> 12% from last month
+              <TrendingUp className="h-3 w-3" /> Assigned to your care plans
             </p>
           </CardContent>
         </Card>
@@ -33,7 +82,7 @@ export default function Dashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Pending Screenings</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-health-warning">8</div>
+            <div className="text-2xl font-bold text-health-warning">{overview?.stats.pending_screenings ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">Due within 7 days</p>
           </CardContent>
         </Card>
@@ -43,7 +92,7 @@ export default function Dashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Alerts</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-health-danger">3</div>
+            <div className="text-2xl font-bold text-health-danger">{overview?.stats.alerts ?? 0}</div>
             <p className="text-xs text-health-danger flex items-center gap-1 mt-1">
               <AlertCircle className="h-3 w-3" /> Requires attention
             </p>
@@ -55,7 +104,7 @@ export default function Dashboard() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Risk Score (Avg)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">42</div>
+            <div className="text-2xl font-bold">{Math.round(overview?.stats.avg_risk_score ?? 0)}</div>
             <p className="text-xs text-muted-foreground mt-1">Moderate risk</p>
           </CardContent>
         </Card>
@@ -70,7 +119,7 @@ export default function Dashboard() {
             <CardDescription>Patient risk scores over the last 30 days</CardDescription>
           </CardHeader>
           <CardContent>
-            <HealthTrendChart />
+            <HealthTrendChart data={trendData} />
           </CardContent>
         </Card>
 
@@ -103,9 +152,10 @@ export default function Dashboard() {
           <CardDescription>Latest patient assessments and status</CardDescription>
         </CardHeader>
         <CardContent>
-          <PatientSummary />
+          <PatientSummary patients={recentPatients} />
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </RoleGuard>
   )
 }

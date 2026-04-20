@@ -11,17 +11,13 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-const data = [
-  { date: 'Day 1', riskScore: 65, bloodPressure: 140, glucose: 180 },
-  { date: 'Day 5', riskScore: 62, bloodPressure: 138, glucose: 175 },
-  { date: 'Day 10', riskScore: 58, bloodPressure: 135, glucose: 170 },
-  { date: 'Day 15', riskScore: 55, bloodPressure: 132, glucose: 165 },
-  { date: 'Day 20', riskScore: 52, bloodPressure: 130, glucose: 160 },
-  { date: 'Day 25', riskScore: 50, bloodPressure: 128, glucose: 155 },
-  { date: 'Day 30', riskScore: 48, bloodPressure: 125, glucose: 150 },
-]
+type TrendPoint = {
+  date: string
+  riskScore: number
+  confidence: number
+}
 
-export default function HealthTrendChart() {
+export default function HealthTrendChart({ data }: { data: TrendPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <LineChart data={data}>
@@ -47,18 +43,10 @@ export default function HealthTrendChart() {
         />
         <Line
           type="monotone"
-          dataKey="bloodPressure"
-          stroke="var(--health-danger)"
-          strokeWidth={2}
-          name="Blood Pressure (Systolic)"
-          dot={{ fill: 'var(--health-danger)' }}
-        />
-        <Line
-          type="monotone"
-          dataKey="glucose"
+          dataKey="confidence"
           stroke="var(--health-info)"
           strokeWidth={2}
-          name="Glucose Level"
+          name="Confidence"
           dot={{ fill: 'var(--health-info)' }}
         />
       </LineChart>

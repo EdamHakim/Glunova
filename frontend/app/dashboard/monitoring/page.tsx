@@ -9,70 +9,23 @@ import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { listMedications, type PatientMedicationRow } from '@/lib/medications-api'
+import {
+  getMonitoringProgression,
+  listMonitoringAlerts,
+  listMonitoringTimeline,
+  type MonitoringAlert,
+  type MonitoringTierSummary,
+  type MonitoringTimelineItem,
+} from '@/lib/monitoring-api'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-
-const alerts = [
-  {
-    id: 1,
-    severity: 'Critical',
-    title: 'High Blood Pressure',
-    description: 'Patient John Anderson - Systolic 180 mmHg',
-    time: '2 hours ago',
-  },
-  {
-    id: 2,
-    severity: 'High',
-    title: 'Glucose Out of Range',
-    description: 'Patient Emily Chen - Fasting glucose 280 mg/dL',
-    time: '5 hours ago',
-  },
-  {
-    id: 3,
-    severity: 'Moderate',
-    title: 'Irregular Heart Rate',
-    description: 'Patient Michael Davis - HR variability detected',
-    time: '1 day ago',
-  },
-]
-
-const timelineEvents = [
-  {
-    date: 'Today',
-    time: '02:30 PM',
-    patient: 'John Anderson',
-    event: 'Blood Pressure Spike',
-    value: '180/110 mmHg',
-  },
-  {
-    date: 'Today',
-    time: '10:15 AM',
-    patient: 'Emily Chen',
-    event: 'Screening Completed',
-    value: 'Risk Score: 52',
-  },
-  {
-    date: 'Yesterday',
-    time: '04:45 PM',
-    patient: 'Sarah Wilson',
-    event: 'Meal Logged',
-    value: '2000 cal, Balanced',
-  },
-  {
-    date: 'Yesterday',
-    time: '02:00 PM',
-    patient: 'Michael Davis',
-    event: 'Psychology Session',
-    value: 'Completed - Stable',
-  },
-]
 
 function getSeverityColor(severity: string) {
   switch (severity) {
-    case 'Critical':
+    case 'critical':
       return 'bg-destructive/10 text-destructive border-destructive/20'
-    case 'High':
+    case 'warning':
       return 'bg-health-danger/10 text-health-danger border-health-danger/20'
-    case 'Moderate':
+    case 'info':
       return 'bg-health-warning/10 text-health-warning border-health-warning/20'
     default:
       return 'bg-health-success/10 text-health-success border-health-success/20'
@@ -96,8 +49,13 @@ export default function MonitoringPage() {
   const { user } = useAuth()
   const [patientId, setPatientId] = useState('')
   const [medications, setMedications] = useState<PatientMedicationRow[]>([])
+  const [alerts, setAlerts] = useState<MonitoringAlert[]>([])
+  const [timelineEvents, setTimelineEvents] = useState<MonitoringTimelineItem[]>([])
+  const [progression, setProgression] = useState<MonitoringTierSummary[]>([])
   const [medicationError, setMedicationError] = useState<string | null>(null)
+  const [monitoringError, setMonitoringError] = useState<string | null>(null)
   const [medicationLoading, setMedicationLoading] = useState(false)
+  const [monitoringLoading, setMonitoringLoading] = useState(false)
   const role = user?.role
   const isCaregiver = role === 'caregiver'
   const isDoctor = role === 'doctor'
@@ -116,12 +74,17 @@ export default function MonitoringPage() {
   useEffect(() => {
     if (!patientId) {
       setMedications([])
+      setAlerts([])
+      setTimelineEvents([])
+      setProgression([])
       return
     }
 
     let cancelled = false
     setMedicationLoading(true)
     setMedicationError(null)
+    setMonitoringLoading(true)
+    setMonitoringError(null)
     void listMedications(patientId)
       .then((payload) => {
         if (!cancelled) {
@@ -137,6 +100,25 @@ export default function MonitoringPage() {
         if (!cancelled) {
           setMedicationLoading(false)
         }
+      })
+
+    void Promise.all([
+      listMonitoringAlerts(patientId),
+      listMonitoringTimeline(patientId),
+      getMonitoringProgression(patientId),
+    ])
+      .then(([alertsPayload, timelinePayload, progressionPayload]) => {
+        if (cancelled) return
+        setAlerts(alertsPayload.items)
+        setTimelineEvents(timelinePayload.items)
+        setProgression(progressionPayload.tiers)
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setMonitoringError(error instanceof Error ? error.message : 'Failed to load monitoring data')
+      })
+      .finally(() => {
+        if (!cancelled) setMonitoringLoading(false)
       })
 
     return () => {
@@ -172,6 +154,7 @@ export default function MonitoringPage() {
           )}
 
           {medicationError && <p className="text-sm text-destructive">{medicationError}</p>}
+          {monitoringError && <p className="text-sm text-destructive">{monitoringError}</p>}
 
           {!patientId && (
             <p className="text-sm text-muted-foreground">
@@ -265,27 +248,33 @@ export default function MonitoringPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
+              {monitoringLoading && <p className="text-sm text-muted-foreground">Loading alerts...</p>}
+              {!monitoringLoading && alerts.length === 0 && (
+                <p className="text-sm text-muted-foreground">No alerts for this patient scope.</p>
+              )}
               {alerts.map((alert) => (
                 <div key={alert.id} className="p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="flex gap-4 flex-1">
                       <AlertCircle
                         className={`h-5 w-5 mt-0.5 shrink-0 ${
-                          alert.severity === 'Critical'
+                          alert.severity === 'critical'
                             ? 'text-destructive'
-                            : alert.severity === 'High'
+                            : alert.severity === 'warning'
                               ? 'text-health-danger'
                               : 'text-health-warning'
                         }`}
                       />
                       <div>
                         <p className="font-medium">{alert.title}</p>
-                        <p className="text-sm text-muted-foreground mt-1">{alert.description}</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {alert.patient_username} - {alert.message}
+                        </p>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
                       <Badge className={getSeverityColor(alert.severity)}>{alert.severity}</Badge>
-                      <span className="text-xs text-muted-foreground">{alert.time}</span>
+                      <span className="text-xs text-muted-foreground">{alert.relative_time}</span>
                     </div>
                   </div>
                 </div>
@@ -304,6 +293,10 @@ export default function MonitoringPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
+                {monitoringLoading && <p className="text-sm text-muted-foreground">Loading timeline...</p>}
+                {!monitoringLoading && timelineEvents.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No timeline events available.</p>
+                )}
                 {timelineEvents.map((event, idx) => (
                   <div key={idx} className="flex gap-4">
                     <div className="flex flex-col items-center">
@@ -314,13 +307,11 @@ export default function MonitoringPage() {
                     </div>
                     <div className="pb-4">
                       <div className="flex items-center gap-2">
-                        <p className="font-medium">{event.event}</p>
+                        <p className="font-medium">{event.title}</p>
                         <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{event.value}</span>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-0.5">{event.patient}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {event.date} at {event.time}
-                      </p>
+                      <p className="text-sm text-muted-foreground mt-0.5">{event.patient_username}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{event.relative_time}</p>
                     </div>
                   </div>
                 ))}
@@ -354,59 +345,49 @@ export default function MonitoringPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium">Low Risk Patients</span>
-                    <Badge variant="outline" className="bg-health-success/10 text-health-success border-health-success/20">
-                      12 patients
-                    </Badge>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Avg Risk Score</span>
-                      <span className="font-medium">28</span>
+                {monitoringLoading && <p className="text-sm text-muted-foreground">Loading progression data...</p>}
+                {!monitoringLoading &&
+                  progression.map((tier) => (
+                    <div key={tier.tier}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium capitalize">{tier.tier} Risk Patients</span>
+                        <Badge
+                          variant="outline"
+                          className={
+                            tier.tier === 'low'
+                              ? 'bg-health-success/10 text-health-success border-health-success/20'
+                              : tier.tier === 'moderate'
+                                ? 'bg-health-warning/10 text-health-warning border-health-warning/20'
+                                : tier.tier === 'high'
+                                  ? 'bg-health-danger/10 text-health-danger border-health-danger/20'
+                                  : 'bg-destructive/10 text-destructive border-destructive/20'
+                          }
+                        >
+                          {tier.count} patients
+                        </Badge>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Avg Risk Score</span>
+                          <span className="font-medium">{Math.round(tier.avg_score * 100)}</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-2">
+                          <div
+                            className={
+                              tier.tier === 'low'
+                                ? 'bg-health-success h-2 rounded-full'
+                                : tier.tier === 'moderate'
+                                  ? 'bg-health-warning h-2 rounded-full'
+                                  : tier.tier === 'high'
+                                    ? 'bg-health-danger h-2 rounded-full'
+                                    : 'bg-destructive h-2 rounded-full'
+                            }
+                            style={{ width: `${Math.min(100, Math.round(tier.avg_score * 100))}%` }}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div className="w-full bg-muted rounded-full h-2">
-                      <div className="bg-health-success h-2 rounded-full" style={{ width: '28%' }} />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium">Moderate Risk Patients</span>
-                    <Badge variant="outline" className="bg-health-warning/10 text-health-warning border-health-warning/20">
-                      8 patients
-                    </Badge>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Avg Risk Score</span>
-                      <span className="font-medium">52</span>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2">
-                      <div className="bg-health-warning h-2 rounded-full" style={{ width: '52%' }} />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium">High Risk Patients</span>
-                    <Badge variant="outline" className="bg-health-danger/10 text-health-danger border-health-danger/20">
-                      3 patients
-                    </Badge>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Avg Risk Score</span>
-                      <span className="font-medium">78</span>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2">
-                      <div className="bg-health-danger h-2 rounded-full" style={{ width: '78%' }} />
-                    </div>
-                  </div>
-                </div>
+                  ))}
               </CardContent>
             </Card>
           )}
