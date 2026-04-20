@@ -544,7 +544,6 @@ def _best_clear_match(candidates: list[RxNormCandidate]) -> RxNormCandidate | No
     gap = top.score - second.score if second else None
     match_score = top.match_score if top.match_score is not None else _candidate_similarity(top.name or "", top.name)
     context_score = top.context_score if top.context_score is not None else 0
-    second_match = second.match_score if second and second.match_score is not None else -1
     second_context = second.context_score if second and second.context_score is not None else -1
     if (
         top.score >= min_score
@@ -553,8 +552,7 @@ def _best_clear_match(candidates: list[RxNormCandidate]) -> RxNormCandidate | No
         and (
             gap is None
             or gap >= ambiguity_gap
-            or match_score - second_match >= ambiguity_gap
-            or context_score - second_context >= ambiguity_gap
+            or (context_score >= 40 and context_score - second_context >= ambiguity_gap)
         )
     ):
         return top
