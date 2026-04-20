@@ -27,6 +27,7 @@ from psychology.schemas import (
     TrendPoint,
     TrendResponse,
 )
+from psychology.knowledge_ingestion import get_knowledge_base
 from psychology.storage import (
     InMemoryCrisisStore,
     InMemoryMemoryStore,
@@ -67,6 +68,7 @@ class PsychologyService:
         self._crisis_events = InMemoryCrisisStore()
         self._emotion_logs = InMemoryTrendStore()
         self._memories = InMemoryMemoryStore()
+        self._knowledge_base = get_knowledge_base()
         self._deepface_available = None
         self._speechbrain_available = None
 
@@ -102,11 +104,13 @@ class PsychologyService:
             ended_at=raw_session.ended_at,
             last_state=MentalState(raw_session.last_state) if raw_session.last_state else None,
         )
+        language_detected = self._detect_language(payload.text)
         crisis_probability = self._crisis_probability(payload.text)
         crisis_detected = crisis_probability >= CRISIS_THRESHOLD
         fusion = self._fusion(payload)
         trend_slope = self._trend_slope(payload.patient_id)
         mental_state = self._classify_mental_state(fusion.distress_score, crisis_detected, trend_slope)
+        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=2)
         session.last_state = mental_state
 
         patient_msg = TherapyMessageInput(role="patient", content=payload.text)
@@ -121,7 +125,7 @@ class PsychologyService:
         else:
             recommendation = self._recommendation(mental_state)
             technique = self._technique_for_state(mental_state)
-            reply = self._therapy_reply(payload.text, mental_state, recommendation)
+            reply = self._therapy_reply(payload.text, mental_state, recommendation, kb_context)
 
         assistant_msg = TherapyMessageInput(role="assistant", content=reply)
         session.messages.append(assistant_msg)
@@ -139,7 +143,7 @@ class PsychologyService:
             reply=reply,
             emotion=fusion.label,
             distress_score=fusion.distress_score,
-            language_detected=self._detect_language(payload.text),
+            language_detected=language_detected,
             technique_used=technique,
             recommendation=recommendation,
             crisis_detected=crisis_detected,
@@ -323,23 +327,34 @@ class PsychologyService:
             return "behavioral_activation"
         return "supportive_reflection"
 
-    def _therapy_reply(self, user_text: str, state: MentalState, recommendation: str | None) -> str:
+    def _therapy_reply(
+        self,
+        user_text: str,
+        state: MentalState,
+        recommendation: str | None,
+        kb_context: list[dict[str, str]] | None = None,
+    ) -> str:
+        kb_hint = ""
+        if kb_context:
+            first = kb_context[0].get("text", "").strip()
+            if first:
+                kb_hint = f" CBT hint: {first[:140]}"
         if state == MentalState.neutral:
-            return "Thank you for sharing. What felt most manageable for you today?"
+            return f"Thank you for sharing. What felt most manageable for you today?{kb_hint}"
         if state == MentalState.anxious:
             return (
                 "I hear that this feels heavy. Let's slow down together: inhale for 4, hold 7, exhale 8. "
-                "After one round, tell me one thought that is driving this stress."
+                f"After one round, tell me one thought that is driving this stress.{kb_hint}"
             )
         if state == MentalState.distressed:
             return (
                 "You're carrying a lot right now. Let's ground first: name 5 things you can see, "
-                "4 you can feel, and 3 you can hear. Then we can break this into one small next step."
+                f"4 you can feel, and 3 you can hear. Then we can break this into one small next step.{kb_hint}"
             )
         if state == MentalState.depressed:
             return (
                 "Thank you for saying this out loud. We can keep this very small: pick one tiny action "
-                "for the next 10 minutes, like drinking water or opening a window."
+                f"for the next 10 minutes, like drinking water or opening a window.{kb_hint}"
             )
         return SAFE_CRISIS_REPLY
 

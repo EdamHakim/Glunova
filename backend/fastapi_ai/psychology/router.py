@@ -19,11 +19,12 @@ from psychology.schemas import (
     SessionStartResponse,
     TrendResponse,
 )
-from psychology.knowledge_ingestion import build_ingestion_manifest
+from psychology.knowledge_ingestion import build_ingestion_manifest, get_knowledge_base
 from psychology.service import PsychologyService
 
 router = APIRouter(prefix="/psychology", tags=["psychology"])
 service = PsychologyService()
+knowledge_base = get_knowledge_base()
 
 
 @router.post("/session/start", response_model=SessionStartResponse)
@@ -121,3 +122,22 @@ def knowledge_sources(
     _claims: dict = Depends(require_roles("doctor")),
 ) -> dict:
     return {"items": build_ingestion_manifest()}
+
+
+@router.post("/knowledge/reindex")
+def knowledge_reindex(
+    _claims: dict = Depends(require_roles("doctor")),
+) -> dict:
+    count = knowledge_base.reindex_sources()
+    return {"indexed_chunks": count, "qdrant_enabled": knowledge_base.enabled}
+
+
+@router.get("/knowledge/search")
+def knowledge_search(
+    q: str = Query(min_length=2),
+    language: str | None = Query(default=None),
+    limit: int = Query(default=3, ge=1, le=10),
+    _claims: dict = Depends(require_roles("doctor")),
+) -> dict:
+    items = knowledge_base.search(q, language=language, limit=limit)
+    return {"items": items, "qdrant_enabled": knowledge_base.enabled}
