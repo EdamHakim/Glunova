@@ -23,3 +23,5 @@ deepface>=0.0.93
 opencv-python-headless>=4.10.0.84
 speechbrain>=1.0.0
 torchaudio>=2.3
+qdrant-client>=1.11.3
+sentence-transformers>=3.0.1

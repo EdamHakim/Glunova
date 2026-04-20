@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     ocr_language: str = "eng"
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_collection_cbt: str = "cbt_knowledge"
+    qdrant_collection_memory: str = "patient_memory"
+    qdrant_vector_size: int = 256
+    qdrant_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 settings = Settings()
