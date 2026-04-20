@@ -2,55 +2,80 @@ from django.conf import settings
 from django.db import models
 
 
-class CarePlan(models.Model):
-    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="care_plans")
-    doctor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="assigned_care_plans")
-    notes = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-
-class MonitoringLog(models.Model):
-    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="monitoring_logs")
-    source = models.CharField(max_length=50)
-    payload = models.JSONField(default=dict)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-
-class PatientMedication(models.Model):
-    class VerificationStatus(models.TextChoices):
-        MATCHED = "matched", "Matched"
-        AMBIGUOUS = "ambiguous", "Ambiguous"
-        UNVERIFIED = "unverified", "Unverified"
-        FAILED = "failed", "Failed"
+class CrisisEscalation(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        IN_REVIEW = "in_review", "In Review"
+        CLOSED = "closed", "Closed"
 
     patient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="patient_medications",
+        related_name="crisis_escalations",
     )
-    source_document = models.ForeignKey(
-        "documents.MedicalDocument",
-        on_delete=models.CASCADE,
-        related_name="patient_medications",
+    emotion_assessment = models.ForeignKey(
+        "psychology.EmotionAssessment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="escalations",
     )
-    name_raw = models.CharField(max_length=255)
-    name_display = models.CharField(max_length=255, null=True, blank=True)
-    rxcui = models.CharField(max_length=32, null=True, blank=True)
-    dosage = models.CharField(max_length=255, null=True, blank=True)
-    frequency = models.CharField(max_length=255, null=True, blank=True)
-    duration = models.CharField(max_length=255, null=True, blank=True)
-    route = models.CharField(max_length=255, null=True, blank=True)
-    verification_status = models.CharField(
-        max_length=16,
-        choices=VerificationStatus.choices,
-        default=VerificationStatus.UNVERIFIED,
+    physician = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_crisis_escalations",
     )
-    verification_detail = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+    summary = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["-updated_at", "-created_at", "id"]
+        ordering = ["-created_at"]
 
-    def __str__(self) -> str:
-        return f"{self.name_display or self.name_raw} for patient {self.patient_id}"
+
+class ClinicalCaseReview(models.Model):
+    class Priority(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        URGENT = "urgent", "Urgent"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IN_REVIEW = "in_review", "In Review"
+        CLOSED = "closed", "Closed"
+
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="clinical_case_reviews",
+    )
+    priority = models.CharField(max_length=16, choices=Priority.choices)
+    summary = models.TextField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class ImagingAnalysis(models.Model):
+    class AnalysisType(models.TextChoices):
+        CATARACT = "cataract", "Cataract"
+        RETINOPATHY = "retinopathy", "Retinopathy"
+        FOOT_ULCER = "foot_ulcer", "Foot Ulcer"
+        INFRARED = "infrared", "Infrared"
+
+    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="imaging_analyses")
+    analysis_type = models.CharField(max_length=32, choices=AnalysisType.choices)
+    severity_grade = models.PositiveSmallIntegerField(default=0)
+    confidence = models.FloatField(default=0.0)
+    findings = models.JSONField(default=dict, blank=True)
+    captured_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-captured_at", "-created_at"]

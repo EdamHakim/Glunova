@@ -6,8 +6,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from documents.access import can_access_patient_documents, parse_patient_pk, patient_exists
+from monitoring.models import PatientMedication
 
-from .models import PatientMedication
 from .serializers import PatientMedicationSerializer
 
 

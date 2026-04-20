@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.urls import reverse
 from rest_framework import serializers
 
-from .models import PatientMedication
+from monitoring.models import PatientMedication
 
 
 class PatientMedicationSerializer(serializers.ModelSerializer):

@@ -42,6 +42,12 @@ INSTALLED_APPS = [
     "users",
     "clinical",
     "documents",
+    "monitoring",
+    "psychology",
+    "screening",
+    "nutrition",
+    "kids",
+    "carecircle",
 ]
 
 MIDDLEWARE = [

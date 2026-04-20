@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 
-from clinical.models import CarePlan
+from carecircle.models import CarePlan
 
 from .models import PatientCaregiverLink
 

@@ -12,8 +12,8 @@ from django.conf import settings
 from django.db import transaction
 from jose import jwt
 
-from clinical.models import PatientMedication
 from documents.models import MedicalDocument
+from monitoring.models import PatientMedication
 
 from .storage import upload_medical_file
 

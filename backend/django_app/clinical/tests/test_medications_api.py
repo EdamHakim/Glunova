@@ -4,9 +4,9 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from clinical.models import PatientMedication
 from clinical.views import PatientMedicationListView
 from documents.models import MedicalDocument
+from monitoring.models import PatientMedication
 
 User = get_user_model()
 

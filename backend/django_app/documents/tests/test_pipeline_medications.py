@@ -5,9 +5,9 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from clinical.models import PatientMedication
 from documents.models import MedicalDocument
 from documents.services.pipeline import process_document_upload
+from monitoring.models import PatientMedication
 
 User = get_user_model()
 
