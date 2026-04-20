@@ -3,8 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from statistics import fmean
+import base64
+import binascii
 import math
+import tempfile
 import uuid
+
+import numpy as np
 
 from psychology.schemas import (
     CrisisEvent,
@@ -62,6 +67,8 @@ class PsychologyService:
         self._crisis_events = InMemoryCrisisStore()
         self._emotion_logs = InMemoryTrendStore()
         self._memories = InMemoryMemoryStore()
+        self._deepface_available = None
+        self._speechbrain_available = None
 
     def start_session(self, patient_id: int, preferred_language: str) -> SessionStartResponse:
         session_id = str(uuid.uuid4())
@@ -141,20 +148,26 @@ class PsychologyService:
         )
 
     def detect_emotion_frame(self, patient_id: int, frame_base64: str) -> EmotionFrameResponse:
-        # Deterministic pseudo-scoring keeps this endpoint stable for 2fps streams.
-        score = min(1.0, max(0.0, (len(frame_base64) % 100) / 100))
-        if score >= 0.8:
-            label = EmotionLabel.depressed
-        elif score >= 0.6:
-            label = EmotionLabel.distressed
-        elif score >= 0.35:
-            label = EmotionLabel.anxious
+        face = self._infer_face_emotion_deepface(frame_base64)
+        if face is None:
+            # Deterministic fallback keeps endpoint stable if DeepFace is unavailable.
+            score = min(1.0, max(0.0, (len(frame_base64) % 100) / 100))
+            if score >= 0.8:
+                label = EmotionLabel.depressed
+            elif score >= 0.6:
+                label = EmotionLabel.distressed
+            elif score >= 0.35:
+                label = EmotionLabel.anxious
+            else:
+                label = EmotionLabel.neutral
+            confidence = max(0.55, min(0.95, score + 0.2))
         else:
-            label = EmotionLabel.neutral
+            label, confidence = face
+            score = self._label_to_distress(label)
         return EmotionFrameResponse(
             patient_id=patient_id,
             label=label,
-            confidence=max(0.55, min(0.95, score + 0.2)),
+            confidence=confidence,
             distress_score=score,
         )
 
@@ -201,10 +214,22 @@ class PsychologyService:
         entries: list[tuple[EmotionLabel, float, Modality]] = []
         text_label, text_confidence, text_sentiment = self._text_emotion(payload.text)
         entries.append((text_label, text_confidence, Modality.text))
-        if payload.face_emotion and payload.face_confidence is not None:
-            entries.append((payload.face_emotion, payload.face_confidence, Modality.face))
-        if payload.speech_emotion and payload.speech_confidence is not None:
-            entries.append((payload.speech_emotion, payload.speech_confidence, Modality.speech))
+
+        face_result = None
+        if payload.face_frame_base64:
+            face_result = self._infer_face_emotion_deepface(payload.face_frame_base64)
+        if face_result is None and payload.face_emotion and payload.face_confidence is not None:
+            face_result = (payload.face_emotion, payload.face_confidence)
+        if face_result is not None:
+            entries.append((face_result[0], face_result[1], Modality.face))
+
+        speech_result = None
+        if payload.speech_audio_base64:
+            speech_result = self._infer_speech_emotion_speechbrain(payload.speech_audio_base64)
+        if speech_result is None and payload.speech_emotion and payload.speech_confidence is not None:
+            speech_result = (payload.speech_emotion, payload.speech_confidence)
+        if speech_result is not None:
+            entries.append((speech_result[0], speech_result[1], Modality.speech))
 
         if not entries:
             entries = [(EmotionLabel.neutral, 0.5, Modality.text)]
@@ -381,3 +406,95 @@ class PsychologyService:
         if score >= 0.35:
             return EmotionLabel.anxious
         return EmotionLabel.neutral
+
+    def _infer_face_emotion_deepface(self, frame_base64: str) -> tuple[EmotionLabel, float] | None:
+        if self._deepface_available is False:
+            return None
+        try:
+            from deepface import DeepFace  # type: ignore
+            import cv2  # type: ignore
+
+            self._deepface_available = True
+            image_bytes = self._safe_b64decode(frame_base64)
+            if image_bytes is None:
+                return None
+            image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+            if image is None:
+                return None
+            analysis = DeepFace.analyze(
+                img_path=image,
+                actions=["emotion"],
+                enforce_detection=False,
+                detector_backend="opencv",
+                silent=True,
+            )
+            if isinstance(analysis, list):
+                analysis = analysis[0]
+            emotion_scores = analysis.get("emotion", {})
+            if not emotion_scores:
+                return None
+            top_label = max(emotion_scores, key=emotion_scores.get).lower()
+            conf = float(emotion_scores[top_label]) / 100.0
+            mapped = self._map_deepface_label(top_label)
+            return mapped, max(0.45, min(0.99, conf))
+        except Exception:
+            self._deepface_available = False
+            return None
+
+    def _infer_speech_emotion_speechbrain(self, audio_base64: str) -> tuple[EmotionLabel, float] | None:
+        if self._speechbrain_available is False:
+            return None
+        try:
+            from speechbrain.inference.classifiers import EncoderClassifier  # type: ignore
+
+            self._speechbrain_available = True
+            wav_bytes = self._safe_b64decode(audio_base64)
+            if wav_bytes is None:
+                return None
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+                tmp.write(wav_bytes)
+                tmp.flush()
+                classifier = EncoderClassifier.from_hparams(
+                    source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
+                    savedir="pretrained_models/speechbrain_emotion",
+                )
+                _, _, _, text_lab = classifier.classify_file(tmp.name)
+            label_raw = text_lab[0].strip().lower() if text_lab else "neu"
+            mapped = self._map_speechbrain_label(label_raw)
+            confidence = 0.7
+            return mapped, confidence
+        except Exception:
+            self._speechbrain_available = False
+            return None
+
+    @staticmethod
+    def _safe_b64decode(raw: str) -> bytes | None:
+        try:
+            payload = raw.split(",", 1)[1] if "," in raw else raw
+            return base64.b64decode(payload, validate=False)
+        except (ValueError, binascii.Error):
+            return None
+
+    @staticmethod
+    def _map_deepface_label(label: str) -> EmotionLabel:
+        if label in {"sad", "fear", "angry", "disgust"}:
+            return EmotionLabel.distressed
+        if label in {"surprise"}:
+            return EmotionLabel.anxious
+        if label in {"happy"}:
+            return EmotionLabel.neutral
+        if label in {"neutral"}:
+            return EmotionLabel.neutral
+        return EmotionLabel.anxious
+
+    @staticmethod
+    def _map_speechbrain_label(label: str) -> EmotionLabel:
+        if label in {"sad", "sadness"}:
+            return EmotionLabel.depressed
+        if label in {"ang", "angry", "fru", "frustrated"}:
+            return EmotionLabel.distressed
+        if label in {"hap", "exc", "happy", "excited"}:
+            return EmotionLabel.neutral
+        if label in {"neu", "neutral"}:
+            return EmotionLabel.neutral
+        return EmotionLabel.anxious

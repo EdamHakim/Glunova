@@ -123,3 +123,48 @@ flowchart TD
 - `backend/fastapi_ai/psychology/knowledge_ingestion.py`
 - `frontend/lib/psychology-api.ts`
 - `frontend/app/dashboard/psychology/page.tsx`
+
+## Suggested Hardening Additions
+
+These additions strengthen the current plan for production-like reliability and clinical safety.
+
+### 1) Persistence Completion (Replace In-Memory Adapters)
+- [ ] Implement PostgreSQL-backed session/message/crisis repositories and wire them behind current store interfaces.
+- [ ] Implement TimescaleDB-backed `emotion_logs` (hypertable + retention policy + trend query index).
+- [ ] Implement Qdrant-backed long-term memory + CBT knowledge retrieval collections.
+- [ ] Add migration scripts and seed/bootstrap tasks for psychology schema and initial knowledge collections.
+
+### 2) Model and Safety Quality
+- [ ] Replace placeholder/rule-based crisis scoring with trained inference endpoint (XLM-R pipeline).
+- [ ] Add threshold calibration notebook/script for crisis probability and distress bucket mapping.
+- [ ] Introduce confidence guardrails (low-confidence fallback response strategy).
+- [ ] Add red-team prompts for self-harm/suicidality to verify safe static response is always enforced.
+
+### 3) Observability and Reliability
+- [ ] Add structured logging for each pipeline stage (`session_id`, `patient_id`, `stage`, latency, outcome).
+- [ ] Add request tracing/correlation IDs across frontend -> FastAPI -> downstream services.
+- [ ] Add metrics: p95 message latency, crisis trigger count, fallback rate, WS disconnect rate.
+- [ ] Add alerting rules for failure spikes (crisis route errors, DB write failures, vector lookup failures).
+
+### 4) Security, Privacy, and Governance
+- [ ] Encrypt sensitive payloads at rest (messages, summaries, crisis metadata where required).
+- [ ] Define PHI-safe log policy (redaction strategy for user free text).
+- [ ] Add explicit consent checks for any non-clinician notifications (future care-circle feature).
+- [ ] Add immutable audit trail fields for crisis actioning and clinician acknowledgment.
+
+### 5) Evaluation and Release Gates
+- [ ] Define measurable acceptance thresholds:
+  - [ ] Crisis classifier recall/precision target.
+  - [ ] Distress/state reproducibility checks.
+  - [ ] Max turn latency SLO (API + WS stream).
+- [ ] Build automated integration test matrix:
+  - [ ] 4 modality combinations x 5 languages x normal/distress/crisis flows.
+- [ ] Add shadow-mode rollout with anonymized transcripts before default enablement.
+
+### 6) Configuration and Environment Hygiene
+- [ ] Add explicit env variables and validation for psychology runtime:
+  - [ ] `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION_CBT`, `QDRANT_COLLECTION_MEMORY`
+  - [ ] `TIMESCALE_DATABASE_URL` (or validated `DATABASE_URL` with Timescale extension)
+  - [ ] `PSYCHOLOGY_LLM_PROVIDER`, `PSYCHOLOGY_LLM_MODEL`
+- [ ] Add startup health checks that fail fast when required psychology dependencies are missing.
+- [ ] Add key rotation guidance and secrets scanning in CI.

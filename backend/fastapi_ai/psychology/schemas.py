@@ -50,8 +50,10 @@ class MessageRequest(BaseModel):
     session_id: str
     patient_id: int = Field(gt=0)
     text: str = Field(min_length=1, max_length=4000)
+    face_frame_base64: str | None = None
     face_emotion: EmotionLabel | None = None
     face_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    speech_audio_base64: str | None = None
     speech_emotion: EmotionLabel | None = None
     speech_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     speech_transcript: str | None = None
