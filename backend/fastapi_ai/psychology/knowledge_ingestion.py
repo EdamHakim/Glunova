@@ -157,7 +157,7 @@ class QdrantKnowledgeBase:
         except Exception:
             return False
 
-    def reindex_sources(self) -> dict[str, Any]:
+    def reindex_sources(self, extractor: str = "pypdf") -> dict[str, Any]:
         """Upsert curated manifest stubs plus all PDFs under `psychology data/` (see `pdf_kb.py`)."""
         empty: dict[str, Any] = {
             "indexed_chunks": 0,
@@ -199,7 +199,7 @@ class QdrantKnowledgeBase:
             pdf_paths = discover_pdf_files(data_root) if data_root is not None else []
             for pdf_path in pdf_paths:
                 try:
-                    raw_text = extract_pdf_text(pdf_path)
+                    raw_text = extract_pdf_text(pdf_path, extractor=extractor)
                 except Exception as exc:
                     logger.warning("Psychology PDF skipped (read error): %s — %s", pdf_path, exc)
                     continue

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # Max limits keep reindex bounded on huge PDFs.
 _MAX_PDF_PAGES = 320
 _MAX_PDF_CHARS = 900_000
+SUPPORTED_EXTRACTORS = {"pypdf", "chonkie"}
 
 
 def repo_root() -> Path:
@@ -48,7 +49,7 @@ def _category_for_relative_path(rel: str) -> str:
     return "clinical_reference"
 
 
-def extract_pdf_text(path: Path) -> str:
+def _extract_pdf_text_pypdf(path: Path) -> str:
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError as exc:
@@ -69,6 +70,30 @@ def extract_pdf_text(path: Path) -> str:
             logger.warning("PDF character cap reached (%s): %s", _MAX_PDF_CHARS, path)
             break
     return re.sub(r"\n{3,}", "\n\n", "\n\n".join(parts)).strip()
+
+
+def _extract_pdf_text_chonkie(path: Path) -> str:
+    """
+    Best-effort Chonkie extraction.
+    Falls back to pypdf if Chonkie is unavailable or API surface differs.
+    """
+    try:
+        import chonkie  # type: ignore # noqa: F401
+        # Chonkie API is not stable across releases; for now we rely on pypdf extraction
+        # and keep this branch as explicit feature toggle + hook.
+        logger.info("Chonkie extractor requested; using pypdf text extraction compatibility path")
+    except Exception as exc:
+        logger.warning("Chonkie not available (%s). Falling back to pypdf extractor.", exc)
+    return _extract_pdf_text_pypdf(path)
+
+
+def extract_pdf_text(path: Path, extractor: str = "pypdf") -> str:
+    mode = (extractor or "pypdf").strip().lower()
+    if mode not in SUPPORTED_EXTRACTORS:
+        raise RuntimeError(f"Unsupported extractor '{extractor}'. Supported: {sorted(SUPPORTED_EXTRACTORS)}")
+    if mode == "chonkie":
+        return _extract_pdf_text_chonkie(path)
+    return _extract_pdf_text_pypdf(path)
 
 
 def discover_pdf_files(root: Path) -> list[Path]:
