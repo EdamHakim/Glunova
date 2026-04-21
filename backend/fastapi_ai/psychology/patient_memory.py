@@ -28,7 +28,6 @@ class QdrantPatientMemoryStore(MemoryStore):
             except Exception as exc:
                 logger.warning("Qdrant patient memory disabled: %s", exc)
                 self.enabled = False
-        self._attach_embedder()
 
     def _attach_embedder(self) -> None:
         try:
@@ -57,6 +56,8 @@ class QdrantPatientMemoryStore(MemoryStore):
             return False
 
     def _vector(self, text: str) -> list[float]:
+        if self._kb_embed is None:
+            self._attach_embedder()
         if self._kb_embed is not None:
             return self._kb_embed._embed_text(text)  # noqa: SLF001
         return [0.0] * self._vector_size
@@ -84,6 +85,18 @@ class QdrantPatientMemoryStore(MemoryStore):
     def top(self, patient_id: int, limit: int) -> list[str]:
         if not self._ensure_collection() or self._client is None:
             return []
+        def _collect_rows(hits: list[Any]) -> list[tuple[float, str]]:
+            rows: list[tuple[float, str]] = []
+            for h in hits:
+                payload = h.payload or {}
+                if int(payload.get("patient_id", -1)) != patient_id:
+                    continue
+                t = str(payload.get("text", "")).strip()
+                if not t:
+                    continue
+                rows.append((float(payload.get("created_at", 0.0)), t))
+            rows.sort(key=lambda x: x[0], reverse=True)
+            return rows
         try:
             from qdrant_client.models import FieldCondition, Filter, MatchValue  # type: ignore
 
@@ -95,18 +108,27 @@ class QdrantPatientMemoryStore(MemoryStore):
                 with_payload=True,
                 with_vectors=False,
             )
-            rows: list[tuple[float, str]] = []
-            for h in hits:
-                payload = h.payload or {}
-                t = str(payload.get("text", "")).strip()
-                if not t:
-                    continue
-                rows.append((float(payload.get("created_at", 0.0)), t))
-            rows.sort(key=lambda x: x[0], reverse=True)
+            rows = _collect_rows(hits)
             return [t for _, t in rows[:limit]]
         except Exception as exc:
-            logger.warning("Patient memory scroll failed: %s", exc)
-            return []
+            message = str(exc)
+            if "Index required but not found" not in message:
+                logger.warning("Patient memory scroll failed: %s", exc)
+                return []
+            # Fallback when payload index is missing in Qdrant cluster:
+            # fetch recent points and filter patient_id in application code.
+            try:
+                hits, _next = self._client.scroll(
+                    collection_name=self.collection,
+                    limit=max(80, limit * 12),
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                rows = _collect_rows(hits)
+                return [t for _, t in rows[:limit]]
+            except Exception as fallback_exc:
+                logger.warning("Patient memory fallback scroll failed: %s", fallback_exc)
+                return []
 
 
 class HybridMemoryStore(MemoryStore):

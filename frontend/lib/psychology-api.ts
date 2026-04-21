@@ -20,6 +20,19 @@ export const psychologyWsBase = () => {
 
 const psychologyPrefix = () => process.env.NEXT_PUBLIC_PSYCHOLOGY_PREFIX || '/psychology'
 
+const fallbackBase = () => 'http://localhost:8001'
+
+function withFallbackUrl(url: string): string | null {
+  const fb = fallbackBase()
+  if (url.startsWith(fb)) return null
+  try {
+    const parsed = new URL(url)
+    return `${fb}${parsed.pathname}${parsed.search}`
+  } catch {
+    return null
+  }
+}
+
 export type PsychologyMessagePayload = {
   session_id: string
   patient_id: number
@@ -81,8 +94,18 @@ async function parseJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
+async function fetchWithFallback(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (error) {
+    const fallbackUrl = withFallbackUrl(url)
+    if (!fallbackUrl) throw error
+    return fetch(fallbackUrl, init)
+  }
+}
+
 export async function startPsychologySession(patientId: number, preferredLanguage = 'en') {
-  const response = await fetch(`${base()}${psychologyPrefix()}/session/start`, {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/session/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -92,7 +115,7 @@ export async function startPsychologySession(patientId: number, preferredLanguag
 }
 
 export async function sendPsychologyMessage(payload: PsychologyMessagePayload) {
-  const response = await fetch(`${base()}${psychologyPrefix()}/message`, {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -102,7 +125,7 @@ export async function sendPsychologyMessage(payload: PsychologyMessagePayload) {
 }
 
 export async function endPsychologySession(sessionId: string, patientId: number) {
-  const response = await fetch(`${base()}${psychologyPrefix()}/session/end`, {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/session/end`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -112,7 +135,7 @@ export async function endPsychologySession(sessionId: string, patientId: number)
 }
 
 export async function getPsychologyTrends(patientId: number) {
-  const response = await fetch(`${base()}${psychologyPrefix()}/trends/${patientId}`, {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/trends/${patientId}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -125,7 +148,7 @@ export async function listCrisisEvents(patientId?: number) {
   if (patientId) {
     url.searchParams.set('patient_id', String(patientId))
   }
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithFallback(url.toString(), {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -135,7 +158,7 @@ export async function listCrisisEvents(patientId?: number) {
 }
 
 export async function acknowledgeCrisisEvent(eventId: string, patientId?: number) {
-  const response = await fetch(`${base()}${psychologyPrefix()}/crisis/ack`, {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/crisis/ack`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -145,7 +168,7 @@ export async function acknowledgeCrisisEvent(eventId: string, patientId?: number
 }
 
 export async function clearPhysicianSessionGate(patientId: number) {
-  const response = await fetch(`${base()}${psychologyPrefix()}/physician/clear-gate`, {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/physician/clear-gate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',

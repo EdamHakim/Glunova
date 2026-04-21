@@ -42,6 +42,8 @@ frontend_origins = list(dict.fromkeys(frontend_origins))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins,
+    # Support local network frontend hosts (e.g. http://192.168.x.x:3000) in dev.
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}):3000$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

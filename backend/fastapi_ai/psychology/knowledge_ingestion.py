@@ -136,14 +136,16 @@ class QdrantKnowledgeBase:
                 self._client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
             except Exception:
                 self.enabled = False
-        self._init_embedder()
 
     def _init_embedder(self) -> None:
         try:
             from sentence_transformers import SentenceTransformer  # type: ignore
 
             self._embedder = SentenceTransformer(self.embedding_model_name)
-            dim = getattr(self._embedder, "get_sentence_embedding_dimension", lambda: None)()
+            get_dim = getattr(self._embedder, "get_embedding_dimension", None)
+            if not callable(get_dim):
+                get_dim = getattr(self._embedder, "get_sentence_embedding_dimension", lambda: None)
+            dim = get_dim()
             if isinstance(dim, int) and dim > 0:
                 self.vector_size = dim
         except Exception:
@@ -375,6 +377,9 @@ class QdrantKnowledgeBase:
         }
 
     def _embed_text(self, text: str) -> list[float]:
+        if self._embedder is None and self._real_embeddings_enabled:
+            # Lazy-load embedder to keep FastAPI startup fast.
+            self._init_embedder()
         if self._embedder is not None and self._real_embeddings_enabled:
             try:
                 emb = self._embedder.encode([text], normalize_embeddings=True)
@@ -401,8 +406,11 @@ class QdrantKnowledgeBase:
         return [x / norm for x in vec]
 
 
-_kb_singleton = QdrantKnowledgeBase()
+_kb_singleton: QdrantKnowledgeBase | None = None
 
 
 def get_knowledge_base() -> QdrantKnowledgeBase:
+    global _kb_singleton
+    if _kb_singleton is None:
+        _kb_singleton = QdrantKnowledgeBase()
     return _kb_singleton

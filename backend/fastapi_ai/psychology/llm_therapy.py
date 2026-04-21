@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 THERAPY_SYSTEM = """You are a licensed-style supportive mental-health coach for adults with diabetes-related stress.
 Use short, warm, practical CBT-informed language. Never diagnose, never prescribe medication, and do not provide emergency instructions beyond escalation guidance.
 You MUST use retrieved context only when relevant. If retrieved context is weak, ask one clarifying question and avoid fabricated facts.
+Match the patient's language and tone. If the detected language is Tunisian Darija, reply in simple Tunisian Darija (Latin or Arabic script acceptable, avoid formal MSA).
 If safety risk appears, output brief supportive text and recommendation=notify_clinician_immediately.
 You MUST respond with a single JSON object only.
 JSON schema:
@@ -53,6 +54,7 @@ def _validate_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
 def run_therapy_llm(
     user_text: str,
     mental_state: str,
+    detected_language: str,
     kb_snippets: list[dict[str, str]],
     memory_items: list[str],
     health_context: dict[str, Any],
@@ -70,6 +72,7 @@ def run_therapy_llm(
     health_block = json.dumps(health_context, ensure_ascii=False)[:1200]
 
     user_prompt = f"""Patient message: {user_text}
+Detected language: {detected_language}
 Detected mental_state: {mental_state}
 Fusion summary: {fusion_summary}
 Health / profile context (JSON): {health_block}

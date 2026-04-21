@@ -32,8 +32,8 @@ class PsqlSessionStore(SessionStore):
                     """
                     INSERT INTO psychology_psychologysession
                       (session_id, patient_id, preferred_language, started_at, ended_at, last_state,
-                       crisis_score_history_json, session_summary_json)
-                    VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, %s)
+                       crisis_score_history_json, session_summary_json, created_at)
+                    VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, %s, NOW() AT TIME ZONE 'utc')
                     """,
                     (
                         record.session_id,
@@ -249,8 +249,9 @@ def ensure_psychology_profile(pool: Any, patient_id: int) -> None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO psychology_psychologyprofile (user_id, health_context_json, personality_notes, preferred_language, physician_review_required)
-                VALUES (%s, '{}'::jsonb, '', 'en', false)
+                INSERT INTO psychology_psychologyprofile
+                  (user_id, health_context_json, personality_notes, preferred_language, physician_review_required, updated_at)
+                VALUES (%s, '{}'::jsonb, '', 'en', false, NOW() AT TIME ZONE 'utc')
                 ON CONFLICT (user_id) DO NOTHING
                 """,
                 (patient_id,),
@@ -277,7 +278,11 @@ def set_physician_review_required(pool: Any, patient_id: int, required: bool) ->
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE psychology_psychologyprofile SET physician_review_required = %s WHERE user_id = %s",
+                """
+                UPDATE psychology_psychologyprofile
+                SET physician_review_required = %s, updated_at = NOW() AT TIME ZONE 'utc'
+                WHERE user_id = %s
+                """,
                 (required, patient_id),
             )
         conn.commit()
@@ -287,7 +292,11 @@ def clear_physician_review_required(pool: Any, patient_id: int) -> None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE psychology_psychologyprofile SET physician_review_required = false WHERE user_id = %s",
+                """
+                UPDATE psychology_psychologyprofile
+                SET physician_review_required = false, updated_at = NOW() AT TIME ZONE 'utc'
+                WHERE user_id = %s
+                """,
                 (patient_id,),
             )
         conn.commit()

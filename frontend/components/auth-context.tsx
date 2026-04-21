@@ -72,10 +72,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     const { django } = getApiUrls()
     try {
-      await fetch(`${django}/api/auth/logout/`, {
+      const res = await fetch(`${django}/api/auth/logout/`, {
         method: 'POST',
         credentials: 'include',
       })
+      if (!res.ok) {
+        // Avoid throwing from logout for server-side auth cleanup issues.
+        console.warn('Logout endpoint responded with non-OK status:', res.status)
+      }
+    } catch (err) {
+      // Network or CORS failures should not block local logout navigation.
+      console.warn('Logout request failed:', err)
     } finally {
       setUser(null)
       router.push('/login')

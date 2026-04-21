@@ -193,6 +193,7 @@ class PsychologyService:
             reply, recommendation, technique, llm_anomalies, safety_mode = self._therapy_reply_multimodal(
                 user_text=payload.text,
                 mental_state=mental_state,
+                language_detected=language_detected,
                 recommendation=recommendation,
                 technique=technique,
                 kb_context=kb_context,
@@ -475,6 +476,7 @@ class PsychologyService:
         self,
         user_text: str,
         mental_state: MentalState,
+        language_detected: str,
         recommendation: str | None,
         technique: str,
         kb_context: list[dict[str, str]] | None,
@@ -489,11 +491,7 @@ class PsychologyService:
 
         anomalies: list[str] = []
         if retrieval_quality != "ok":
-            reply = (
-                "Thanks for sharing this. I want to support you carefully. "
-                "Could you tell me what feels heaviest right now, and what helped even a little in the past?"
-            )
-            return reply, recommendation, "supportive_reflection", ["llm_low_context_fallback"], "low_context"
+            anomalies.append(f"retrieval_{retrieval_quality}")
         fusion_summary = (
             f"label={fusion.label.value}, distress={fusion.distress_score}, "
             f"stress={fusion.stress_level}, modalities={[m.value for m in fusion.modalities_used]}, "
@@ -502,6 +500,7 @@ class PsychologyService:
         llm = run_therapy_llm(
             user_text=user_text,
             mental_state=mental_state.value,
+            detected_language=language_detected,
             kb_snippets=kb_context or [],
             memory_items=memory_items,
             health_context=health_context,
@@ -524,6 +523,12 @@ class PsychologyService:
             if not isinstance(citations, list) or len(citations) == 0:
                 anomalies.append("llm_missing_citations")
             return llm["reply"].strip(), rec_out, tech_out, anomalies, str(llm.get("safety_mode") or "normal")
+        if retrieval_quality != "ok":
+            reply = (
+                "Thanks for sharing this. I want to support you carefully. "
+                "Could you tell me what feels heaviest right now, and what helped even a little in the past?"
+            )
+            return reply, recommendation, "supportive_reflection", anomalies + ["llm_low_context_fallback"], "low_context"
         tpl = self._therapy_reply_template(user_text, mental_state, recommendation, kb_context)
         fallback_mode = "elevated_guard" if safety_tier == "elevated" else "normal"
         if safety_tier == "elevated":
@@ -677,13 +682,35 @@ class PsychologyService:
 
     def _detect_language(self, text: str) -> str:
         lower = text.lower()
-        if any(token in lower for token in ("le", "la", "bonjour", "merci", "je ", "vous ")):
-            return "fr"
-        if any(token in text for token in ("ال", "مرحبا", "أشعر")):
-            return "ar"
-        if any(token in lower for token in ("chnowa", "barsha", "barcha", "3andi", "mouch")):
+        darija_tokens = (
+            "chnowa",
+            "chnowa",
+            "barsha",
+            "barcha",
+            "3andi",
+            "3and",
+            "mouch",
+            "manich",
+            "nheb",
+            "naamel",
+            "brabi",
+            "sbeh",
+            "labes",
+            "wallahi",
+            "yesser",
+            "bezef",
+            "fama",
+            "maaneha",
+        )
+        if any(token in lower for token in darija_tokens):
             return "darija"
-        if any(token in lower for token in ("bonjour", "hello", "مرحبا")):
+        if any(ch in text for ch in ("3", "5", "7", "9")) and any(token in lower for token in ("ani", "enti", "howa", "hiya", "nheb", "3andi", "mouch")):
+            return "darija"
+        if any(token in text for token in ("ال", "مرحبا", "أشعر", "انا", "أنت", "كيف")):
+            return "ar"
+        if any(token in lower for token in ("bonjour", "merci", "salut", "je ", "vous ", "ça", "s'il", "avec")):
+            return "fr"
+        if any(token in lower for token in ("bonjour", "hello", "مرحبا", "salam")):
             return "mixed"
         return "en"
 

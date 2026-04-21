@@ -35,6 +35,22 @@ type LiveEmotion = {
   timestamp: string
 }
 
+function getErrorMessage(error: unknown): string {
+  const fallback = 'Could not start session.'
+  if (error instanceof Error && error.message) {
+    const raw = error.message.trim()
+    if (!raw) return fallback
+    try {
+      const parsed = JSON.parse(raw) as { detail?: string }
+      if (parsed?.detail && typeof parsed.detail === 'string') return parsed.detail
+    } catch {
+      // Non-JSON error payload; use raw message.
+    }
+    return raw
+  }
+  return fallback
+}
+
 export default function PsychologyPage() {
   const { user } = useAuth()
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -85,8 +101,8 @@ export default function PsychologyPage() {
       setSessionBlocked(null)
       setSessionId(payload.session_id)
       return payload.session_id
-    } catch {
-      setSessionBlocked('Could not start session.')
+    } catch (error) {
+      setSessionBlocked(getErrorMessage(error))
       setSessionId(null)
       return null
     } finally {
@@ -108,10 +124,10 @@ export default function PsychologyPage() {
         setSessionBlocked(null)
         setSessionId(payload.session_id)
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
           setSessionId(null)
-          setSessionBlocked('Could not start session.')
+          setSessionBlocked(getErrorMessage(error))
         }
       })
     return () => {
@@ -245,10 +261,17 @@ export default function PsychologyPage() {
   )
 
   async function submitMessage() {
-    if (!input.trim() || !patientId) return
+    if (!input.trim()) return
+    if (!patientId) {
+      setChatError('Your patient profile is not loaded yet. Refresh the page and try again.')
+      return
+    }
     setChatError(null)
     const activeSessionId = await ensureSessionStarted()
-    if (!activeSessionId) return
+    if (!activeSessionId) {
+      setChatError(sessionBlocked || 'Could not start a therapy session. Please try again in a moment.')
+      return
+    }
     const patientText = input.trim()
     setInput('')
     setChat((old) => [...old, { role: 'patient', content: patientText }])
