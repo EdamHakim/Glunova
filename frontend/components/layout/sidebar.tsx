@@ -28,17 +28,18 @@ const menuItems: MenuItem[] = [
     label: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
+    allowedRoles: ['doctor'],
+  },
+  {
+    label: 'Monitoring',
+    href: '/dashboard/monitoring',
+    icon: TrendingUp,
   },
   {
     label: 'Screening',
     href: '/dashboard/screening',
     icon: Stethoscope,
     allowedRoles: ['patient'],
-  },
-  {
-    label: 'Monitoring',
-    href: '/dashboard/monitoring',
-    icon: TrendingUp,
   },
   {
     label: 'Nutrition & Activity',
@@ -88,7 +89,9 @@ export default function Sidebar() {
         <ul className="space-y-2">
           {visibleMenuItems.map((item) => {
             const Icon = item.icon
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+            const isActive = item.href === '/dashboard' 
+              ? pathname === '/dashboard' 
+              : pathname === item.href || pathname.startsWith(item.href + '/')
             return (
               <li key={item.href}>
                 <Link

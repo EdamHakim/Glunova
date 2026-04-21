@@ -14,15 +14,22 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAuth } from '@/components/auth-context'
+import type { UserRole } from '@/lib/auth'
 
-const mobileNavItems = [
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Screening', href: '/dashboard/screening' },
+type NavItem = {
+  label: string
+  href: string
+  allowedRoles?: UserRole[]
+}
+
+const mobileNavItems: NavItem[] = [
+  { label: 'Dashboard', href: '/dashboard', allowedRoles: ['doctor'] },
+  { label: 'Screening', href: '/dashboard/screening', allowedRoles: ['patient'] },
   { label: 'Monitoring', href: '/dashboard/monitoring' },
   { label: 'Nutrition', href: '/dashboard/nutrition' },
   { label: 'Psychology', href: '/dashboard/psychology' },
   { label: 'Care Circle', href: '/dashboard/care-circle' },
-  { label: 'Clinical', href: '/dashboard/clinical' },
+  { label: 'Clinical', href: '/dashboard/clinical', allowedRoles: ['doctor'] },
   { label: 'Settings', href: '/dashboard/settings' },
 ]
 
@@ -43,11 +50,13 @@ export default function Navbar() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
-            {mobileNavItems.map((item) => (
-              <DropdownMenuItem key={item.href} asChild>
-                <Link href={item.href}>{item.label}</Link>
-              </DropdownMenuItem>
-            ))}
+            {mobileNavItems
+              .filter((item) => !item.allowedRoles || (user?.role && item.allowedRoles.includes(user.role)))
+              .map((item) => (
+                <DropdownMenuItem key={item.href} asChild>
+                  <Link href={item.href}>{item.label}</Link>
+                </DropdownMenuItem>
+              ))}
           </DropdownMenuContent>
         </DropdownMenu>
 

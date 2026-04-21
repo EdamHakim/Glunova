@@ -26,9 +26,14 @@ function LoginForm() {
     setLocalError(null)
     
     try {
-      await login(username, password)
+      const user = await login(username, password)
       const next = searchParams.get('next')
-      router.push(next || '/dashboard')
+      if (next) {
+        router.push(next)
+      } else {
+        const landingPage = user?.role === 'doctor' ? '/dashboard' : '/dashboard/monitoring'
+        router.push(landingPage)
+      }
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : 'Invalid credentials. Please try again.')
     } finally {

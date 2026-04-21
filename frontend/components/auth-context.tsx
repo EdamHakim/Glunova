@@ -8,7 +8,7 @@ interface AuthContextType {
   user: AuthUser | null
   loading: boolean
   error: string | null
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<AuthUser | null>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -40,15 +40,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!user && !isPublicPath) {
         router.push(`/login?next=${pathname}`)
       } else if (user && isPublicPath && pathname !== '/') {
-         // Redirect to dashboard if logged in and trying to access login/signup
+         // Redirect to appropriate page if logged in and trying to access login/signup
          if (pathname === '/login' || pathname === '/signup') {
-            router.push('/dashboard')
+            const landingPage = user.role === 'doctor' ? '/dashboard' : '/dashboard/monitoring'
+            router.push(landingPage)
          }
       }
     }
   }, [user, loading, pathname, router])
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<AuthUser | null> => {
     setError(null)
     const { django } = getApiUrls()
     try {
@@ -62,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Invalid credentials')
       }
       await refreshUser()
-      router.push('/dashboard')
+      return await fetchCurrentSessionUser()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
       throw err
