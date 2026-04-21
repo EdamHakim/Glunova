@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { MessageCircle, BarChart3, Heart, Zap, AlertTriangle } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MessageCircle, BarChart3, Heart, Zap, AlertTriangle, Video, Mic, CameraOff } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,30 +9,51 @@ import { Progress } from '@/components/ui/progress'
 import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import {
+  acknowledgeCrisisEvent,
+  clearPhysicianSessionGate,
   endPsychologySession,
   getPsychologyTrends,
   listCrisisEvents,
+  psychologyWsBase,
   sendPsychologyMessage,
   startPsychologySession,
   type CrisisEvent,
   type PsychologyMessageResult,
   type TrendPoint,
 } from '@/lib/psychology-api'
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 type ChatBubble = {
   role: 'patient' | 'assistant'
   content: string
 }
 
+type LiveEmotion = {
+  label: string
+  confidence: number
+  distress_score: number
+  timestamp: string
+}
+
 export default function PsychologyPage() {
   const { user } = useAuth()
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionBlocked, setSessionBlocked] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [chat, setChat] = useState<ChatBubble[]>([])
   const [latestResult, setLatestResult] = useState<PsychologyMessageResult | null>(null)
   const [trends, setTrends] = useState<TrendPoint[]>([])
   const [crisisEvents, setCrisisEvents] = useState<CrisisEvent[]>([])
   const [loading, setLoading] = useState(false)
+  const [cameraOn, setCameraOn] = useState(false)
+  const [liveEmotion, setLiveEmotion] = useState<LiveEmotion | null>(null)
+  const [micListening, setMicListening] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+  const captureTimerRef = useRef<number | null>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+
   const role = user?.role
   const isPatient = role === 'patient'
   const isDoctor = role === 'doctor'
@@ -48,10 +69,20 @@ export default function PsychologyPage() {
     let cancelled = false
     void startPsychologySession(patientId, 'en')
       .then((payload) => {
-        if (!cancelled) setSessionId(payload.session_id)
+        if (cancelled) return
+        if (payload.allowed === false) {
+          setSessionId(null)
+          setSessionBlocked(payload.block_reason || 'Session not available.')
+          return
+        }
+        setSessionBlocked(null)
+        setSessionId(payload.session_id)
       })
       .catch(() => {
-        if (!cancelled) setSessionId(null)
+        if (!cancelled) {
+          setSessionId(null)
+          setSessionBlocked('Could not start session.')
+        }
       })
     return () => {
       cancelled = true
@@ -80,10 +111,104 @@ export default function PsychologyPage() {
     }
   }, [patientId, isDoctor])
 
+  const stopCamera = useCallback(() => {
+    if (captureTimerRef.current != null) {
+      window.clearInterval(captureTimerRef.current)
+      captureTimerRef.current = null
+    }
+    wsRef.current?.close()
+    wsRef.current = null
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setCameraOn(false)
+    setLiveEmotion(null)
+  }, [])
+
+  const startCamera = useCallback(async () => {
+    if (!patientId || !isPatient) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play().catch(() => {})
+      }
+      const wsUrl = `${psychologyWsBase()}${process.env.NEXT_PUBLIC_PSYCHOLOGY_PREFIX || '/psychology'}/ws/emotion/${patientId}`
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(String(ev.data)) as LiveEmotion
+          setLiveEmotion(data)
+        } catch {
+          /* ignore */
+        }
+      }
+      const canvas = document.createElement('canvas')
+      const w = 320
+      const h = 240
+      canvas.width = w
+      canvas.height = h
+      const tick = () => {
+        const vid = videoRef.current
+        const socket = wsRef.current
+        if (!vid || !socket || socket.readyState !== WebSocket.OPEN) return
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(vid, 0, 0, w, h)
+        const frame = canvas.toDataURL('image/jpeg', 0.55)
+        socket.send(JSON.stringify({ frame_base64: frame }))
+      }
+      captureTimerRef.current = window.setInterval(tick, 500)
+      setCameraOn(true)
+    } catch {
+      setCameraOn(false)
+    }
+  }, [isPatient, patientId])
+
+  useEffect(() => () => stopCamera(), [stopCamera])
+
+  const toggleMic = useCallback(() => {
+    const SR = typeof window !== 'undefined' && (window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition)
+    if (!SR) return
+    if (micListening) {
+      recognitionRef.current?.stop()
+      recognitionRef.current = null
+      setMicListening(false)
+      return
+    }
+    const rec = new SR()
+    rec.lang = 'fr-FR'
+    rec.interimResults = false
+    rec.continuous = false
+    rec.onresult = (event) => {
+      const text = event.results[0]?.[0]?.transcript?.trim()
+      if (text) setInput((prev) => (prev ? `${prev} ${text}` : text))
+    }
+    rec.onend = () => {
+      setMicListening(false)
+      recognitionRef.current = null
+    }
+    recognitionRef.current = rec
+    rec.start()
+    setMicListening(true)
+  }, [micListening])
+
   const stressPercent = useMemo(() => {
     if (!latestResult) return 25
     return Math.round(Math.max(0, Math.min(100, latestResult.distress_score * 100)))
   }, [latestResult])
+
+  const chartData = useMemo(
+    () =>
+      trends.map((p, i) => ({
+        name: `${i + 1}`,
+        distress: Math.round(p.distress_score * 100),
+        state: p.state,
+      })),
+    [trends],
+  )
 
   async function submitMessage() {
     if (!sessionId || !input.trim() || !patientId) return
@@ -112,11 +237,48 @@ export default function PsychologyPage() {
     setSessionId(null)
   }
 
+  async function onAckCrisis(ev: CrisisEvent) {
+    try {
+      await acknowledgeCrisisEvent(ev.id, isDoctor ? undefined : patientId)
+      const items = await listCrisisEvents(isDoctor ? undefined : patientId)
+      setCrisisEvents(items)
+    } catch {
+      /* noop */
+    }
+  }
+
+  async function onClearGate(pid: number) {
+    try {
+      await clearPhysicianSessionGate(pid)
+      const items = await listCrisisEvents(isDoctor ? undefined : patientId)
+      setCrisisEvents(items)
+      if (isPatient && pid === patientId) {
+        const payload = await startPsychologySession(pid, 'en')
+        if (payload.allowed && payload.session_id) {
+          setSessionBlocked(null)
+          setSessionId(payload.session_id)
+        }
+      }
+    } catch {
+      /* noop */
+    }
+  }
+
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Psychology & Mental Wellness</h1>
         <p className="text-muted-foreground mt-2">{intro}</p>
+        {sessionBlocked && (
+          <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {sessionBlocked}
+          </div>
+        )}
+        {latestResult?.physician_review_required && !sessionBlocked && (
+          <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+            Physician review is active for this account. New AI sessions may be blocked until a clinician clears the gate.
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -130,8 +292,10 @@ export default function PsychologyPage() {
                 <Heart className="h-6 w-6 text-psychology-soft-purple" />
               </div>
               <div>
-                <p className="text-lg font-bold">{latestResult?.mental_state ?? 'Neutral'}</p>
-                <p className="text-xs text-muted-foreground">Current detected emotional state</p>
+                <p className="text-lg font-bold">{liveEmotion?.label ?? latestResult?.mental_state ?? 'Neutral'}</p>
+                <p className="text-xs text-muted-foreground">
+                  {liveEmotion ? `Live · ${Math.round((liveEmotion.confidence ?? 0) * 100)}% conf` : 'Current detected emotional state'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -143,10 +307,12 @@ export default function PsychologyPage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-3">
-              <div className="text-3xl font-bold text-health-warning">{stressPercent}%</div>
+              <div className="text-3xl font-bold text-health-warning">
+                {liveEmotion ? Math.round(liveEmotion.distress_score * 100) : stressPercent}%
+              </div>
               <div className="flex-1">
-                <Progress value={stressPercent} className="h-2" />
-                <p className="text-xs text-muted-foreground mt-1">Distress score from multimodal fusion</p>
+                <Progress value={liveEmotion ? liveEmotion.distress_score * 100 : stressPercent} className="h-2" />
+                <p className="text-xs text-muted-foreground mt-1">Distress score from multimodal fusion or camera stream</p>
               </div>
             </div>
           </CardContent>
@@ -183,6 +349,38 @@ export default function PsychologyPage() {
           </CardContent>
         </Card>
       </div>
+
+      {isPatient && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Video className="h-4 w-4" />
+              Camera & voice capture
+            </CardTitle>
+            <CardDescription>Stream face frames to the emotion WebSocket (2 fps). Use the mic for speech-to-text (browser).</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-3">
+            <video ref={videoRef} className="h-36 w-48 rounded-md border bg-black object-cover" playsInline muted />
+            <div className="flex flex-col gap-2">
+              <Button type="button" variant={cameraOn ? 'secondary' : 'default'} size="sm" onClick={() => (cameraOn ? stopCamera() : void startCamera())}>
+                {cameraOn ? (
+                  <>
+                    <CameraOff className="mr-2 h-4 w-4" /> Stop camera
+                  </>
+                ) : (
+                  <>
+                    <Video className="mr-2 h-4 w-4" /> Start camera + stream
+                  </>
+                )}
+              </Button>
+              <Button type="button" variant={micListening ? 'secondary' : 'outline'} size="sm" onClick={() => toggleMic()}>
+                <Mic className="mr-2 h-4 w-4" />
+                {micListening ? 'Stop microphone' : 'Speech to text (FR)'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
@@ -295,29 +493,24 @@ export default function PsychologyPage() {
           <CardDescription>
             {role === 'caregiver'
               ? 'A limited wellness overview for caregiver support'
-              : 'Weekly mood and stress patterns'}
+              : 'Recent distress trajectory from stored emotion logs'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="font-medium">Distress trajectory (7 sessions)</span>
-                <span className="text-sm text-muted-foreground">
-                  {trends.length > 0 ? `${Math.round(trends[trends.length - 1]!.distress_score * 100)}/100` : 'No data'}
-                </span>
-              </div>
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                {(trends.length > 0 ? trends : [{ distress_score: 0.25 } as TrendPoint]).map((point, idx) => (
-                  <div key={idx} className="flex flex-col items-center">
-                    <div
-                      className="w-full bg-health-warning rounded-sm"
-                      style={{ height: `${Math.max(6, point.distress_score * 60)}px` }}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">S{idx + 1}</p>
-                  </div>
-                ))}
-              </div>
+            <div className="h-56 w-full">
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v) => [`${v}`, 'Distress']} />
+                    <Line type="monotone" dataKey="distress" stroke="hsl(var(--primary))" strokeWidth={2} dot />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-sm text-muted-foreground">No trend points yet. Send a few check-in messages to populate the chart.</p>
+              )}
             </div>
             <div className="rounded-lg border border-border p-4">
               <div className="mb-2 flex items-center gap-2">
@@ -327,10 +520,23 @@ export default function PsychologyPage() {
               {crisisEvents.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No crisis events recorded.</p>
               ) : (
-                <div className="space-y-2">
-                  {crisisEvents.slice(0, 4).map((event) => (
-                    <div key={event.id} className="text-sm text-muted-foreground">
-                      Patient {event.patient_id} · {(event.probability * 100).toFixed(0)}% · {event.action_taken}
+                <div className="space-y-3">
+                  {crisisEvents.slice(0, 8).map((event) => (
+                    <div key={event.id} className="flex flex-col gap-2 border-b border-border/60 pb-2 text-sm text-muted-foreground last:border-0 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        Patient {event.patient_id} · {(event.probability * 100).toFixed(0)}% · {event.action_taken}
+                        {event.acknowledged_at && <span className="ml-2 text-xs text-health-success">Acknowledged</span>}
+                      </div>
+                      {isDoctor && !event.acknowledged_at && (
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => void onAckCrisis(event)}>
+                            Acknowledge
+                          </Button>
+                          <Button size="sm" onClick={() => void onClearGate(event.patient_id)}>
+                            Clear session gate
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

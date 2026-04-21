@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 
 from core.rbac import require_roles
 from psychology.schemas import (
+    CrisisAckRequest,
     CrisisEventsResponse,
     EmotionFrameRequest,
     EmotionFrameResponse,
     MessageRequest,
     MessageResponse,
+    PhysicianClearGateRequest,
     SessionEndRequest,
     SessionEndResponse,
     SessionSnapshotResponse,
@@ -20,10 +22,10 @@ from psychology.schemas import (
     TrendResponse,
 )
 from psychology.knowledge_ingestion import build_ingestion_manifest, get_knowledge_base
-from psychology.service import PsychologyService
+from psychology.service import create_psychology_service
 
 router = APIRouter(prefix="/psychology", tags=["psychology"])
-service = PsychologyService()
+service = create_psychology_service()
 knowledge_base = get_knowledge_base()
 
 
@@ -130,6 +132,29 @@ def knowledge_reindex(
 ) -> dict:
     count = knowledge_base.reindex_sources()
     return {"indexed_chunks": count, "qdrant_enabled": knowledge_base.enabled}
+
+
+@router.post("/crisis/ack")
+def crisis_acknowledge(
+    payload: CrisisAckRequest,
+    claims: dict = Depends(require_roles("doctor", "caregiver")),
+) -> dict:
+    patient_filter: int | None = payload.patient_id
+    if claims.get("role") == "caregiver" and patient_filter is None:
+        raise HTTPException(status_code=400, detail="patient_id required for caregiver acknowledgement")
+    ok = service.acknowledge_crisis(payload.event_id, patient_filter)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Crisis event not found or already acknowledged")
+    return {"ok": True}
+
+
+@router.post("/physician/clear-gate")
+def physician_clear_gate(
+    payload: PhysicianClearGateRequest,
+    _claims: dict = Depends(require_roles("doctor")),
+) -> dict:
+    service.clear_physician_gate(payload.patient_id)
+    return {"ok": True}
 
 
 @router.get("/knowledge/search")

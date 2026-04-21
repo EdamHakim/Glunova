@@ -7,12 +7,21 @@ const base = () => {
   return 'http://localhost:8000'
 }
 
+export const psychologyWsBase = () => {
+  const b = base()
+  if (b.startsWith('https://')) return `wss://${b.slice('https://'.length)}`
+  if (b.startsWith('http://')) return `ws://${b.slice('http://'.length)}`
+  return b.replace(/^http/, 'ws')
+}
+
 const psychologyPrefix = () => process.env.NEXT_PUBLIC_PSYCHOLOGY_PREFIX || '/psychology'
 
 export type PsychologyMessagePayload = {
   session_id: string
   patient_id: number
   text: string
+  speech_transcript?: string
+  speech_audio_base64?: string
 }
 
 export type PsychologyMessageResult = {
@@ -25,6 +34,7 @@ export type PsychologyMessageResult = {
   recommendation: string | null
   crisis_detected: boolean
   mental_state: 'Neutral' | 'Anxious' | 'Distressed' | 'Depressed' | 'Crisis'
+  physician_review_required?: boolean
 }
 
 export type TrendPoint = {
@@ -47,6 +57,17 @@ export type CrisisEvent = {
   probability: number
   action_taken: string
   created_at: string
+  acknowledged_at?: string | null
+}
+
+export type SessionStartPayload = {
+  session_id: string | null
+  patient_id: number
+  started_at: string | null
+  memory_items_loaded: number
+  allowed: boolean
+  block_reason?: string | null
+  physician_review_required?: boolean
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -63,7 +84,7 @@ export async function startPsychologySession(patientId: number, preferredLanguag
     credentials: 'include',
     body: JSON.stringify({ patient_id: patientId, preferred_language: preferredLanguage }),
   })
-  return parseJson<{ session_id: string; patient_id: number; started_at: string }>(response)
+  return parseJson<SessionStartPayload>(response)
 }
 
 export async function sendPsychologyMessage(payload: PsychologyMessagePayload) {
@@ -107,4 +128,24 @@ export async function listCrisisEvents(patientId?: number) {
   })
   const payload = await parseJson<{ items: CrisisEvent[] }>(response)
   return payload.items
+}
+
+export async function acknowledgeCrisisEvent(eventId: string, patientId?: number) {
+  const response = await fetch(`${base()}${psychologyPrefix()}/crisis/ack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ event_id: eventId, patient_id: patientId }),
+  })
+  return parseJson<{ ok: boolean }>(response)
+}
+
+export async function clearPhysicianSessionGate(patientId: number) {
+  const response = await fetch(`${base()}${psychologyPrefix()}/physician/clear-gate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ patient_id: patientId }),
+  })
+  return parseJson<{ ok: boolean }>(response)
 }

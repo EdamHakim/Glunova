@@ -5,9 +5,12 @@ from datetime import datetime
 from statistics import fmean
 import base64
 import binascii
+import json
+import logging
 import math
 import tempfile
 import uuid
+from typing import Any
 
 import numpy as np
 
@@ -29,12 +32,18 @@ from psychology.schemas import (
 )
 from psychology.knowledge_ingestion import get_knowledge_base
 from psychology.storage import (
+    CrisisStore,
     InMemoryCrisisStore,
     InMemoryMemoryStore,
     InMemorySessionStore,
     InMemoryTrendStore,
+    MemoryStore,
     SessionRecord,
+    SessionStore,
+    TrendStore,
 )
+
+logger = logging.getLogger(__name__)
 
 
 DISTRESS_THRESHOLDS: dict[MentalState, tuple[float, float]] = {
@@ -63,18 +72,38 @@ class SessionData:
 
 
 class PsychologyService:
-    def __init__(self) -> None:
-        self._sessions = InMemorySessionStore()
-        self._crisis_events = InMemoryCrisisStore()
-        self._emotion_logs = InMemoryTrendStore()
-        self._memories = InMemoryMemoryStore()
+    def __init__(
+        self,
+        pool: Any | None = None,
+        sessions: SessionStore | None = None,
+        crisis_events: CrisisStore | None = None,
+        emotion_logs: TrendStore | None = None,
+        memories: MemoryStore | None = None,
+    ) -> None:
+        self._pool = pool
+        self._sessions = sessions or InMemorySessionStore()
+        self._crisis_events = crisis_events or InMemoryCrisisStore()
+        self._emotion_logs = emotion_logs or InMemoryTrendStore()
+        self._memories = memories or InMemoryMemoryStore()
         self._knowledge_base = get_knowledge_base()
         self._deepface_available = None
         self._speechbrain_available = None
 
     def start_session(self, patient_id: int, preferred_language: str) -> SessionStartResponse:
-        session_id = str(uuid.uuid4())
         started = datetime.utcnow()
+        if self._pool is not None:
+            from psychology.repositories import get_physician_review_required
+
+            if get_physician_review_required(self._pool, patient_id):
+                return SessionStartResponse(
+                    patient_id=patient_id,
+                    started_at=started,
+                    allowed=False,
+                    block_reason="Physician review is required before starting another AI session.",
+                    physician_review_required=True,
+                    memory_items_loaded=0,
+                )
+        session_id = str(uuid.uuid4())
         self._sessions.create_session(
             SessionRecord(
                 session_id=session_id,
@@ -84,11 +113,14 @@ class PsychologyService:
             )
         )
         memories = self._memories.top(patient_id, 3)
+        logger.info("psychology.session.start patient_id=%s session_id=%s", patient_id, session_id)
         return SessionStartResponse(
             session_id=session_id,
             patient_id=patient_id,
             started_at=started,
             memory_items_loaded=min(3, len(memories)),
+            allowed=True,
+            physician_review_required=False,
         )
 
     def handle_message(self, payload: MessageRequest) -> MessageResponse:
@@ -106,14 +138,37 @@ class PsychologyService:
         )
         language_detected = self._detect_language(payload.text)
         crisis_probability = self._crisis_probability(payload.text)
-        crisis_detected = crisis_probability >= CRISIS_THRESHOLD
+        hist = list(raw_session.crisis_score_history)
+        hist.append(crisis_probability)
+        hist = hist[-8:]
+        raw_session.crisis_score_history = hist
+        crisis_detected = self._crisis_trigger(crisis_probability, hist)
+        logger.info(
+            "psychology.message crisis_prob=%.3f crisis=%s session_id=%s",
+            crisis_probability,
+            crisis_detected,
+            payload.session_id,
+        )
         fusion = self._fusion(payload)
         trend_slope = self._trend_slope(payload.patient_id)
         mental_state = self._classify_mental_state(fusion.distress_score, crisis_detected, trend_slope)
-        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=2)
+        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=3)
+        memory_items = self._memories.top(payload.patient_id, 3)
+        health_context: dict[str, Any] = {}
+        if self._pool is not None:
+            from psychology.repositories import get_patient_health_context
+
+            health_context = get_patient_health_context(self._pool, payload.patient_id)
         session.last_state = mental_state
 
-        patient_msg = TherapyMessageInput(role="patient", content=payload.text)
+        fusion_meta = json.loads(fusion.model_dump_json())
+        fusion_meta["crisis_probability"] = crisis_probability
+        fusion_meta["language_detected"] = language_detected
+        patient_msg = TherapyMessageInput(
+            role="patient",
+            content=payload.text,
+            fusion_metadata=fusion_meta,
+        )
         session.messages.append(patient_msg)
         session.messages[:] = session.messages[-MAX_SHORT_MEMORY:]
 
@@ -125,7 +180,16 @@ class PsychologyService:
         else:
             recommendation = self._recommendation(mental_state)
             technique = self._technique_for_state(mental_state)
-            reply = self._therapy_reply(payload.text, mental_state, recommendation, kb_context)
+            reply, recommendation, technique = self._therapy_reply_multimodal(
+                user_text=payload.text,
+                mental_state=mental_state,
+                recommendation=recommendation,
+                technique=technique,
+                kb_context=kb_context,
+                memory_items=memory_items,
+                health_context=health_context,
+                fusion=fusion,
+            )
 
         assistant_msg = TherapyMessageInput(role="assistant", content=reply)
         session.messages.append(assistant_msg)
@@ -138,6 +202,17 @@ class PsychologyService:
         raw_session.ended_at = session.ended_at
         self._sessions.put_session(raw_session)
 
+        physician_review_required = False
+        if self._pool is not None:
+            from psychology.repositories import get_physician_review_required
+
+            physician_review_required = get_physician_review_required(self._pool, payload.patient_id)
+
+        logger.info(
+            "psychology.message.complete mental_state=%s distress=%.3f",
+            mental_state.value,
+            fusion.distress_score,
+        )
         return MessageResponse(
             session_id=payload.session_id,
             reply=reply,
@@ -149,6 +224,7 @@ class PsychologyService:
             crisis_detected=crisis_detected,
             mental_state=mental_state,
             fusion=fusion,
+            physician_review_required=physician_review_required,
         )
 
     def detect_emotion_frame(self, patient_id: int, frame_base64: str) -> EmotionFrameResponse:
@@ -168,6 +244,11 @@ class PsychologyService:
         else:
             label, confidence = face
             score = self._label_to_distress(label)
+        ms = self._classify_mental_state(score, crisis_detected=False, trend_slope=0.0)
+        self._emotion_logs.append(
+            patient_id,
+            TrendPoint(timestamp=datetime.utcnow(), distress_score=score, state=ms),
+        )
         return EmotionFrameResponse(
             patient_id=patient_id,
             label=label,
@@ -200,14 +281,30 @@ class PsychologyService:
     def list_crisis_events(self) -> list[CrisisEvent]:
         return self._crisis_events.list()
 
+    def acknowledge_crisis(self, event_id: str, patient_id: int | None) -> bool:
+        if self._pool is None:
+            return False
+        from psychology.repositories import acknowledge_crisis_event
+
+        return acknowledge_crisis_event(self._pool, event_id, patient_id)
+
+    def clear_physician_gate(self, patient_id: int) -> None:
+        if self._pool is None:
+            return
+        from psychology.repositories import clear_physician_review_required
+
+        clear_physician_review_required(self._pool, patient_id)
+
     def end_session(self, session_id: str, patient_id: int) -> SessionEndResponse:
         session = self._sessions.get_session(session_id)
         if session is None:
             raise KeyError(session_id)
         session.ended_at = datetime.utcnow()
-        summary = self._build_summary(session)
-        self._memories.append(patient_id, summary)
+        summary_dict = self._build_summary_dict(session)
+        session.session_summary_json = summary_dict
+        self._memories.append(patient_id, json.dumps(summary_dict, ensure_ascii=False))
         self._sessions.put_session(session)
+        logger.info("psychology.session.end session_id=%s patient_id=%s", session_id, patient_id)
         return SessionEndResponse(
             session_id=session_id,
             summary_stored=True,
@@ -292,10 +389,15 @@ class PsychologyService:
                 patient_id=patient_id,
                 session_id=session_id,
                 probability=probability,
-                action_taken="Safe response returned + immediate doctor alert",
+                action_taken="Safe response returned + physician review gate raised",
                 created_at=datetime.utcnow(),
             )
         )
+        if self._pool is not None:
+            from psychology.repositories import set_physician_review_required
+
+            set_physician_review_required(self._pool, patient_id, True)
+        logger.warning("psychology.crisis.trigger patient_id=%s session_id=%s prob=%.3f", patient_id, session_id, probability)
 
     def _text_emotion(self, text: str) -> tuple[EmotionLabel, float, float]:
         lower = text.lower()
@@ -327,7 +429,53 @@ class PsychologyService:
             return "behavioral_activation"
         return "supportive_reflection"
 
-    def _therapy_reply(
+    @staticmethod
+    def _crisis_trigger(probability: float, history: list[float]) -> bool:
+        if probability >= CRISIS_THRESHOLD:
+            return True
+        tail = history[-3:]
+        if len(tail) < 3:
+            return False
+        return (sum(tail) / 3.0) >= 0.65 and probability >= 0.60
+
+    def _therapy_reply_multimodal(
+        self,
+        user_text: str,
+        mental_state: MentalState,
+        recommendation: str | None,
+        technique: str,
+        kb_context: list[dict[str, str]] | None,
+        memory_items: list[str],
+        health_context: dict[str, Any],
+        fusion: FusionOutput,
+    ) -> tuple[str, str | None, str]:
+        from psychology.llm_therapy import run_therapy_llm
+
+        fusion_summary = (
+            f"label={fusion.label.value}, distress={fusion.distress_score}, "
+            f"stress={fusion.stress_level}, modalities={[m.value for m in fusion.modalities_used]}"
+        )
+        llm = run_therapy_llm(
+            user_text=user_text,
+            mental_state=mental_state.value,
+            kb_snippets=kb_context or [],
+            memory_items=memory_items,
+            health_context=health_context,
+            fusion_summary=fusion_summary,
+        )
+        if llm and isinstance(llm.get("reply"), str) and llm["reply"].strip():
+            rec = llm.get("recommendation")
+            if isinstance(rec, str):
+                rec_out: str | None = rec.strip() or recommendation
+            else:
+                rec_out = recommendation
+            tech = llm.get("technique")
+            tech_out = tech.strip() if isinstance(tech, str) and tech.strip() else technique
+            return llm["reply"].strip(), rec_out, tech_out
+        tpl = self._therapy_reply_template(user_text, mental_state, recommendation, kb_context)
+        return tpl, recommendation, technique
+
+    def _therapy_reply_template(
         self,
         user_text: str,
         state: MentalState,
@@ -358,12 +506,34 @@ class PsychologyService:
             )
         return SAFE_CRISIS_REPLY
 
-    def _build_summary(self, session: SessionData | SessionRecord) -> str:
-        last_user = [msg.content for msg in session.messages if msg.role == "patient"][-1:] or [""]
-        return (
-            f"Session {session.session_id} summary: last_state={session.last_state or MentalState.neutral}, "
-            f"last_patient_message={last_user[0][:160]}"
-        )
+    def _build_summary_dict(self, session: SessionData | SessionRecord) -> dict[str, Any]:
+        patient_msgs = [msg.content for msg in session.messages if msg.role == "patient"]
+        last_user = patient_msgs[-1:] or [""]
+        risk_flags: list[str] = []
+        joined = " ".join(patient_msgs).lower()
+        for token in ("suicide", "hurt myself", "hopeless", "worthless"):
+            if token in joined:
+                risk_flags.append(token)
+        last_state = session.last_state
+        if isinstance(last_state, MentalState):
+            ls = last_state.value
+        elif isinstance(last_state, str):
+            ls = last_state
+        else:
+            ls = MentalState.neutral.value
+        return {
+            "session_id": session.session_id,
+            "last_state": ls,
+            "last_patient_message_excerpt": last_user[0][:200],
+            "risk_flags": risk_flags,
+            "breakthroughs": [],
+            "triggers": [],
+            "emotions_trail": [
+                (m.fusion_metadata or {}).get("label")
+                for m in session.messages
+                if isinstance(m.fusion_metadata, dict)
+            ],
+        }
 
     def _detect_language(self, text: str) -> str:
         lower = text.lower()
@@ -513,3 +683,21 @@ class PsychologyService:
         if label in {"neu", "neutral"}:
             return EmotionLabel.neutral
         return EmotionLabel.anxious
+
+
+def create_psychology_service() -> PsychologyService:
+    from psychology.db import get_connection_pool
+    from psychology.patient_memory import build_memory_store
+    from psychology.repositories import PsqlCrisisStore, PsqlSessionStore, PsqlTrendStore
+
+    memories = build_memory_store()
+    pool = get_connection_pool()
+    if pool is not None:
+        return PsychologyService(
+            pool=pool,
+            sessions=PsqlSessionStore(pool),
+            crisis_events=PsqlCrisisStore(pool),
+            emotion_logs=PsqlTrendStore(pool),
+            memories=memories,
+        )
+    return PsychologyService(memories=memories)

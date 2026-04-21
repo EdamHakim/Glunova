@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,7 +19,16 @@ from psychology.router import router as psychology_router
 from screening.router import router as screening_router
 from extraction.router import router as extraction_router
 
-app = FastAPI(title="Glunova AI Engine")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    from psychology.db import close_pool
+
+    close_pool()
+
+
+app = FastAPI(title="Glunova AI Engine", lifespan=lifespan)
 
 raw_origins = os.getenv("FRONTEND_ORIGINS", "")
 frontend_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
@@ -48,3 +58,16 @@ app.include_router(kids_router)
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "fastapi_ai"}
+
+
+@app.get("/health/psychology")
+def health_psychology() -> dict:
+    from psychology.db import get_connection_pool
+    from psychology.knowledge_ingestion import get_knowledge_base
+
+    pool = get_connection_pool()
+    kb = get_knowledge_base()
+    return {
+        "postgres_pool": pool is not None,
+        "qdrant_cbt": bool(getattr(kb, "enabled", False)),
+    }

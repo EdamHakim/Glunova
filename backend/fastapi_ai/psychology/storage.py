@@ -16,6 +16,8 @@ class SessionRecord:
     ended_at: datetime | None = None
     messages: list[TherapyMessageInput] = field(default_factory=list)
     last_state: str | None = None
+    crisis_score_history: list[float] = field(default_factory=list)
+    session_summary_json: dict | None = None
 
 
 class SessionStore(Protocol):

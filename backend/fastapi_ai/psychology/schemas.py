@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class MentalState(str, Enum):
@@ -32,6 +32,7 @@ class TherapyMessageInput(BaseModel):
     role: Literal["patient", "assistant"]
     content: str = Field(min_length=1, max_length=4000)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    fusion_metadata: dict | None = None
 
 
 class SessionStartRequest(BaseModel):
@@ -40,16 +41,19 @@ class SessionStartRequest(BaseModel):
 
 
 class SessionStartResponse(BaseModel):
-    session_id: str
+    session_id: str | None = None
     patient_id: int
-    started_at: datetime
-    memory_items_loaded: int
+    started_at: datetime | None = None
+    memory_items_loaded: int = 0
+    allowed: bool = True
+    block_reason: str | None = None
+    physician_review_required: bool = False
 
 
 class MessageRequest(BaseModel):
     session_id: str
     patient_id: int = Field(gt=0)
-    text: str = Field(min_length=1, max_length=4000)
+    text: str = Field(default="", max_length=4000)
     face_frame_base64: str | None = None
     face_emotion: EmotionLabel | None = None
     face_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -57,6 +61,22 @@ class MessageRequest(BaseModel):
     speech_emotion: EmotionLabel | None = None
     speech_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     speech_transcript: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def merge_voice_transcript(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            t = (data.get("text") or "").strip()
+            st = (data.get("speech_transcript") or "").strip()
+            if not t and st:
+                data = {**data, "text": st}
+        return data
+
+    @model_validator(mode="after")
+    def require_text(self) -> MessageRequest:
+        if not (self.text or "").strip():
+            raise ValueError("text or speech_transcript is required")
+        return self
 
 
 class FusionOutput(BaseModel):
@@ -79,6 +99,16 @@ class MessageResponse(BaseModel):
     crisis_detected: bool
     mental_state: MentalState
     fusion: FusionOutput
+    physician_review_required: bool = False
+
+
+class CrisisAckRequest(BaseModel):
+    event_id: str
+    patient_id: int | None = Field(default=None, gt=0)
+
+
+class PhysicianClearGateRequest(BaseModel):
+    patient_id: int = Field(gt=0)
 
 
 class EmotionFrameRequest(BaseModel):
@@ -123,6 +153,7 @@ class CrisisEvent(BaseModel):
     probability: float = Field(ge=0.0, le=1.0)
     action_taken: str
     created_at: datetime
+    acknowledged_at: datetime | None = None
 
 
 class CrisisEventsResponse(BaseModel):

@@ -13,6 +13,8 @@ This checklist maps the architecture spec to current implementation status so th
   - `GET /psychology/trends/{patient_id}`
   - `GET /psychology/crisis/events`
   - `POST /psychology/session/end`
+- [x] `POST /psychology/crisis/ack` — acknowledge a crisis row (doctor/caregiver; caregiver must scope `patient_id`).
+- [x] `POST /psychology/physician/clear-gate` — clear `physician_review_required` on profile after review (doctor).
 - [x] Added WebSocket streaming endpoint:
   - `WS /psychology/ws/emotion/{patient_id}` (2fps cadence in server loop)
 - [x] Implemented full message pipeline structure inside service handler.
@@ -22,11 +24,40 @@ This checklist maps the architecture spec to current implementation status so th
 - [x] Implemented deterministic mental state classifier (Crisis / Depressed / Distressed / Anxious / Neutral).
 - [x] Added DeepFace integration hook for face emotion inference with fallback.
 - [x] Added SpeechBrain integration hook for speech emotion inference with fallback.
+- [x] Append face-frame inference points into the same emotion trend store as chat turns (persistence when DB enabled).
 
 ### Crisis Safety Layer
 - [x] Implemented crisis short-circuit behavior before normal response flow.
 - [x] Implemented safe static crisis response path.
 - [x] Implemented crisis event persistence abstraction and retrieval endpoint.
+- [x] Sustained distress pattern: rolling window in addition to single-shot `>= 0.75` crisis probability (heuristic text scorer, not XLM-R yet).
+- [x] Physician review gate: profile flag, crisis raises gate, `session/start` blocked until cleared via API.
+
+### Data Storage (PostgreSQL — partial vs full architecture)
+- [x] Django models + migration: `PsychologyProfile`, `PsychologySession` (UUID `session_id`), `PsychologyMessage`, `PsychologyCrisisEvent`, `PsychologyEmotionLog`.
+- [x] FastAPI `psycopg` pool + repositories mirroring those tables (sessions, messages, crises, emotion logs). Falls back to in-memory if pool unavailable.
+- [x] Persist full fusion-related metadata per patient message (`fusion_metadata` JSON on `PsychologyMessage`).
+- [x] Structured session summary JSON on session row at end (`session_summary_json`).
+- [ ] TimescaleDB hypertable + retention policies for `emotion_logs` (currently plain PostgreSQL + index on `(patient_id, logged_at)`).
+
+### Memory Engine
+- [x] Long-term patient memory in Qdrant: dedicated collection with `patient_id` payload filter (equivalent to per-patient namespace pattern).
+- [x] Hybrid store: Qdrant upsert + in-memory fallback so summaries work without Qdrant.
+- [x] Top-3 memories loaded at session start and each turn (retrieval from memory store).
+- [x] Session end persists summary as JSON string into memory (`emotions_trail`, `risk_flags`, excerpts, etc.).
+- [x] `PsychologyProfile` + health/personality context read from PostgreSQL in FastAPI during message handling (not a separate Django HTTP hop).
+
+### Therapy Agent (partial)
+- [x] Groq LLM path when `GROQ_API_KEY` is set: strict JSON object (`reply`, `technique`, `recommendation`) with `response_format=json_object`.
+- [x] Context assembly from four blocks: CBT Qdrant, patient memory bullets, fusion summary string, profile health JSON + notes.
+- [x] Template fallback when Groq is unavailable or returns invalid JSON.
+- [ ] Rich recommendation engine (explicit breathing / activity / nutrition / social triggers and content packs beyond current string hints).
+
+### Speech Path (partial)
+- [x] API: `speech_transcript` merged into `text` when voice-only payload (`MessageRequest` validator).
+- [x] Frontend: Web Speech API → fills chat input (browser STT; FR locale in current UI).
+- [ ] Server-side Whisper (or provider) pipeline: audio upload → transcript → emotion branch.
+- [ ] Mixed-language (Darija/French/Arabic/English) validation and tuning for voice.
 
 ### RAG/Knowledge Base Foundations
 - [x] Added curated CBT/ADA/French source manifest from architecture document.
@@ -43,70 +74,61 @@ This checklist maps the architecture spec to current implementation status so th
 
 ### Frontend Wiring
 - [x] Connected psychology dashboard page to backend session/message/trends/crisis APIs.
-- [x] Added frontend psychology API client helper.
+- [x] Added frontend psychology API client helper (`ack`, `clear-gate`, `psychologyWsBase`).
+- [x] Camera capture + JPEG frames → WebSocket `/psychology/ws/emotion/{patient_id}`; live overlay on mood/stress cards.
+- [x] Microphone: browser speech-to-text into input (not binary upload to SpeechBrain yet).
+- [x] Distress trend line chart (Recharts) from `/trends/{patient_id}` points.
+- [x] Clinician workflow: list crisis events, acknowledge, clear session gate for patient on event.
+
+### Hardening (partial)
+- [x] Structured logging on key psychology paths (session start, message handling, crisis, session end).
+- [x] `GET /health/psychology` — reports Postgres pool availability and Qdrant CBT flag; app lifespan closes DB pool on shutdown.
+- [x] FastAPI dependency: `psycopg[binary,pool]` in `fastapi_ai/requirements.txt`.
 
 ---
 
 ## Missing / Next TODOs (High Priority)
 
-### 1) Data Storage Parity with Architecture
-- [ ] Replace in-memory stores with real PostgreSQL-backed repositories for:
-  - `psychology_profiles`
-  - `therapy_sessions`
-  - `messages`
-  - `crisis_events`
-- [ ] Implement TimescaleDB-backed `emotion_logs` table/hypertable and trend queries.
-- [ ] Persist full emotion metadata per message as defined in architecture.
+### 1) Data Storage Parity (remaining)
+- [ ] TimescaleDB-backed `emotion_logs` hypertable, continuous aggregates, and trend queries tuned for ops.
+- [ ] Optional: unify naming with legacy `TherapySession` vs AI `PsychologySession` in product/docs.
 
-### 2) Memory Engine Completion
-- [ ] Implement long-term patient memory in Qdrant as dedicated per-patient namespace (`patient_{id}_memory` pattern or equivalent filter key).
-- [ ] Implement retrieval of top-3 patient memories at session start and per turn.
-- [ ] Persist session summaries at session end using structured schema (emotions, triggers, breakthroughs, risk flags).
-- [ ] Add `psychology_profiles` model and retrieval path from Django API for health/personality context.
+### 2) Memory Engine (remaining)
+- [ ] Tune Qdrant memory scoring (semantic query vs pure recency scroll) for better “top-3 per turn” relevance.
 
-### 3) Crisis Engine Completion (Spec-Level)
-- [ ] Replace placeholder crisis scoring with fine-tuned XLM-R binary classifier endpoint.
-- [ ] Enforce threshold and trigger conditions from architecture (`>=0.75`, sustained distress patterns).
-- [ ] Implement physician alert dispatch via Django alert system (actual signal/event integration).
-- [ ] Enforce "physician review required before next session" gate logic.
+### 3) Crisis Engine Completion (spec-level)
+- [ ] Replace heuristic crisis scoring with fine-tuned XLM-R (or agreed model) binary classifier endpoint.
+- [ ] Physician alert dispatch via Django (signals, notifications, or existing alert app) — not only DB flag.
+- [ ] Optional: link crisis rows to assigned care team / routing rules.
 
-### 4) Therapy Agent Completion
-- [ ] Replace template response generator with real LLM orchestration call and strict JSON response schema.
-- [ ] Implement true context assembly from four blocks:
-  - CBT knowledge retrieval (Qdrant)
-  - patient memory retrieval (Qdrant)
-  - live emotion state (fusion output)
-  - health context (Django/PostgreSQL)
-- [ ] Add recommendation engine trigger handling for breathing/activity/nutrition/social support.
+### 4) Therapy Agent (remaining)
+- [ ] Recommendation engine: structured modules for breathing, activity, nutrition, social support with analytics.
 
-### 5) Speech Path Completion
-- [ ] Integrate Whisper transcription path for voice-only scenario.
-- [ ] Ensure voice flow: audio -> transcript -> text emotion + speech prosody branch.
-- [ ] Validate mixed-language (Darija/French/Arabic/English) handling for voice transcripts.
+### 5) Speech Path (remaining)
+- [ ] Integrate Whisper (or hosted STT) for server-side transcription from uploaded audio.
+- [ ] Wire `speech_audio_base64` → transcript → text emotion + SpeechBrain prosody in one tested flow.
 
-### 6) Frontend UX Completion (Architecture Parity)
-- [ ] Add real camera capture + frame streaming integration into `/ws/emotion/{patient_id}`.
-- [ ] Add microphone capture and upload flow for speech emotion/transcription.
-- [ ] Add emotion overlay and richer distress trend charting in UI.
-- [ ] Add clinician dashboard workflow for reviewing crisis events and session flags.
+### 6) Frontend UX (remaining)
+- [ ] Authenticate / authorize WebSocket emotion stream (token query or short-lived ticket).
+- [ ] Optional: upload recorded audio blob to FastAPI for server STT + SpeechBrain when available.
 
 ---
 
 ## Missing / Next TODOs (Hardening)
 
 ### Observability and Safety
-- [ ] Add structured logs for each stage in message pipeline.
-- [ ] Add request correlation IDs across frontend/FastAPI/Django.
-- [ ] Add metrics (latency, crisis trigger rate, WS disconnects, retrieval failures).
-- [ ] Add tests/red-team prompts for crisis safety behavior.
+- [ ] Finer-grained structured logs per pipeline stage (fusion, retrieval, LLM, persist) with safe field names.
+- [ ] Request correlation IDs across frontend / FastAPI / Django.
+- [ ] Metrics: latency, crisis trigger rate, WS disconnects, retrieval failures.
+- [ ] Tests / red-team prompts for crisis safety behavior.
 
 ### Security and Compliance
-- [ ] Add PHI redaction policy for logs.
-- [ ] Add encryption strategy for sensitive therapy content.
-- [ ] Add immutable audit fields and access controls for crisis records.
+- [ ] PHI redaction policy for logs.
+- [ ] Encryption strategy for sensitive therapy content at rest.
+- [ ] Immutable audit fields and access controls for crisis records.
 - [ ] Rotate exposed secrets and enforce secret-scanning in CI.
 
 ### Deployment Hygiene
-- [ ] Add startup health checks for Qdrant/model dependencies.
-- [ ] Add migration + seed scripts for psychology schema and KB bootstrapping.
-- [ ] Add environment validation for required keys (`QDRANT_*`, DB URLs, model providers).
+- [ ] Startup checks: Qdrant reachability, embedding model load, optional DeepFace/SpeechBrain (extend `/health/psychology` or separate readiness).
+- [ ] Seed scripts for psychology demo profiles + KB bootstrap in CI/staging.
+- [ ] Strict environment validation on FastAPI boot (`QDRANT_*`, `database_url`, model providers) with clear failure messages.
