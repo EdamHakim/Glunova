@@ -4,7 +4,6 @@ import logging
 
 from core.rbac import require_roles
 from extraction.schemas import ExtractionResponse, HealthResponse
-from extraction.services.local_ocr import extract_local_ocr_payload
 from extraction.services.azure_ocr import extract_azure_ocr_payload
 from extraction.services.groq_extract import run_groq_structured_extract
 from extraction.services.extraction_rules import run_rule_validation
@@ -30,14 +29,9 @@ async def extract_medical_data(
             detail="File is empty",
         )
 
-    # 1. OCR (Tiered approach)
+    # 1. OCR (Azure only)
     ocr_payload = await extract_azure_ocr_payload(content, file.content_type or "")
     
-    # Fallback to local if Azure fails or is not configured
-    if not ocr_payload.get("text"):
-        logger.info("Azure OCR yielded no text, falling back to local OCR")
-        ocr_payload = extract_local_ocr_payload(content, file.content_type or "")
-
     raw_ocr = ocr_payload["text"]
     ocr_meta = ocr_payload["meta"]
     if not raw_ocr:
@@ -84,20 +78,13 @@ async def extract_medical_data(
 
 @router.get("/health", response_model=HealthResponse)
 def extraction_health() -> HealthResponse:
-    import pytesseract
     from core.config import settings
     
-    try:
-        t_version = pytesseract.get_tesseract_version()
-    except Exception:
-        t_version = "unknown"
-        
     azure_configured = bool(settings.azure_document_intelligence_endpoint and 
                            settings.azure_document_intelligence_key and 
                            "your_azure_key_here" not in settings.azure_document_intelligence_key)
     
     return HealthResponse(
-        status="ok", 
-        tesseract_version=str(t_version) if t_version else None,
+        status="ok",
         azure_ready=azure_configured
     )

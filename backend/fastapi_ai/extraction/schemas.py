@@ -13,5 +13,4 @@ class ExtractionResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    tesseract_version: Optional[str] = None
     azure_ready: bool = False

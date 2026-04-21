@@ -42,7 +42,7 @@ async def extract_azure_ocr_payload(file_bytes: bytes, mime_type: str) -> dict[s
             credential=AzureKeyCredential(key)
         ) as client:
             poller = await client.begin_analyze_document(
-                "prebuilt-read",
+                "prebuilt-layout",
                 body=file_bytes,
                 content_type=mime_type
             )
