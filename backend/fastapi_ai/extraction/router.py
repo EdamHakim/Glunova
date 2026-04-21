@@ -71,7 +71,7 @@ async def extract_medical_data(
     merged = merge_and_validate(raw_ocr, rules_snapshot, llm_extracted, field_evidence)
 
     # 5. Enrichment
-    final = verify_and_enrich_medications(merged, raw_ocr)
+    final = await verify_and_enrich_medications(merged, raw_ocr)
 
     # 6. Reliability & HITL Logic
     azure_conf = ocr_meta.get("average_confidence")

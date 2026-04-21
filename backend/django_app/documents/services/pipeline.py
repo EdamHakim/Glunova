@@ -36,31 +36,51 @@ def safe_filename(name: str) -> str:
 
 
 def _persist_patient_medications(doc: MedicalDocument, extracted_json: dict) -> None:
+    # 1. Clear medications previously associated WITH THIS DOCUMENT
+    # (This ensures re-processing the same doc doesn't duplicate)
     PatientMedication.objects.filter(source_document=doc).delete()
 
     medications = extracted_json.get("medications")
     if extracted_json.get("document_type") != "prescription" or not isinstance(medications, list):
         return
 
+    # 2. Fetch existing medications for THIS PATIENT (from other documents)
+    # to avoid cross-document duplicates.
+    existing_meds = PatientMedication.objects.filter(patient=doc.patient)
+    existing_keys: set[tuple[str, str, str]] = set()
+    for em in existing_meds:
+        # We deduplicate based on (rxcui, normalized_name, dosage)
+        key = (
+            str(em.rxcui or "").strip().lower(),
+            str(em.name_raw or "").strip().lower(),
+            str(em.dosage or "").strip().lower()
+        )
+        existing_keys.add(key)
+
     rows: list[PatientMedication] = []
-    seen_keys: set[tuple[str, str, str, str, str]] = set()
+    # seen_in_current_batch to handle duplicates within the SAME document
+    seen_in_current_batch: set[tuple[str, str, str]] = set()
+
     for medication in medications:
         if not isinstance(medication, dict):
             continue
         raw_name = medication.get("name")
         if not isinstance(raw_name, str) or not raw_name.strip():
             continue
+        
         verification = medication.get("verification") if isinstance(medication.get("verification"), dict) else {}
-        dedupe_key = (
-            str(verification.get("rxcui") or "").strip().lower(),
-            raw_name.strip().lower(),
-            str(medication.get("dosage") or "").strip().lower(),
-            str(medication.get("frequency") or "").strip().lower(),
-            str(medication.get("route") or "").strip().lower(),
-        )
-        if dedupe_key in seen_keys:
+        rxcui = str(verification.get("rxcui") or "").strip().lower()
+        dosage = str(medication.get("dosage") or "").strip().lower()
+        name_key = raw_name.strip().lower()
+
+        dedupe_key = (rxcui, name_key, dosage)
+
+        if dedupe_key in existing_keys or dedupe_key in seen_in_current_batch:
+            # Skip if patient already has this medication from another document
+            # or if we've already processed it in this batch.
             continue
-        seen_keys.add(dedupe_key)
+        
+        seen_in_current_batch.add(dedupe_key)
         rows.append(
             PatientMedication(
                 patient=doc.patient,

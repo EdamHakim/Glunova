@@ -64,27 +64,28 @@ def _to_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def _http_get_json(url: str, timeout: int) -> dict[str, Any]:
-    with request.urlopen(url, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+async def _http_get_json_async(url: str, timeout: int) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.json()
 
 
 @lru_cache(maxsize=512)
-def _cached_rxnorm_approximate_candidates(
+async def _cached_rxnorm_approximate_candidates(
     base_url: str,
     timeout: int,
     normalized_name: str,
     max_entries: int,
 ) -> tuple[RxNormCandidate, ...]:
     query = parse.urlencode({"term": normalized_name, "maxEntries": str(max_entries)})
-    payload = _http_get_json(f"{base_url}/approximateTerm.json?{query}", timeout=timeout)
+    payload = await _http_get_json_async(f"{base_url}/approximateTerm.json?{query}", timeout=timeout)
     return tuple(_extract_candidates(payload))
 
 
-@lru_cache(maxsize=2048)
-def _cached_rxnorm_display_name(base_url: str, timeout: int, rxcui: str) -> str | None:
+async def _cached_rxnorm_display_name(base_url: str, timeout: int, rxcui: str) -> str | None:
     try:
-        properties = _http_get_json(f"{base_url}/rxcui/{rxcui}/properties.json", timeout=timeout)
+        properties = await _http_get_json_async(f"{base_url}/rxcui/{rxcui}/properties.json", timeout=timeout)
         properties_payload = properties.get("properties") or {}
         raw_name = properties_payload.get("name")
         return raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None
@@ -272,7 +273,7 @@ def _extract_candidates(payload: dict[str, Any]) -> list[RxNormCandidate]:
     return candidates
 
 
-def fetch_rxnorm_candidates(name: str) -> list[RxNormCandidate]:
+async def fetch_rxnorm_candidates(name: str) -> list[RxNormCandidate]:
     normalized = _normalized_name(name)
     if not normalized:
         return []
@@ -281,22 +282,25 @@ def fetch_rxnorm_candidates(name: str) -> list[RxNormCandidate]:
     base_url = "https://rxnav.nlm.nih.gov/REST"
     max_entries = 5
     property_lookup_limit = 3
-    candidates = list(_cached_rxnorm_approximate_candidates(base_url, timeout, normalized, max_entries))
+    candidates = list(await _cached_rxnorm_approximate_candidates(base_url, timeout, normalized, max_entries))
 
     resolved: list[RxNormCandidate] = []
-    for index, candidate in enumerate(candidates):
+    
+    # We can parallelize the display name lookups too
+    async def resolve_one(candidate, index):
         display_name = None
         if index < property_lookup_limit:
-            display_name = _cached_rxnorm_display_name(base_url, timeout, candidate.rxcui)
-        resolved.append(
-            RxNormCandidate(
-                rxcui=candidate.rxcui,
-                score=candidate.score,
-                rank=candidate.rank,
-                name=display_name,
-            )
+            display_name = await _cached_rxnorm_display_name(base_url, timeout, candidate.rxcui)
+        return RxNormCandidate(
+            rxcui=candidate.rxcui,
+            score=candidate.score,
+            rank=candidate.rank,
+            name=display_name,
         )
-    return resolved
+
+    tasks = [resolve_one(candidate, i) for i, candidate in enumerate(candidates)]
+    resolved = await asyncio.gather(*tasks)
+    return list(resolved)
 
 
 def _generate_query_variants(name: str) -> list[str]:
@@ -419,26 +423,28 @@ def _merge_candidate_lists(
     )
 
 
-def fetch_rxnorm_candidates_with_variants(
+async def fetch_rxnorm_candidates_with_variants(
     name: str,
     *,
     medication: dict[str, Any] | None = None,
     raw_ocr_text: str = "",
 ) -> list[RxNormCandidate]:
-    candidate_lists: list[list[RxNormCandidate]] = []
-    for variant in _generate_query_variants(name):
+    variants = _generate_query_variants(name)
+    
+    async def get_variant(variant):
         try:
-            candidates = fetch_rxnorm_candidates(variant)
+            return await fetch_rxnorm_candidates(variant)
         except Exception:
             if variant == _normalized_name(name):
                 raise
             logger.warning("Variant RxNorm lookup failed for %s", variant, exc_info=True)
-            continue
-        candidate_lists.append(candidates)
-    return _merge_candidate_lists(name, medication or {"name": name}, raw_ocr_text, candidate_lists)
+            return []
+
+    candidate_lists = await asyncio.gather(*(get_variant(v) for v in variants))
+    return _merge_candidate_lists(name, medication or {"name": name}, raw_ocr_text, list(candidate_lists))
 
 
-def groq_tiebreak_medication(
+async def groq_tiebreak_medication(
     *,
     medication_name: str,
     raw_ocr_text: str,
@@ -449,7 +455,7 @@ def groq_tiebreak_medication(
         raise RuntimeError("GROQ_API_KEY not configured")
 
     try:
-        from groq import Groq
+        from groq import AsyncGroq
     except ImportError as exc:
         raise RuntimeError("groq package is not installed") from exc
 
@@ -468,8 +474,8 @@ def groq_tiebreak_medication(
         + "\n".join(candidate_lines)
     )
 
-    client = Groq(api_key=api_key)
-    response = client.chat.completions.create(
+    client = AsyncGroq(api_key=api_key)
+    response = await client.chat.completions.create(
         model=settings.groq_model,
         temperature=0,
         response_format={"type": "json_object"},
@@ -482,7 +488,7 @@ def groq_tiebreak_medication(
     return json.loads(content)
 
 
-def groq_suggest_ocr_corrections(
+async def groq_suggest_ocr_corrections(
     *,
     medication_name: str,
     raw_ocr_text: str,
@@ -492,7 +498,7 @@ def groq_suggest_ocr_corrections(
         raise RuntimeError("GROQ_API_KEY not configured")
 
     try:
-        from groq import Groq
+        from groq import AsyncGroq
     except ImportError as exc:
         raise RuntimeError("groq package is not installed") from exc
 
@@ -505,8 +511,8 @@ def groq_suggest_ocr_corrections(
         f"OCR text:\n{raw_ocr_text[:4000]}\n"
     )
 
-    client = Groq(api_key=api_key)
-    response = client.chat.completions.create(
+    client = AsyncGroq(api_key=api_key)
+    response = await client.chat.completions.create(
         model=settings.groq_model,
         temperature=0,
         response_format={"type": "json_object"},
@@ -593,13 +599,13 @@ def _best_non_llm_match(candidates: list[RxNormCandidate]) -> tuple[RxNormCandid
     return None, None
 
 
-def _llm_rescue_medication_name(
+async def _llm_rescue_medication_name(
     *,
     medication: dict[str, Any],
     medication_name: str,
     raw_ocr_text: str,
 ) -> dict[str, Any] | None:
-    suggestions_payload = groq_suggest_ocr_corrections(
+    suggestions_payload = await groq_suggest_ocr_corrections(
         medication_name=medication_name,
         raw_ocr_text=raw_ocr_text,
     )
@@ -614,7 +620,7 @@ def _llm_rescue_medication_name(
         suggested_name = _normalized_name(suggestion.get("name"))
         if not suggested_name or suggested_name.lower() == medication_name.lower():
             continue
-        candidates = fetch_rxnorm_candidates_with_variants(
+        candidates = await fetch_rxnorm_candidates_with_variants(
             suggested_name,
             medication=medication,
             raw_ocr_text=raw_ocr_text,
@@ -643,7 +649,7 @@ def _llm_rescue_medication_name(
     }
 
 
-def verify_medication_entry(
+async def verify_medication_entry(
     medication: dict[str, Any],
     *,
     raw_ocr_text: str,
@@ -672,19 +678,11 @@ def verify_medication_entry(
     verification: dict[str, Any]
 
     try:
-        candidates = fetch_rxnorm_candidates_with_variants(
+        candidates = await fetch_rxnorm_candidates_with_variants(
             cache_key,
             medication=medication,
             raw_ocr_text=context_window or raw_ocr_text,
         )
-    except error.URLError as exc:
-        verification = {
-            "status": "failed",
-            "rxcui": None,
-            "name_display": None,
-            "candidates": [],
-            "note": f"RxNorm request failed: {exc.reason}",
-        }
     except Exception as exc:
         verification = {
             "status": "failed",
@@ -715,7 +713,7 @@ def verify_medication_entry(
                 }
             else:
                 try:
-                    tie_break = groq_tiebreak_medication(
+                    tie_break = await groq_tiebreak_medication(
                         medication_name=cache_key,
                         raw_ocr_text=context_window or raw_ocr_text,
                         candidates=candidates[:3],
@@ -751,7 +749,7 @@ def verify_medication_entry(
 
         if verification["status"] in {"ambiguous", "unverified"}:
             try:
-                rescue = _llm_rescue_medication_name(
+                rescue = await _llm_rescue_medication_name(
                     medication=medication,
                     medication_name=cache_key,
                     raw_ocr_text=context_window or raw_ocr_text,
@@ -775,10 +773,7 @@ def verify_medication_entry(
     return enriched
 
 
-    return enriched
-
-
-def check_drug_drug_interactions(rxcuis: list[str]) -> list[dict[str, Any]]:
+async def check_drug_drug_interactions(rxcuis: list[str]) -> list[dict[str, Any]]:
     """Check for interactions between a list of RxCUIs using the RxNorm Interaction API."""
     if len(rxcuis) < 2:
         return []
@@ -787,7 +782,7 @@ def check_drug_drug_interactions(rxcuis: list[str]) -> list[dict[str, Any]]:
     rxcuis_str = "+".join(rxcuis)
     try:
         url = f"{base_url}/interaction/list.json?rxcuis={rxcuis_str}"
-        payload = _http_get_json(url, timeout=10)
+        payload = await _http_get_json_async(url, timeout=10)
         
         interactions = []
         full_interaction_type_group = payload.get("fullInteractionTypeGroup") or []
@@ -811,7 +806,7 @@ def check_drug_drug_interactions(rxcuis: list[str]) -> list[dict[str, Any]]:
         return []
 
 
-def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: str) -> dict[str, Any]:
+async def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: str) -> dict[str, Any]:
     doc_type = merged.get("document_type") or merged.get("document_type_detected")
     medications = merged.get("medications")
     if doc_type != "prescription" or not isinstance(medications, list):
@@ -820,13 +815,15 @@ def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: str) -> 
     cache: dict[str, dict[str, Any]] = {}
     enriched = dict(merged)
     
-    # 1. Individual Verification
-    verified_meds = [
-        verify_medication_entry(medication, raw_ocr_text=raw_ocr_text, cache=cache)
-        if isinstance(medication, dict)
-        else medication
-        for medication in medications
-    ]
+    # 1. Individual Verification (Parallelized!)
+    tasks = []
+    for medication in medications:
+        if isinstance(medication, dict):
+            tasks.append(verify_medication_entry(medication, raw_ocr_text=raw_ocr_text, cache=cache))
+        else:
+            tasks.append(asyncio.sleep(0, result=medication)) # Handle non-dict edge case
+    
+    verified_meds = await asyncio.gather(*tasks)
     
     # 2. Extract verified RxCUIs for interaction check
     rxcuis = [
@@ -838,7 +835,7 @@ def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: str) -> 
     # 3. Check Interactions
     interactions = []
     if len(rxcuis) >= 2:
-        interactions = check_drug_drug_interactions(rxcuis)
+        interactions = await check_drug_drug_interactions(rxcuis)
     
     enriched["medications"] = verified_meds
     enriched["drug_interactions"] = interactions
