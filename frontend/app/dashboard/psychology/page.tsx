@@ -48,6 +48,8 @@ export default function PsychologyPage() {
   const [cameraOn, setCameraOn] = useState(false)
   const [liveEmotion, setLiveEmotion] = useState<LiveEmotion | null>(null)
   const [micListening, setMicListening] = useState(false)
+  const [startingSession, setStartingSession] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -62,7 +64,35 @@ export default function PsychologyPage() {
     : role === 'caregiver'
       ? 'Follow wellness status and support recommendations without exposing private therapy details.'
       : 'AI-powered emotional health tracking and therapy sessions.'
-  const patientId = Number(user?.id || 0)
+  const patientId = useMemo(() => {
+    const fromSession = user?.userId
+    if (typeof fromSession === 'number' && Number.isFinite(fromSession) && fromSession > 0) return fromSession
+    const parsed = Number(user?.id || 0)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+  }, [user?.id, user?.userId])
+
+  const ensureSessionStarted = useCallback(async (forceNew = false) => {
+    if (!patientId) return null
+    if (!forceNew && sessionId) return sessionId
+    setStartingSession(true)
+    try {
+      const payload = await startPsychologySession(patientId, 'en')
+      if (payload.allowed === false || !payload.session_id) {
+        setSessionBlocked(payload.block_reason || 'Could not start session.')
+        setSessionId(null)
+        return null
+      }
+      setSessionBlocked(null)
+      setSessionId(payload.session_id)
+      return payload.session_id
+    } catch {
+      setSessionBlocked('Could not start session.')
+      setSessionId(null)
+      return null
+    } finally {
+      setStartingSession(false)
+    }
+  }, [patientId, sessionId])
 
   useEffect(() => {
     if (!patientId) return
@@ -99,13 +129,17 @@ export default function PsychologyPage() {
       .catch(() => {
         if (!cancelled) setTrends([])
       })
-    void listCrisisEvents(isDoctor ? undefined : patientId)
-      .then((items) => {
-        if (!cancelled) setCrisisEvents(items)
-      })
-      .catch(() => {
-        if (!cancelled) setCrisisEvents([])
-      })
+    if (isDoctor) {
+      void listCrisisEvents(undefined)
+        .then((items) => {
+          if (!cancelled) setCrisisEvents(items)
+        })
+        .catch(() => {
+          if (!cancelled) setCrisisEvents([])
+        })
+    } else {
+      setCrisisEvents([])
+    }
     return () => {
       cancelled = true
     }
@@ -211,21 +245,46 @@ export default function PsychologyPage() {
   )
 
   async function submitMessage() {
-    if (!sessionId || !input.trim() || !patientId) return
+    if (!input.trim() || !patientId) return
+    setChatError(null)
+    const activeSessionId = await ensureSessionStarted()
+    if (!activeSessionId) return
     const patientText = input.trim()
     setInput('')
     setChat((old) => [...old, { role: 'patient', content: patientText }])
     setLoading(true)
     try {
-      const result = await sendPsychologyMessage({ session_id: sessionId, patient_id: patientId, text: patientText })
+      let result: PsychologyMessageResult
+      try {
+        result = await sendPsychologyMessage({ session_id: activeSessionId, patient_id: patientId, text: patientText })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const likelySessionIssue = /session|404|403|not found|invalid/i.test(message)
+        if (!likelySessionIssue) throw error
+        const refreshedSessionId = await ensureSessionStarted(true)
+        if (!refreshedSessionId) throw error
+        result = await sendPsychologyMessage({ session_id: refreshedSessionId, patient_id: patientId, text: patientText })
+      }
       setLatestResult(result)
       setChat((old) => [...old, { role: 'assistant', content: result.reply }])
-      const trendPayload = await getPsychologyTrends(patientId)
-      setTrends(trendPayload.points)
-      if (result.crisis_detected) {
-        const events = await listCrisisEvents(isDoctor ? undefined : patientId)
-        setCrisisEvents(events)
+      try {
+        const trendPayload = await getPsychologyTrends(patientId)
+        setTrends(trendPayload.points)
+      } catch {
+        /* non-fatal refresh failure */
       }
+      if (result.crisis_detected && isDoctor) {
+        try {
+          const events = await listCrisisEvents(undefined)
+          setCrisisEvents(events)
+        } catch {
+          /* non-fatal refresh failure */
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setChatError('Message was not sent. Please try again.')
+      setChat((old) => [...old, { role: 'assistant', content: `I could not process that message right now (${message.slice(0, 120)}). Please retry.` }])
     } finally {
       setLoading(false)
     }
@@ -434,13 +493,14 @@ export default function PsychologyPage() {
                       }
                     }}
                   />
-                  <Button size="icon" onClick={() => void submitMessage()} disabled={loading || !sessionId}>
+                  <Button size="icon" onClick={() => void submitMessage()} disabled={loading || startingSession || !input.trim()}>
                     <MessageCircle className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" onClick={() => void closeSession()} disabled={!sessionId}>
+                  <Button variant="outline" onClick={() => void closeSession()} disabled={!sessionId || startingSession}>
                     End
                   </Button>
                 </div>
+                {chatError && <p className="mt-2 text-xs text-destructive">{chatError}</p>}
               </div>
             ) : (
               <div className="rounded-lg border border-border bg-muted/30 p-4">

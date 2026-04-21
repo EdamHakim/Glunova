@@ -20,6 +20,9 @@ def normalize_postgres_conninfo(url: str) -> str:
     cleaned = url.strip()
     cleaned = re.sub(r"^postgresql\+psycopg(?:2|3)?://", "postgresql://", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"^postgres\+psycopg(?:2|3)?://", "postgres://", cleaned, flags=re.IGNORECASE)
+    # Some local .env passwords include raw '%' (not valid URL escapes).
+    # Escape only invalid percent tokens to avoid psycopg conninfo parser errors.
+    cleaned = re.sub(r"%(?![0-9A-Fa-f]{2})", "%25", cleaned)
     return cleaned
 
 
