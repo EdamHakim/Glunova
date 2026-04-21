@@ -38,6 +38,16 @@ _NOISE_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _RULE_LINE = re.compile(r"^[-_=_.]{6,}\s*$")
+_AFFILIATION_CUE = re.compile(
+    r"\b(university|department|faculty|school of|hospital|institute|center|centre|email|e-mail)\b",
+    re.I,
+)
+_FRONT_MATTER_SECTION = re.compile(
+    r"^\s*(abstract|author information|authors'? contributions?|funding|acknowledg(e)?ments?|"
+    r"conflict of interest|disclosures?|keywords?|key words?)\b",
+    re.I,
+)
+_AFFILIATION_PREFIX = re.compile(r"^\s*(\d+[\)\].-]\s*|[a-z]\)\s*)")
 
 
 def _is_noise_line(line: str) -> bool:
@@ -123,6 +133,39 @@ def _chunk_quality_ok(text: str) -> bool:
     return True
 
 
+def _is_author_affiliation_paragraph(para: str) -> bool:
+    text = para.strip()
+    if not text:
+        return True
+    low = text.lower()
+    if "correspondence to" in low:
+        return True
+    # Typical affiliation bullets like "1) Department of X ..."
+    if _AFFILIATION_PREFIX.match(text) and _AFFILIATION_CUE.search(text):
+        return True
+    # Dense author listing with superscripts / separators and little semantic body.
+    commas = text.count(",")
+    semicolons = text.count(";")
+    if (commas + semicolons) >= 6 and len(text.split()) < 90:
+        if any(ch in text for ch in ("@", "†", "*", "‡")) or _AFFILIATION_CUE.search(text):
+            return True
+    return False
+
+
+def _is_low_value_paragraph(para: str) -> bool:
+    text = para.strip()
+    if not text:
+        return True
+    if _FRONT_MATTER_SECTION.match(text):
+        return True
+    if _is_author_affiliation_paragraph(text):
+        return True
+    # Very short metadata labels.
+    if len(text) < 70 and re.search(r"\b(received|accepted|published online|copyright)\b", text, re.I):
+        return True
+    return False
+
+
 def _split_sentences(block: str) -> list[str]:
     pieces = re.split(r"(?<=[.!?…])\s+", block.strip())
     return [p.strip() for p in pieces if p.strip()]
@@ -160,6 +203,7 @@ def chunk_pdf_for_kb(text: str, chunk_size: int = _DEFAULT_CHUNK) -> list[str]:
     if not cleaned:
         return []
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", cleaned) if p.strip()]
+    paragraphs = [p for p in paragraphs if not _is_low_value_paragraph(p)]
     chunks: list[str] = []
     buf = ""
 

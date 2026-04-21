@@ -6,6 +6,7 @@ from typing import Any, Iterable
 
 from core.config import settings
 from psychology.chunking import chunk_manifest_stub, chunk_pdf_for_kb
+from psychology.curated_kb import curated_chunks_for_pdf
 from psychology.pdf_kb import (
     discover_pdf_files,
     extract_pdf_text,
@@ -207,15 +208,34 @@ class QdrantKnowledgeBase:
                     continue
                 meta = pdf_document_meta(pdf_path, data_root)
                 file_chunks = 0
-                for chunk in chunk_pdf_for_kb(raw_text):
-                    pdf_points.append(
-                        PointStruct(
-                            id=stable_point_id("pdf", meta["file_path"], chunk),
-                            vector=self._embed_text(chunk),
-                            payload={**meta, "text": chunk},
+                curated = curated_chunks_for_pdf(pdf_path.name, raw_text)
+                if curated:
+                    for item in curated:
+                        chunk = str(item.get("text", "")).strip()
+                        if not chunk:
+                            continue
+                        payload = {**meta, "text": chunk, "chunk_id": str(item.get("chunk_id", ""))}
+                        extra_meta = item.get("metadata")
+                        if isinstance(extra_meta, dict):
+                            payload.update({k: v for k, v in extra_meta.items() if isinstance(v, (str, int, float, bool))})
+                        pdf_points.append(
+                            PointStruct(
+                                id=stable_point_id("pdf_curated", meta["file_path"], payload["chunk_id"], chunk),
+                                vector=self._embed_text(chunk),
+                                payload=payload,
+                            )
                         )
-                    )
-                    file_chunks += 1
+                        file_chunks += 1
+                else:
+                    for chunk in chunk_pdf_for_kb(raw_text):
+                        pdf_points.append(
+                            PointStruct(
+                                id=stable_point_id("pdf", meta["file_path"], chunk),
+                                vector=self._embed_text(chunk),
+                                payload={**meta, "text": chunk},
+                            )
+                        )
+                        file_chunks += 1
                 if file_chunks:
                     pdf_files_indexed += 1
 
