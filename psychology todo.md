@@ -43,7 +43,7 @@ This checklist maps the architecture spec to current implementation status so th
 ### Memory Engine
 - [x] Long-term patient memory in Qdrant: dedicated collection with `patient_id` payload filter (equivalent to per-patient namespace pattern).
 - [x] Hybrid store: Qdrant upsert + in-memory fallback so summaries work without Qdrant.
-- [x] Top-3 memories loaded at session start and each turn (retrieval from memory store).
+- [x] Top memories loaded at session start/turn (currently top-5 per turn for continuity context).
 - [x] Session end persists summary as JSON string into memory (`emotions_trail`, `risk_flags`, excerpts, etc.).
 - [x] `PsychologyProfile` + health/personality context read from PostgreSQL in FastAPI during message handling (not a separate Django HTTP hop).
 
@@ -88,6 +88,8 @@ This checklist maps the architecture spec to current implementation status so th
   - stronger system prompt constraints (scope/safety/no diagnosis)
   - required JSON keys with validation (`reply`, `technique`, `recommendation`, `citations`, `safety_mode`)
   - guarded fallback when parse/schema fails
+- [x] Language payload tagging in KB chunks (`language` default `en`) to support language-aware retrieval filters as FR/Darija corpora grow.
+- [x] Added RAG ops endpoint: `GET /psychology/rag/health` (doctor-only) with collection size, last ingestion timestamp, and retrieval latency p50.
 
 ### Frontend Wiring
 - [x] Connected psychology dashboard page to backend session/message/trends/crisis APIs.
@@ -114,6 +116,13 @@ This checklist maps the architecture spec to current implementation status so th
   - retrieval anomalies (`retrieval_empty`, `retrieval_low_score`)
   - LLM anomalies (`llm_parse_fallback`, `llm_missing_citations`, `llm_low_context_fallback`, `llm_crisis_guard_mode`)
   - fusion anomaly (`fusion_abrupt_jump`)
+- [x] Graduated safety tiers active in therapy loop:
+  - `normal`
+  - `elevated_guard`
+  - `crisis_guard`
+- [x] Session pacing signals active in message pipeline (`opening_checkin`, `working_phase`, `closing_reflection`).
+- [x] Technique continuity/progression logic active (state-based therapeutic arc using recent techniques, not per-turn reset).
+- [x] Persisted therapist metadata per assistant turn (`technique_used`, `recommendation`, `session_phase`, `safety_mode`) for review.
 
 ---
 
@@ -125,18 +134,22 @@ This checklist maps the architecture spec to current implementation status so th
 
 ### 2) Memory Engine (remaining)
 - [ ] Tune Qdrant memory scoring (semantic query vs pure recency scroll) for better “top-3 per turn” relevance.
+- [ ] Add retention policy for `patient_memory` (TTL/max-session window + archival path) to prevent long-term vector drift.
 
 ### 3) Crisis Engine Completion (spec-level)
 - [ ] Replace heuristic crisis scoring with fine-tuned XLM-R (or agreed model) binary classifier endpoint.
 - [ ] Physician alert dispatch via Django (signals, notifications, or existing alert app) — not only DB flag.
 - [ ] Optional: link crisis rows to assigned care team / routing rules.
+- [ ] Add gate timeout/escalation policy (auto-release and/or secondary clinician escalation) to avoid indefinite patient lockout.
 
 ### 4) Therapy Agent (remaining)
 - [ ] Recommendation engine: structured modules for breathing, activity, nutrition, social support with analytics.
+- [ ] Persist citation resolution (`chunk_id -> source/section`) into session artifacts for clinician auditability.
 
 ### 5) Speech Path (remaining)
 - [ ] Integrate Whisper (or hosted STT) for server-side transcription from uploaded audio.
 - [ ] Wire `speech_audio_base64` → transcript → text emotion + SpeechBrain prosody in one tested flow.
+- [ ] Add robust browser SpeechRecognition typings/capability fallback to guarantee graceful text-only mode.
 
 ### 6) Frontend UX (remaining)
 - [x] Authenticate / authorize WebSocket emotion stream (token/cookie JWT + role/scope checks).

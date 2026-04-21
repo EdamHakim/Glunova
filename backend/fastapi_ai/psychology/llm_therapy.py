@@ -19,7 +19,7 @@ JSON schema:
   "technique": "string",
   "recommendation": "string|null",
   "citations": ["chunk_id_or_source", "..."],
-  "safety_mode": "normal|low_context|crisis_guard"
+  "safety_mode": "normal|low_context|elevated_guard|crisis_guard"
 }
 """
 
@@ -39,7 +39,7 @@ def _validate_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
         citations = []
     citations = [str(c).strip() for c in citations if str(c).strip()]
     safety_mode = str(payload.get("safety_mode") or "normal").strip().lower()
-    if safety_mode not in {"normal", "low_context", "crisis_guard"}:
+    if safety_mode not in {"normal", "low_context", "elevated_guard", "crisis_guard"}:
         safety_mode = "normal"
     return {
         "reply": reply.strip(),

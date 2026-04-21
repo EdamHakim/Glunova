@@ -189,3 +189,10 @@ def knowledge_search(
 ) -> dict:
     items = knowledge_base.search(q, language=language, limit=limit)
     return {"items": items, "qdrant_enabled": knowledge_base.enabled}
+
+
+@router.get("/rag/health")
+def rag_health(
+    _claims: dict = Depends(require_roles("doctor")),
+) -> dict:
+    return knowledge_base.health_status()

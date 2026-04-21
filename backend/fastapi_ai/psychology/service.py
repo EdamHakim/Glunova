@@ -158,7 +158,9 @@ class PsychologyService:
         retrieval_quality = self._retrieval_quality(kb_context)
         if retrieval_quality != "ok":
             anomaly_flags.append(f"retrieval_{retrieval_quality}")
-        memory_items = self._memories.top(payload.patient_id, 3)
+        memory_items = self._memories.top(payload.patient_id, 5)
+        session_phase = self._session_phase(raw_session.messages)
+        prior_techniques = self._extract_recent_techniques(raw_session.messages, limit=5)
         health_context: dict[str, Any] = {}
         if self._pool is not None:
             from psychology.repositories import get_patient_health_context
@@ -182,10 +184,13 @@ class PsychologyService:
             reply = SAFE_CRISIS_REPLY
             recommendation = "notify_clinician_immediately"
             technique = "safety_protocol"
+            safety_mode = "crisis_guard"
         else:
             recommendation = self._recommendation(mental_state)
-            technique = self._technique_for_state(mental_state)
-            reply, recommendation, technique, llm_anomalies = self._therapy_reply_multimodal(
+            base_technique = self._technique_for_state(mental_state)
+            technique = self._progress_technique_for_state(mental_state, base_technique, prior_techniques)
+            safety_tier = self._safety_tier(crisis_probability)
+            reply, recommendation, technique, llm_anomalies, safety_mode = self._therapy_reply_multimodal(
                 user_text=payload.text,
                 mental_state=mental_state,
                 recommendation=recommendation,
@@ -195,10 +200,24 @@ class PsychologyService:
                 health_context=health_context,
                 fusion=fusion,
                 retrieval_quality=retrieval_quality,
+                safety_tier=safety_tier,
+                session_phase=session_phase,
             )
             anomaly_flags.extend(llm_anomalies)
+            if safety_tier == "elevated":
+                anomaly_flags.append("safety_elevated")
 
-        assistant_msg = TherapyMessageInput(role="assistant", content=reply)
+        assistant_msg = TherapyMessageInput(
+            role="assistant",
+            content=reply,
+            fusion_metadata={
+                "technique_used": technique,
+                "recommendation": recommendation,
+                "session_phase": session_phase,
+                "safety_mode": safety_mode,
+                "continuity_memory_count": len(memory_items),
+            },
+        )
         session.messages.append(assistant_msg)
         session.messages[:] = session.messages[-MAX_SHORT_MEMORY:]
 
@@ -463,7 +482,9 @@ class PsychologyService:
         health_context: dict[str, Any],
         fusion: FusionOutput,
         retrieval_quality: str,
-    ) -> tuple[str, str | None, str, list[str]]:
+        safety_tier: str,
+        session_phase: str,
+    ) -> tuple[str, str | None, str, list[str], str]:
         from psychology.llm_therapy import run_therapy_llm
 
         anomalies: list[str] = []
@@ -472,10 +493,11 @@ class PsychologyService:
                 "Thanks for sharing this. I want to support you carefully. "
                 "Could you tell me what feels heaviest right now, and what helped even a little in the past?"
             )
-            return reply, recommendation, "supportive_reflection", ["llm_low_context_fallback"]
+            return reply, recommendation, "supportive_reflection", ["llm_low_context_fallback"], "low_context"
         fusion_summary = (
             f"label={fusion.label.value}, distress={fusion.distress_score}, "
-            f"stress={fusion.stress_level}, modalities={[m.value for m in fusion.modalities_used]}"
+            f"stress={fusion.stress_level}, modalities={[m.value for m in fusion.modalities_used]}, "
+            f"session_phase={session_phase}, safety_tier={safety_tier}"
         )
         llm = run_therapy_llm(
             user_text=user_text,
@@ -496,12 +518,20 @@ class PsychologyService:
             if llm.get("safety_mode") == "crisis_guard":
                 rec_out = "notify_clinician_immediately"
                 anomalies.append("llm_crisis_guard_mode")
+            if llm.get("safety_mode") == "elevated_guard":
+                anomalies.append("llm_elevated_guard_mode")
             citations = llm.get("citations")
             if not isinstance(citations, list) or len(citations) == 0:
                 anomalies.append("llm_missing_citations")
-            return llm["reply"].strip(), rec_out, tech_out, anomalies
+            return llm["reply"].strip(), rec_out, tech_out, anomalies, str(llm.get("safety_mode") or "normal")
         tpl = self._therapy_reply_template(user_text, mental_state, recommendation, kb_context)
-        return tpl, recommendation, technique, ["llm_parse_fallback"]
+        fallback_mode = "elevated_guard" if safety_tier == "elevated" else "normal"
+        if safety_tier == "elevated":
+            tpl = (
+                "I can hear this is getting heavier. You're not alone in this moment. "
+                + tpl
+            )
+        return tpl, recommendation, technique, ["llm_parse_fallback"], fallback_mode
 
     @staticmethod
     def _retrieval_quality(kb_context: list[dict[str, Any]]) -> str:
@@ -581,7 +611,69 @@ class PsychologyService:
                 for m in session.messages
                 if isinstance(m.fusion_metadata, dict)
             ],
+            "techniques_used": [
+                str((m.fusion_metadata or {}).get("technique_used"))
+                for m in session.messages
+                if m.role == "assistant"
+                and isinstance(m.fusion_metadata, dict)
+                and (m.fusion_metadata or {}).get("technique_used")
+            ],
+            "session_phases_seen": [
+                str((m.fusion_metadata or {}).get("session_phase"))
+                for m in session.messages
+                if m.role == "assistant"
+                and isinstance(m.fusion_metadata, dict)
+                and (m.fusion_metadata or {}).get("session_phase")
+            ],
         }
+
+    @staticmethod
+    def _session_phase(messages: list[TherapyMessageInput]) -> str:
+        patient_turns = sum(1 for m in messages if m.role == "patient")
+        if patient_turns <= 1:
+            return "opening_checkin"
+        if patient_turns <= 5:
+            return "working_phase"
+        return "closing_reflection"
+
+    @staticmethod
+    def _extract_recent_techniques(messages: list[TherapyMessageInput], limit: int = 5) -> list[str]:
+        techniques: list[str] = []
+        for msg in reversed(messages):
+            if msg.role != "assistant" or not isinstance(msg.fusion_metadata, dict):
+                continue
+            tech = msg.fusion_metadata.get("technique_used")
+            if isinstance(tech, str) and tech.strip():
+                techniques.append(tech.strip())
+            if len(techniques) >= limit:
+                break
+        return list(reversed(techniques))
+
+    @staticmethod
+    def _progress_technique_for_state(state: MentalState, base_technique: str, prior_techniques: list[str]) -> str:
+        arc = {
+            MentalState.anxious: ["supportive_reflection", "grounding", "cognitive_restructuring"],
+            MentalState.distressed: ["grounding", "problem_solving", "cognitive_restructuring"],
+            MentalState.depressed: ["supportive_reflection", "behavioral_activation", "values_microtask"],
+            MentalState.neutral: ["supportive_reflection", "strengths_review"],
+        }.get(state, [base_technique])
+        if base_technique not in arc:
+            arc = [base_technique] + arc
+        if not prior_techniques:
+            return arc[0]
+        last = prior_techniques[-1]
+        if last not in arc:
+            return arc[0]
+        idx = arc.index(last)
+        return arc[min(idx + 1, len(arc) - 1)]
+
+    @staticmethod
+    def _safety_tier(crisis_probability: float) -> str:
+        if crisis_probability >= CRISIS_THRESHOLD:
+            return "crisis"
+        if crisis_probability >= 0.60:
+            return "elevated"
+        return "normal"
 
     def _detect_language(self, text: str) -> str:
         lower = text.lower()

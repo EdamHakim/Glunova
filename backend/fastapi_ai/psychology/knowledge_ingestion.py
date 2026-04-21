@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from collections import deque
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from statistics import median
 from typing import Any, Iterable
 
 from core.config import settings
@@ -123,6 +128,7 @@ class QdrantKnowledgeBase:
         self._client = None
         self._embedder = None
         self._real_embeddings_enabled = True
+        self._search_latencies_ms: deque[float] = deque(maxlen=200)
         if self.enabled:
             try:
                 from qdrant_client import QdrantClient  # type: ignore
@@ -218,6 +224,7 @@ class QdrantKnowledgeBase:
                         if not chunk:
                             continue
                         payload = {**meta, "text": chunk, "chunk_id": str(item.get("chunk_id", ""))}
+                        payload["language"] = str(payload.get("language") or "en")
                         extra_meta = item.get("metadata")
                         if isinstance(extra_meta, dict):
                             payload.update({k: v for k, v in extra_meta.items() if isinstance(v, (str, int, float, bool))})
@@ -231,11 +238,12 @@ class QdrantKnowledgeBase:
                         file_chunks += 1
                 else:
                     for chunk in chunk_pdf_for_kb(raw_text):
+                        payload = {**meta, "text": chunk, "language": str(meta.get("language") or "en")}
                         pdf_points.append(
                             PointStruct(
                                 id=stable_point_id("pdf", meta["file_path"], chunk),
                                 vector=self._embed_text(chunk),
-                                payload={**meta, "text": chunk},
+                                payload=payload,
                             )
                         )
                         file_chunks += 1
@@ -314,6 +322,7 @@ class QdrantKnowledgeBase:
     def search(self, query: str, language: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
         if not self.enabled or self._client is None or not query.strip():
             return []
+        started = time.perf_counter()
         try:
             query_filter = None
             if language and language != "mixed":
@@ -337,6 +346,33 @@ class QdrantKnowledgeBase:
             return self._rerank_hits(query, list(hits), final_limit)
         except Exception:
             return []
+        finally:
+            self._search_latencies_ms.append((time.perf_counter() - started) * 1000.0)
+
+    def health_status(self) -> dict[str, Any]:
+        audit_path = Path(__file__).resolve().parents[1] / "tmp" / "psychology_embed_audit.json"
+        last_ingestion_at: str | None = None
+        if audit_path.exists():
+            last_ingestion_at = datetime.fromtimestamp(audit_path.stat().st_mtime, tz=timezone.utc).isoformat()
+
+        vector_count = 0
+        if self.enabled and self._client is not None:
+            try:
+                info = self._client.get_collection(collection_name=self.collection)
+                points = getattr(info, "points_count", 0) or 0
+                vector_count = int(points)
+            except Exception:
+                vector_count = 0
+
+        p50 = round(median(self._search_latencies_ms), 2) if self._search_latencies_ms else None
+        return {
+            "qdrant_enabled": self.enabled,
+            "collection": self.collection,
+            "collection_points": vector_count,
+            "last_ingestion_timestamp": last_ingestion_at,
+            "retrieval_latency_ms_p50": p50,
+            "language_payload_available": True,
+        }
 
     def _embed_text(self, text: str) -> list[float]:
         if self._embedder is not None and self._real_embeddings_enabled:
