@@ -111,34 +111,92 @@ def _extract_ada_section5(raw: str) -> list[dict[str, Any]]:
         end = min(end, end_tobacco)
     psycho = raw[start:end].strip()
     psycho = _strip_inline_citations(psycho)
-
     low = psycho.lower()
-    anchors = [
-        ("psychosocial care", "ADA_S5_01", "psychosocial_overview"),
-        ("diabetes distress", "ADA_S5_02", "diabetes_distress"),
-        ("depression", "ADA_S5_03", "depression"),
-        ("anxiety", "ADA_S5_04", "anxiety_fear_hypo"),
-        ("disordered eating", "ADA_S5_05", "disordered_eating"),
-    ]
-    positions: list[tuple[int, str, str]] = []
-    for label, cid, ctype in anchors:
-        idx = low.find(label)
-        if idx >= 0:
-            positions.append((idx, cid, ctype))
-    positions.sort(key=lambda x: x[0])
-    for i, (start, cid, ctype) in enumerate(positions):
-        end = positions[i + 1][0] if i + 1 < len(positions) else len(psycho)
-        sec = psycho[start:end].strip()
-        if sec:
-            out.append(_make(cid, _strip_inline_citations(sec), instrument="ADA_S5_2026", content_type=ctype, domain="psychosocial"))
 
-    referral = _section(
-        psycho,
-        r"(Referral|refer).+?mental health.+?",
-        [r"SLEEP HEALTH", r"TOBACCO CESSATION", r"$"],
-    )
-    if referral:
-        out.append(_make("ADA_S5_06", _strip_inline_citations(referral), instrument="ADA_S5_2026", content_type="escalation_referral", domain="psychosocial"))
+    # Robust range-based slicing: prefer explicit headings, fall back to recommendation markers.
+    def pos(token: str) -> int:
+        return low.find(token.lower())
+
+    p_psy = pos("psychosocial care")
+    p_dd = pos("diabetes distress recommendation")
+    if p_dd < 0:
+        p_dd = pos("diabetes distress recommendations")
+    if p_dd < 0:
+        p_dd = pos("diabetes distress")
+    p_anx = pos("anxiety recommendations")
+    if p_anx < 0:
+        p_anx = pos("anxiety recommendation")
+    if p_anx < 0:
+        p_anx = pos("anxiety")
+    p_dep = pos("depression recommendations")
+    if p_dep < 0:
+        p_dep = pos("depression")
+    p_dis = pos("disordered eating behavior")
+    if p_dis < 0:
+        p_dis = pos("disordered eating")
+    p_cog = pos("cognitive capacity and impairment")
+
+    # Optional recommendation markers to tighten boundaries when headings are noisy.
+    p_545 = pos("5.45")
+    p_546 = pos("5.46")
+    p_548 = pos("5.48")
+    p_550 = pos("5.50")
+
+    def sl(a: int, b: int) -> str:
+        if a < 0:
+            return ""
+        end_pos = b if b > a else len(psycho)
+        return psycho[a:end_pos].strip()
+
+    # Overview up to first psychosocial subdomain.
+    s1_end = min([x for x in (p_dd, p_545, p_anx, p_dep, p_dis) if x >= 0], default=len(psycho))
+    s1 = sl(p_psy, s1_end)
+    if s1:
+        out.append(_make("ADA_S5_01", s1, instrument="ADA_S5_2026", content_type="psychosocial_overview", domain="psychosocial"))
+
+    # Diabetes distress block.
+    s2_end = min([x for x in (p_anx, p_546, p_dep, p_548, p_dis, p_550) if x >= 0 and x > p_dd], default=len(psycho))
+    s2 = sl(p_dd, s2_end)
+    if s2:
+        out.append(_make("ADA_S5_02", s2, instrument="ADA_S5_2026", content_type="diabetes_distress", domain="psychosocial"))
+
+    # Anxiety + fear hypoglycemia block.
+    s4_end = min([x for x in (p_dep, p_548, p_dis, p_550) if x >= 0 and x > p_anx], default=len(psycho))
+    s4 = sl(p_anx, s4_end)
+    if s4:
+        out.append(_make("ADA_S5_04", s4, instrument="ADA_S5_2026", content_type="anxiety_fear_hypo", domain="psychosocial"))
+
+    # Depression block.
+    s3_end = min([x for x in (p_dis, p_550, p_cog) if x >= 0 and x > p_dep], default=len(psycho))
+    s3 = sl(p_dep, s3_end)
+    if s3:
+        out.append(_make("ADA_S5_03", s3, instrument="ADA_S5_2026", content_type="depression", domain="psychosocial"))
+
+    # Disordered eating block.
+    s5_end = min([x for x in (p_cog,) if x >= 0 and x > p_dis], default=len(psycho))
+    s5 = sl(p_dis, s5_end)
+    if s5:
+        out.append(_make("ADA_S5_05", s5, instrument="ADA_S5_2026", content_type="disordered_eating", domain="psychosocial"))
+
+    # Consolidated escalation/referral lines across psychosocial section.
+    referral_lines: list[str] = []
+    for seg in re.split(r"(?<=[.!?])\s+", psycho):
+        s = seg.strip()
+        if not s:
+            continue
+        low_s = s.lower()
+        if "refer" in low_s or "referral" in low_s or "behavioral health" in low_s or "mental health professional" in low_s:
+            referral_lines.append(s)
+    if referral_lines:
+        out.append(
+            _make(
+                "ADA_S5_06",
+                " ".join(referral_lines[:30]),
+                instrument="ADA_S5_2026",
+                content_type="escalation_referral",
+                domain="psychosocial",
+            )
+        )
     return out
 
 

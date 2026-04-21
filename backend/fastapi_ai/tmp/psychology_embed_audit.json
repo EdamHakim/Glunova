@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-21T06:02:17.813634+00:00",
+  "generated_at": "2026-04-21T06:13:39.997994+00:00",
   "validation": {
     "files": [
       {
@@ -43,10 +43,10 @@
         "file": "Full Section 5, open access on PMC.pdf",
         "chunk_ids": [
           "ADA_S5_01",
-          "ADA_S5_05",
-          "ADA_S5_03",
           "ADA_S5_02",
           "ADA_S5_04",
+          "ADA_S5_03",
+          "ADA_S5_05",
           "ADA_S5_06"
         ],
         "chunk_stats": {
@@ -54,25 +54,25 @@
             "chars": 64526,
             "preview": "psychosocial care. Following an initial comprehensive health evaluation (see section 4, “Comprehensive Medic al Evaluation and Assessment of Comorbidities”), health care professionals sho uld engage in person-centered co"
           },
-          "ADA_S5_05": {
-            "chars": 40470,
-            "preview": "disordered eating behaviors. Characterizing an individual’s past efforts with weight loss and their body weight history can also be very use- ful. Nutrition therapy should be individual- ized to help address maladaptive "
-          },
-          "ADA_S5_03": {
-            "chars": 19917,
-            "preview": "Depression Quality of life SITTING/BREAKING UP PROLONGED SITTING        STEPPING               STRENGTHENING        ADEQUATE SLEEP DURATION        GOOD SLEEP QUALITY        CHRON"
-          },
           "ADA_S5_02": {
-            "chars": 41,
-            "preview": "diabetes distress, depressive symp- toms,"
+            "chars": 7003,
+            "preview": "Diabetes Distress Recommendation 5.45 Screen for diabetes distress at least annually in people with diabetes, caregivers, and family members, and repeat screening when treatment goals are not met, at transitional times, "
           },
           "ADA_S5_04": {
-            "chars": 38349,
-            "preview": "anxiety symptoms, and fear of hypo- glycemia), available resources (ﬁnancial, social, family, and emotional), and/or psy- chiatric history. Given elevated rates of suicidality among people with diabetes , screening for s"
+            "chars": 5446,
+            "preview": "Anxiety Recommendations 5.46 Screen for anxiety symptoms at least annually in people with dia- betes. Health care professionals can address anxiety symptoms within the scope of their practice. Consider re- ferral to a qu"
+          },
+          "ADA_S5_03": {
+            "chars": 5501,
+            "preview": "Depression Recommendations 5.48 Screen for depressive symptoms in all people with diabetes at least annually and more frequently among those with a history of depression. B Refer to qualiﬁed behavioral health pro- fessio"
+          },
+          "ADA_S5_05": {
+            "chars": 93466,
+            "preview": "disordered eating behaviors. Characterizing an individual’s past efforts with weight loss and their body weight history can also be very use- ful. Nutrition therapy should be individual- ized to help address maladaptive "
           },
           "ADA_S5_06": {
-            "chars": 160251,
-            "preview": "referred to as the National Standards for DSMES) , all people with diab etes should partici- pate in developmentally appropriate and culturally sensitive DSMES, as it helps people with diabetes identify and implement eff"
+            "chars": 7154,
+            "preview": "Routine care evaluations should include assessments of medical and behavioral health out comes, particularly during periods of changes in health and well-being. In accordance with the “2 022 National Standards for Diabet"
           }
         }
       },
@@ -104,8 +104,6 @@
         "chunk_stats": {}
       }
     ],
-    "errors": [
-      "Full Section 5, open access on PMC.pdf:ADA_S5_02 too short (41 < 160)"
-    ]
+    "errors": []
   }
 }

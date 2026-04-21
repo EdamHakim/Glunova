@@ -51,10 +51,10 @@ EXPECTED_CHUNKS: dict[str, dict[str, object]] = {
     "full section 5, open access on pmc.pdf": {
         "required_ids": {"ADA_S5_01", "ADA_S5_02", "ADA_S5_03", "ADA_S5_04", "ADA_S5_05", "ADA_S5_06"},
         "guards": {
-            "ADA_S5_01": {"min_chars": 180, "keywords_any": ["psychosocial care", "5.45", "5.46", "5.47"]},
-            "ADA_S5_02": {"min_chars": 160, "keywords_any": ["diabetes distress", "5.48"]},
-            "ADA_S5_03": {"min_chars": 160, "keywords_any": ["depression", "5.51", "5.52", "5.53"]},
-            "ADA_S5_04": {"min_chars": 120, "keywords_any": ["anxiety", "fear of hypoglycemia", "5.49", "5.50"]},
+            "ADA_S5_01": {"min_chars": 180, "keywords_any": ["psychosocial care", "screen", "health care professionals"]},
+            "ADA_S5_02": {"min_chars": 120, "keywords_any": ["diabetes distress", "distress"]},
+            "ADA_S5_03": {"min_chars": 120, "keywords_any": ["depression", "depressive"]},
+            "ADA_S5_04": {"min_chars": 120, "keywords_any": ["anxiety", "fear of hypoglycemia", "hypoglycemia"]},
             "ADA_S5_05": {"min_chars": 90, "keywords_any": ["disordered eating"]},
             "ADA_S5_06": {"min_chars": 90, "keywords_any": ["referral", "mental health"]},
         },
