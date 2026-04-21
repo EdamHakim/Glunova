@@ -26,3 +26,4 @@ torchaudio>=2.3
 qdrant-client>=1.11.3
 sentence-transformers>=3.0.1
 azure-ai-documentintelligence>=1.0.0b1
+aiohttp>=3.9.0
