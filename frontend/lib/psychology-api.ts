@@ -37,7 +37,11 @@ export type PsychologyMessagePayload = {
   session_id: string
   patient_id: number
   text: string
+  face_emotion?: 'neutral' | 'anxious' | 'distressed' | 'depressed'
+  face_confidence?: number
   speech_transcript?: string
+  speech_emotion?: 'neutral' | 'anxious' | 'distressed' | 'depressed'
+  speech_confidence?: number
   speech_audio_base64?: string
 }
 

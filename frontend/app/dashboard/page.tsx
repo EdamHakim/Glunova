@@ -7,13 +7,21 @@ import { Button } from '@/components/ui/button'
 import HealthTrendChart from '@/components/dashboard/health-trend-chart'
 import PatientSummary from '@/components/dashboard/patient-summary'
 import RoleGuard from '@/components/auth/role-guard'
+import { useAuth } from '@/components/auth-context'
 import { getDashboardOverview, type DashboardOverview } from '@/lib/dashboard-api'
 
 export default function Dashboard() {
+  const { user, loading } = useAuth()
   const [overview, setOverview] = useState<DashboardOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (loading) return
+    if (user?.role !== 'doctor') {
+      setOverview(null)
+      setError(null)
+      return
+    }
     let cancelled = false
     void getDashboardOverview()
       .then((payload) => {
@@ -25,7 +33,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loading, user?.role])
 
   const trendData = useMemo(
     () =>

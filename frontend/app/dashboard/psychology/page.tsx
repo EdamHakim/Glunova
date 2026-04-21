@@ -29,7 +29,7 @@ type ChatBubble = {
 }
 
 type LiveEmotion = {
-  label: string
+  label: 'neutral' | 'anxious' | 'distressed' | 'depressed'
   confidence: number
   distress_score: number
   timestamp: string
@@ -64,6 +64,7 @@ export default function PsychologyPage() {
   const [cameraOn, setCameraOn] = useState(false)
   const [liveEmotion, setLiveEmotion] = useState<LiveEmotion | null>(null)
   const [micListening, setMicListening] = useState(false)
+  const [latestSpeechTranscript, setLatestSpeechTranscript] = useState('')
   const [startingSession, setStartingSession] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -234,7 +235,10 @@ export default function PsychologyPage() {
     rec.continuous = false
     rec.onresult = (event) => {
       const text = event.results[0]?.[0]?.transcript?.trim()
-      if (text) setInput((prev) => (prev ? `${prev} ${text}` : text))
+      if (text) {
+        setLatestSpeechTranscript(text)
+        setInput((prev) => (prev ? `${prev} ${text}` : text))
+      }
     }
     rec.onend = () => {
       setMicListening(false)
@@ -273,20 +277,30 @@ export default function PsychologyPage() {
       return
     }
     const patientText = input.trim()
+    const multimodalPayload = {
+      session_id: activeSessionId,
+      patient_id: patientId,
+      text: patientText,
+      face_emotion: liveEmotion?.label,
+      face_confidence: liveEmotion?.confidence,
+      speech_transcript: latestSpeechTranscript || undefined,
+      speech_confidence: latestSpeechTranscript ? 0.65 : undefined,
+    }
     setInput('')
+    setLatestSpeechTranscript('')
     setChat((old) => [...old, { role: 'patient', content: patientText }])
     setLoading(true)
     try {
       let result: PsychologyMessageResult
       try {
-        result = await sendPsychologyMessage({ session_id: activeSessionId, patient_id: patientId, text: patientText })
+        result = await sendPsychologyMessage(multimodalPayload)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         const likelySessionIssue = /session|404|403|not found|invalid/i.test(message)
         if (!likelySessionIssue) throw error
         const refreshedSessionId = await ensureSessionStarted(true)
         if (!refreshedSessionId) throw error
-        result = await sendPsychologyMessage({ session_id: refreshedSessionId, patient_id: patientId, text: patientText })
+        result = await sendPsychologyMessage({ ...multimodalPayload, session_id: refreshedSessionId })
       }
       setLatestResult(result)
       setChat((old) => [...old, { role: 'assistant', content: result.reply }])
