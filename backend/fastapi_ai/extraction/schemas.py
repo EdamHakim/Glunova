@@ -10,6 +10,8 @@ class ExtractionResponse(BaseModel):
     extracted_json_rules: dict[str, Any]
     field_evidence: dict[str, Any]
     status: str = "ok"
+    review_required: bool = False
+    confidence_score: Optional[float] = None
 
 class HealthResponse(BaseModel):
     status: str

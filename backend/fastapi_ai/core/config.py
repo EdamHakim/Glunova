@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://glunova:glunova@localhost:5432/glunova"
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    groq_vision_model: str = "llama-3.2-11b-vision-preview"
     ocr_language: str = "eng"
     qdrant_url: str = ""
     qdrant_api_key: str = ""

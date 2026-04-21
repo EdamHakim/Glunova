@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import Any
 from urllib import error, parse, request
 
+import rapidfuzz
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -322,7 +323,7 @@ def _candidate_similarity(query: str, candidate_name: str | None) -> int:
     if not left or not right:
         return 0
 
-    ratio = difflib.SequenceMatcher(None, left, right).ratio()
+    ratio = rapidfuzz.fuzz.token_sort_ratio(left, right) / 100.0
     left_tokens = _token_set(left)
     right_tokens = _token_set(right)
     overlap = len(left_tokens & right_tokens) / max(len(left_tokens), 1)
@@ -774,6 +775,42 @@ def verify_medication_entry(
     return enriched
 
 
+    return enriched
+
+
+def check_drug_drug_interactions(rxcuis: list[str]) -> list[dict[str, Any]]:
+    """Check for interactions between a list of RxCUIs using the RxNorm Interaction API."""
+    if len(rxcuis) < 2:
+        return []
+
+    base_url = "https://rxnav.nlm.nih.gov/REST"
+    rxcuis_str = "+".join(rxcuis)
+    try:
+        url = f"{base_url}/interaction/list.json?rxcuis={rxcuis_str}"
+        payload = _http_get_json(url, timeout=5)
+        
+        interactions = []
+        full_interaction_type_group = payload.get("fullInteractionTypeGroup") or []
+        for group in full_interaction_type_group:
+            full_interaction_types = group.get("fullInteractionType") or []
+            for interaction_type in full_interaction_types:
+                # Extract details
+                comment = interaction_type.get("comment")
+                interaction_pair = interaction_type.get("interactionPair", [{}])[0]
+                description = interaction_pair.get("description")
+                severity = interaction_pair.get("severity", "N/A")
+                
+                interactions.append({
+                    "description": description,
+                    "severity": severity,
+                    "comment": comment
+                })
+        return interactions
+    except Exception as exc:
+        logger.warning(f"Failed to check interactions: {exc}")
+        return []
+
+
 def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: str) -> dict[str, Any]:
     doc_type = merged.get("document_type") or merged.get("document_type_detected")
     medications = merged.get("medications")
@@ -782,10 +819,28 @@ def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: str) -> 
 
     cache: dict[str, dict[str, Any]] = {}
     enriched = dict(merged)
-    enriched["medications"] = [
+    
+    # 1. Individual Verification
+    verified_meds = [
         verify_medication_entry(medication, raw_ocr_text=raw_ocr_text, cache=cache)
         if isinstance(medication, dict)
         else medication
         for medication in medications
     ]
+    
+    # 2. Extract verified RxCUIs for interaction check
+    rxcuis = [
+        med["verification"]["rxcui"] 
+        for med in verified_meds 
+        if isinstance(med, dict) and med.get("verification", {}).get("rxcui")
+    ]
+    
+    # 3. Check Interactions
+    interactions = []
+    if len(rxcuis) >= 2:
+        interactions = check_drug_drug_interactions(rxcuis)
+    
+    enriched["medications"] = verified_meds
+    enriched["drug_interactions"] = interactions
+    
     return enriched
