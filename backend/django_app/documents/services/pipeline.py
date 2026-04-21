@@ -117,7 +117,7 @@ def process_document_upload(doc: MedicalDocument, file_bytes: bytes, mime_type: 
     raw_ocr = ""
 
     try:
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=120.0) as client:
             files = {"file": (safe_filename(doc.original_filename), file_bytes, mime_type)}
             response = client.post(
                 extraction_url,

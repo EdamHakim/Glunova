@@ -277,7 +277,7 @@ def fetch_rxnorm_candidates(name: str) -> list[RxNormCandidate]:
     if not normalized:
         return []
 
-    timeout = 5
+    timeout = 10
     base_url = "https://rxnav.nlm.nih.gov/REST"
     max_entries = 5
     property_lookup_limit = 3
@@ -787,7 +787,7 @@ def check_drug_drug_interactions(rxcuis: list[str]) -> list[dict[str, Any]]:
     rxcuis_str = "+".join(rxcuis)
     try:
         url = f"{base_url}/interaction/list.json?rxcuis={rxcuis_str}"
-        payload = _http_get_json(url, timeout=5)
+        payload = _http_get_json(url, timeout=10)
         
         interactions = []
         full_interaction_type_group = payload.get("fullInteractionTypeGroup") or []

@@ -74,7 +74,10 @@ async def extract_medical_data(
     final = verify_and_enrich_medications(merged, raw_ocr)
 
     # 6. Reliability & HITL Logic
-    azure_conf = ocr_meta.get("average_confidence", 0)
+    azure_conf = ocr_meta.get("average_confidence")
+    if azure_conf is None:
+        azure_conf = 0.0
+    
     has_interactions = len(final.get("drug_interactions", [])) > 0
     
     # Check for unverified medications

@@ -68,31 +68,52 @@ def merge_and_validate(
         if final.get("document_type") == "unknown" or _evidence_ok(fe.get("document_type"), raw):
             final["document_type"] = dt
 
-    # Medications: LLM name must appear in raw
+    # Medications: Deduplicate based on fuzzy name + dosage
     g_meds = llm_extracted.get("medications")
     if isinstance(g_meds, list):
-        seen = {json.dumps(m, sort_keys=True) for m in final.get("medications", [])}
+        import rapidfuzz
+        
+        final_meds = final.get("medications", [])
+        
         for row in g_meds:
             if not isinstance(row, dict):
                 continue
             name = row.get("name")
             if not isinstance(name, str) or len(name) < 2:
                 continue
-            if name not in raw and name.lower() not in raw.lower():
-                continue
+            
+            # Grounding check: name must be in OCR
             if name.lower() not in raw.lower():
                 continue
-            entry = {
-                "name": name,
-                "dosage": row.get("dosage"),
-                "frequency": row.get("frequency"),
-                "duration": row.get("duration"),
-                "route": row.get("route"),
-            }
-            key = json.dumps(entry, sort_keys=True)
-            if key not in seen:
-                final.setdefault("medications", []).append(entry)
-                seen.add(key)
+            
+            dosage = _norm(str(row.get("dosage") or ""))
+            
+            # Check for existing similar medication
+            is_duplicate = False
+            for existing in final_meds:
+                existing_name = existing.get("name", "")
+                existing_dosage = _norm(str(existing.get("dosage") or ""))
+                
+                # If name is very similar AND dosage matches
+                name_sim = rapidfuzz.fuzz.token_sort_ratio(name.lower(), existing_name.lower())
+                if name_sim > 85 and (not dosage or not existing_dosage or dosage.lower() == existing_dosage.lower()):
+                    is_duplicate = True
+                    # Update existing with LLM info if missing (e.g. frequency normalization)
+                    for key in ["frequency", "duration", "route", "dosage"]:
+                        if not existing.get(key) and row.get(key):
+                            existing[key] = row.get(key)
+                    break
+            
+            if not is_duplicate:
+                final_meds.append({
+                    "name": name,
+                    "dosage": row.get("dosage"),
+                    "frequency": row.get("frequency"),
+                    "duration": row.get("duration"),
+                    "route": row.get("route"),
+                })
+        
+        final["medications"] = final_meds
 
     try:
         return ExtractedPayload.model_validate(final).model_dump(mode="json")

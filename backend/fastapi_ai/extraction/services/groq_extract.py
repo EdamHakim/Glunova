@@ -170,6 +170,7 @@ def run_groq_structured_extract(raw_ocr_text: str) -> dict[str, Any]:
         logger.error("Groq API call failed: %s", exc)
         return {"extracted": {}, "field_evidence": {}}
 
+    content = response.choices[0].message.content or "{}"
     payload = _parse_json_response(content)
     
     return {
