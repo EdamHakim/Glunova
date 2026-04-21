@@ -109,6 +109,16 @@ At every conversation turn, the system assembles a context-rich prompt from four
 | Live emotion state | Current distress score, label, modalities active, trend direction | In-context from fusion gate (real-time) |
 | Health context | Glucose trends, risk level, complications, medications | PostgreSQL via Django API |
 
+#### Retrieval Quality Layer (implemented alignment)
+
+Sanadi retrieval is a two-stage pipeline:
+
+1. **Recall stage (Qdrant vector search)** — retrieves top-K candidate chunks with multilingual filtering.
+2. **Rerank stage (hybrid)** — combines vector score + lexical overlap + source-priority weighting, then deduplicates near-identical text.
+3. **Quality guard** — if best relevance is below threshold or no usable context is found, Sanadi switches to **low-context safe mode** (clarifying supportive response, no fabricated guidance).
+
+This prevents low-quality retrieval from silently contaminating therapy prompts.
+
 #### LLM Response Schema
 
 ```json
@@ -121,6 +131,11 @@ At every conversation turn, the system assembles a context-rich prompt from four
   "recommendation":    "breathing_478" // optional — triggers recommendation engine
 }
 ```
+
+Internal contract hardening:
+- System prompt enforces: no diagnosis, no medication prescribing, no hallucinated clinical claims.
+- JSON parser validates required keys (`reply`, `technique`, `recommendation`) and optional safety keys (`citations`, `safety_mode`).
+- On schema/parse violation, Sanadi falls back to deterministic template response.
 
 #### Multilingual Support
 
@@ -160,6 +175,16 @@ Sanadi handles English, Modern Standard Arabic, Tunisian Darija, French, and cod
 4. Care Circle alert sent to designated caregiver
 5. Sanadi switches to safe static response — no LLM generation during crisis
 6. Session flagged — physician must review before next session is permitted
+
+#### Runtime Anomaly Detection (implemented alignment)
+
+Sanadi emits anomaly flags for clinician-safe observability:
+
+- **Retrieval anomalies:** `retrieval_empty`, `retrieval_low_score`
+- **LLM anomalies:** `llm_parse_fallback`, `llm_missing_citations`, `llm_low_context_fallback`, `llm_crisis_guard_mode`
+- **Fusion anomalies:** abrupt distress jump (`fusion_abrupt_jump`) between consecutive turns
+
+These are attached to message-level metadata and logs for review and debugging.
 
 ---
 
@@ -289,37 +314,21 @@ The following curated external datasets and clinical resources should be ingeste
 
 ### 8.1 CBT Scripts & Therapy Techniques
 
-| Source | Content | Access |
-|--------|---------|--------|
-| **Beck Institute CBT Resources** | Thought records, behavioral activation scripts, cognitive restructuring worksheets, Socratic questioning guides | beckinstitute.org (free PDFs) |
-| **IAPT CBT Manuals (NHS)** | Structured low-intensity CBT protocols for depression and anxiety — step-by-step therapist scripts | england.nhs.uk/iapt (open access) |
-| **PsychologyTools.io CBT Worksheets** | 400+ evidence-based worksheets — grounding, breathing, mood tracking, behavioral experiments. Available in French. | psychologytools.com (free tier) |
-
 ### 8.2 ADA Mental Health & Diabetes Guidelines
-
-| Source | Content | Access |
-|--------|---------|--------|
-| **ADA Standards of Care 2024 — Section 5** | Facilitating Behavior Change and Well-Being — psychosocial assessment, diabetes distress screening (PAID, DDS), depression and anxiety guidelines for T1D/T2D | diabetesjournals.org/care (open access) |
-| **Diabetes Distress Scale (DDS17)** | 17-item validated instrument for diabetes-specific distress — covers emotional burden, physician distress, regimen distress, interpersonal distress. Validated in English and French. | UCSF Diabetes Center (free) |
-| **PAID Scale (Problem Areas in Diabetes)** | 20-item instrument measuring emotional distress specifically related to living with diabetes. Useful for grounding Sanadi's distress taxonomy. | Joslin Diabetes Center (open access) |
 
 ### 8.3 Diabetes Distress Protocols & Psychoeducation
 
-| Source | Content | Access |
-|--------|---------|--------|
-| **DiabetesSisters PEAK Program** | Peer-led psychoeducation modules for managing emotional burden of diabetes — covers burnout, fear of hypoglycemia, family distress | diabetessisters.org (free) |
-| **IDF Psychosocial Care Guideline** | International Diabetes Federation guidelines for psychosocial screening and intervention. Covers depression, anxiety, eating disorders, and cognitive impairment in diabetes. Available in French. | idf.org/guidelines (open access) |
-| **Mindfulness-Based Cognitive Therapy (MBCT) Protocol** | 8-week MBCT session scripts including body scan, mindful breathing, and decentering exercises. Complements CBT for depression relapse prevention. | Oxford Mindfulness Centre (free) |
+### 8.4 Ingestion Validation & Drift Controls (implemented alignment)
 
-### 8.4 French-Language Clinical Resources
+Before embedding to `cbt_knowledge`, Sanadi runs fail-fast validation:
 
-Since French is now a supported patient language, the RAG knowledge base should include French-native clinical content so Sanadi can respond with contextually appropriate therapy language rather than translated content.
+- required curated chunk IDs per source
+- min/max chunk lengths
+- keyword presence checks per chunk
+- symbol-noise ratio check
+- chunk-count drift vs baseline snapshot
 
-| Source | Content | Access |
-|--------|---------|--------|
-| **Thérapies Comportementales et Cognitives (TCC) — AFFORTHECC** | French CBT association's clinical guides and patient handouts. Native French therapeutic vocabulary for Sanadi responses. | afforthecc.org (free resources) |
-| **Fédération Française des Diabétiques** | Patient-facing French diabetes distress content, self-management guides, and emotional support articles. Ideal for grounding Sanadi's French responses in locally familiar language. | federationdesdiabetiques.org (open) |
-| **HAS Guidelines (Haute Autorité de Santé)** | French national health authority recommendations for diabetes psychosocial care and depression management — the French-language equivalent of ADA clinical standards. | has-sante.fr (open access) |
+Artifacts are written to `backend/fastapi_ai/tmp/psychology_embed_audit*.json` and block ingestion when constraints fail.
 
 ---
 

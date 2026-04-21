@@ -79,6 +79,15 @@ This checklist maps the architecture spec to current implementation status so th
   - explicit IDF 2025 exclusion from psychology KB ingest
 - [x] Added fail-fast ingestion validation + audit JSON (`tmp/psychology_embed_audit*.json`) with required IDs, min/max char guards, and keyword checks.
 - [x] Added extractor switch wiring (`--extractor pypdf|chonkie` and API query param), with safe fallback path.
+- [x] Added two-stage retrieval in KB search path:
+  - Qdrant vector recall (`top_k` expanded)
+  - lexical+metadata reranker with dedupe and source-priority boosts
+  - relevance score exposed in retrieval payload for runtime guards
+- [x] Added runtime retrieval quality gate (`ok` / `low_score` / `empty`) and safe low-context fallback response.
+- [x] Added strict Sanadi LLM contract:
+  - stronger system prompt constraints (scope/safety/no diagnosis)
+  - required JSON keys with validation (`reply`, `technique`, `recommendation`, `citations`, `safety_mode`)
+  - guarded fallback when parse/schema fails
 
 ### Frontend Wiring
 - [x] Connected psychology dashboard page to backend session/message/trends/crisis APIs.
@@ -96,6 +105,15 @@ This checklist maps the architecture spec to current implementation status so th
   - requires valid JWT (query token or cookie)
   - role gate (`patient`, `doctor`)
   - patient self-scope enforcement for patient role
+- [x] Added ingestion anomaly checks:
+  - min/max chunk length guards
+  - keyword presence guards
+  - symbol-noise ratio checks
+  - chunk-count drift detection against baseline audit snapshot
+- [x] Added runtime anomaly flags in message response:
+  - retrieval anomalies (`retrieval_empty`, `retrieval_low_score`)
+  - LLM anomalies (`llm_parse_fallback`, `llm_missing_citations`, `llm_low_context_fallback`, `llm_crisis_guard_mode`)
+  - fusion anomaly (`fusion_abrupt_jump`)
 
 ---
 
@@ -129,7 +147,7 @@ This checklist maps the architecture spec to current implementation status so th
 ## Missing / Next TODOs (Hardening)
 
 ### Observability and Safety
-- [ ] Finer-grained structured logs per pipeline stage (fusion, retrieval, LLM, persist) with safe field names.
+- [~] Finer-grained structured logs per pipeline stage (fusion, retrieval, LLM, persist) with safe field names.
 - [ ] Request correlation IDs across frontend / FastAPI / Django.
 - [ ] Metrics: latency, crisis trigger rate, WS disconnects, retrieval failures.
 - [ ] Tests / red-team prompts for crisis safety behavior.

@@ -1,10 +1,14 @@
 const base = () => {
+  const psychologySpecific = process.env.NEXT_PUBLIC_PSYCHOLOGY_API_URL?.replace(/\/$/, '')
+  if (psychologySpecific) return psychologySpecific
+  const fastapiConfigured = process.env.NEXT_PUBLIC_FASTAPI_API_URL?.replace(/\/$/, '')
+  if (fastapiConfigured) return fastapiConfigured
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '')
   if (configured) return configured
   if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:8000`
+    return `${window.location.protocol}//${window.location.hostname}:8001`
   }
-  return 'http://localhost:8000'
+  return 'http://localhost:8001'
 }
 
 export const psychologyWsBase = () => {

@@ -100,6 +100,8 @@ class MessageResponse(BaseModel):
     mental_state: MentalState
     fusion: FusionOutput
     physician_review_required: bool = False
+    anomaly_flags: list[str] = []
+    retrieval_quality: str = "ok"
 
 
 class CrisisAckRequest(BaseModel):

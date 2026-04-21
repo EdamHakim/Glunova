@@ -58,6 +58,7 @@ SAFE_CRISIS_REPLY = (
     "I am concerned about your safety. I am alerting your care team now. "
     "Please stay where you are and reach out to emergency services if you are in immediate danger."
 )
+MIN_RETRIEVAL_SCORE = 0.16
 
 
 @dataclass
@@ -152,7 +153,11 @@ class PsychologyService:
         fusion = self._fusion(payload)
         trend_slope = self._trend_slope(payload.patient_id)
         mental_state = self._classify_mental_state(fusion.distress_score, crisis_detected, trend_slope)
-        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=3)
+        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=5)
+        anomaly_flags: list[str] = []
+        retrieval_quality = self._retrieval_quality(kb_context)
+        if retrieval_quality != "ok":
+            anomaly_flags.append(f"retrieval_{retrieval_quality}")
         memory_items = self._memories.top(payload.patient_id, 3)
         health_context: dict[str, Any] = {}
         if self._pool is not None:
@@ -180,7 +185,7 @@ class PsychologyService:
         else:
             recommendation = self._recommendation(mental_state)
             technique = self._technique_for_state(mental_state)
-            reply, recommendation, technique = self._therapy_reply_multimodal(
+            reply, recommendation, technique, llm_anomalies = self._therapy_reply_multimodal(
                 user_text=payload.text,
                 mental_state=mental_state,
                 recommendation=recommendation,
@@ -189,7 +194,9 @@ class PsychologyService:
                 memory_items=memory_items,
                 health_context=health_context,
                 fusion=fusion,
+                retrieval_quality=retrieval_quality,
             )
+            anomaly_flags.extend(llm_anomalies)
 
         assistant_msg = TherapyMessageInput(role="assistant", content=reply)
         session.messages.append(assistant_msg)
@@ -197,6 +204,9 @@ class PsychologyService:
 
         point = TrendPoint(timestamp=datetime.utcnow(), distress_score=fusion.distress_score, state=mental_state)
         self._emotion_logs.append(payload.patient_id, point)
+        jump = self._distress_jump_anomaly(raw_session.messages, fusion.distress_score)
+        if jump:
+            anomaly_flags.append("fusion_abrupt_jump")
         raw_session.messages = session.messages
         raw_session.last_state = session.last_state.value if session.last_state else None
         raw_session.ended_at = session.ended_at
@@ -209,9 +219,11 @@ class PsychologyService:
             physician_review_required = get_physician_review_required(self._pool, payload.patient_id)
 
         logger.info(
-            "psychology.message.complete mental_state=%s distress=%.3f",
+            "psychology.message.complete mental_state=%s distress=%.3f retrieval_quality=%s anomalies=%s",
             mental_state.value,
             fusion.distress_score,
+            retrieval_quality,
+            ",".join(anomaly_flags) if anomaly_flags else "none",
         )
         return MessageResponse(
             session_id=payload.session_id,
@@ -225,6 +237,8 @@ class PsychologyService:
             mental_state=mental_state,
             fusion=fusion,
             physician_review_required=physician_review_required,
+            anomaly_flags=anomaly_flags,
+            retrieval_quality=retrieval_quality,
         )
 
     def detect_emotion_frame(self, patient_id: int, frame_base64: str) -> EmotionFrameResponse:
@@ -448,9 +462,17 @@ class PsychologyService:
         memory_items: list[str],
         health_context: dict[str, Any],
         fusion: FusionOutput,
-    ) -> tuple[str, str | None, str]:
+        retrieval_quality: str,
+    ) -> tuple[str, str | None, str, list[str]]:
         from psychology.llm_therapy import run_therapy_llm
 
+        anomalies: list[str] = []
+        if retrieval_quality != "ok":
+            reply = (
+                "Thanks for sharing this. I want to support you carefully. "
+                "Could you tell me what feels heaviest right now, and what helped even a little in the past?"
+            )
+            return reply, recommendation, "supportive_reflection", ["llm_low_context_fallback"]
         fusion_summary = (
             f"label={fusion.label.value}, distress={fusion.distress_score}, "
             f"stress={fusion.stress_level}, modalities={[m.value for m in fusion.modalities_used]}"
@@ -471,9 +493,35 @@ class PsychologyService:
                 rec_out = recommendation
             tech = llm.get("technique")
             tech_out = tech.strip() if isinstance(tech, str) and tech.strip() else technique
-            return llm["reply"].strip(), rec_out, tech_out
+            if llm.get("safety_mode") == "crisis_guard":
+                rec_out = "notify_clinician_immediately"
+                anomalies.append("llm_crisis_guard_mode")
+            citations = llm.get("citations")
+            if not isinstance(citations, list) or len(citations) == 0:
+                anomalies.append("llm_missing_citations")
+            return llm["reply"].strip(), rec_out, tech_out, anomalies
         tpl = self._therapy_reply_template(user_text, mental_state, recommendation, kb_context)
-        return tpl, recommendation, technique
+        return tpl, recommendation, technique, ["llm_parse_fallback"]
+
+    @staticmethod
+    def _retrieval_quality(kb_context: list[dict[str, Any]]) -> str:
+        if not kb_context:
+            return "empty"
+        scores = [float(item.get("relevance_score") or 0.0) for item in kb_context]
+        best = max(scores) if scores else 0.0
+        if best < MIN_RETRIEVAL_SCORE:
+            return "low_score"
+        return "ok"
+
+    @staticmethod
+    def _distress_jump_anomaly(messages: list[TherapyMessageInput], distress_now: float) -> bool:
+        for msg in reversed(messages):
+            if msg.role != "patient" or not isinstance(msg.fusion_metadata, dict):
+                continue
+            prev = msg.fusion_metadata.get("distress_score")
+            if isinstance(prev, (float, int)):
+                return abs(float(prev) - distress_now) >= 0.45
+        return False
 
     def _therapy_reply_template(
         self,

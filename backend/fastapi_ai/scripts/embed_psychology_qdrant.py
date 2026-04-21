@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import argparse
 import sys
+import re
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -60,6 +61,7 @@ EXPECTED_CHUNKS: dict[str, dict[str, object]] = {
         },
     },
 }
+DRIFT_TOLERANCE = 0.55
 
 
 def _reset_collection(kb: object) -> None:
@@ -83,6 +85,13 @@ def _reset_collection(kb: object) -> None:
 def _keyword_any_match(text: str, probes: list[str]) -> bool:
     low = text.lower()
     return any(p.lower() in low for p in probes)
+
+
+def _text_noise_ratio(text: str) -> float:
+    if not text:
+        return 1.0
+    symbols = len(re.findall(r"[^\w\s]", text))
+    return symbols / max(1, len(text))
 
 
 def _validate_curated_chunks(extractor: str = "pypdf") -> dict[str, object]:
@@ -133,8 +142,35 @@ def _validate_curated_chunks(extractor: str = "pypdf") -> dict[str, object]:
                     probes = guard_raw.get("keywords_any", [])
                     if isinstance(probes, list) and probes and not _keyword_any_match(txt, [str(p) for p in probes]):
                         errors.append(f"{path.name}:{cid} failed keyword guard {probes}")
+                    if _text_noise_ratio(txt) > 0.16:
+                        errors.append(f"{path.name}:{cid} high symbol-noise ratio")
         audit_files.append(entry)
-
+    baseline_path = _FASTAPI_ROOT / "tmp" / "psychology_embed_audit_baseline.json"
+    if baseline_path.exists():
+        try:
+            prev = json.loads(baseline_path.read_text(encoding="utf-8"))
+            prev_files = {
+                str(item.get("file")): item
+                for item in (((prev.get("validation") or {}).get("files")) or [])
+                if isinstance(item, dict)
+            }
+            for entry in audit_files:
+                file_name = str(entry.get("file", ""))
+                if not file_name:
+                    continue
+                prev_entry = prev_files.get(file_name)
+                if not isinstance(prev_entry, dict):
+                    continue
+                cur_count = len((entry.get("chunk_ids") or []))
+                prev_count = len((prev_entry.get("chunk_ids") or []))
+                if prev_count > 0:
+                    ratio = abs(cur_count - prev_count) / prev_count
+                    if ratio > DRIFT_TOLERANCE:
+                        errors.append(
+                            f"{file_name}: chunk-count drift too high ({cur_count} vs {prev_count}, ratio={ratio:.2f})"
+                        )
+        except Exception:
+            pass
     return {"files": audit_files, "errors": errors}
 
 
@@ -182,6 +218,9 @@ def main() -> int:
             for err in errors:
                 print(f"  - {err}", file=sys.stderr)
             return 4
+        baseline_path = _FASTAPI_ROOT / "tmp" / "psychology_embed_audit_baseline.json"
+        baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        baseline_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     kb = get_knowledge_base()
     if not kb.enabled:

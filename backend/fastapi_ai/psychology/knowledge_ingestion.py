@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -16,6 +17,8 @@ from psychology.pdf_kb import (
 )
 
 logger = logging.getLogger(__name__)
+RECALL_LIMIT = 16
+FINAL_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -253,7 +256,62 @@ class QdrantKnowledgeBase:
             logger.exception("Qdrant reindex failed: %s", exc)
             return empty
 
-    def search(self, query: str, language: str | None = None, limit: int = 3) -> list[dict[str, str]]:
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        return set(re.findall(r"[a-z0-9]{3,}", text.lower()))
+
+    @staticmethod
+    def _dedupe_key(payload: dict[str, Any]) -> str:
+        text = str(payload.get("text", "")).strip().lower()
+        text = re.sub(r"\s+", " ", text)
+        return text[:300]
+
+    @staticmethod
+    def _category_priority(category: str) -> float:
+        cat = category.lower()
+        if cat in {"ada_guidelines", "distress_scales"}:
+            return 0.08
+        if cat in {"cbt_scripts", "french_clinical"}:
+            return 0.05
+        return 0.0
+
+    def _rerank_hits(self, query: str, hits: list[Any], final_limit: int) -> list[dict[str, Any]]:
+        q_tokens = self._tokenize(query)
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        seen: set[str] = set()
+        for hit in hits:
+            payload = dict(hit.payload or {})
+            text = str(payload.get("text", "")).strip()
+            if not text:
+                continue
+            dedupe = self._dedupe_key(payload)
+            if dedupe in seen:
+                continue
+            seen.add(dedupe)
+            d_tokens = self._tokenize(text)
+            lexical = 0.0
+            if q_tokens and d_tokens:
+                lexical = len(q_tokens.intersection(d_tokens)) / max(1, len(q_tokens))
+            vector_score = float(getattr(hit, "score", 0.0) or 0.0)
+            category = str(payload.get("category", ""))
+            score = (0.72 * vector_score) + (0.22 * lexical) + self._category_priority(category)
+            ranked.append((score, payload))
+        ranked.sort(key=lambda x: x[0], reverse=True)
+        out: list[dict[str, Any]] = []
+        for score, payload in ranked[:final_limit]:
+            out.append(
+                {
+                    "source": str(payload.get("source", "")),
+                    "category": str(payload.get("category", "")),
+                    "language": str(payload.get("language", "")),
+                    "text": str(payload.get("text", "")),
+                    "relevance_score": round(score, 6),
+                    "chunk_id": str(payload.get("chunk_id", "")),
+                }
+            )
+        return out
+
+    def search(self, query: str, language: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
         if not self.enabled or self._client is None or not query.strip():
             return []
         try:
@@ -267,25 +325,16 @@ class QdrantKnowledgeBase:
                         FieldCondition(key="language", match=MatchValue(value="en")),
                     ]
                 )
+            recall = max(RECALL_LIMIT, limit * 4)
             hits = self._client.search(
                 collection_name=self.collection,
                 query_vector=self._embed_text(query),
                 query_filter=query_filter,
-                limit=limit,
+                limit=recall,
                 with_payload=True,
             )
-            results: list[dict[str, str]] = []
-            for hit in hits:
-                payload = hit.payload or {}
-                results.append(
-                    {
-                        "source": str(payload.get("source", "")),
-                        "category": str(payload.get("category", "")),
-                        "language": str(payload.get("language", "")),
-                        "text": str(payload.get("text", "")),
-                    }
-                )
-            return results
+            final_limit = min(max(limit, 1), FINAL_LIMIT)
+            return self._rerank_hits(query, list(hits), final_limit)
         except Exception:
             return []
 

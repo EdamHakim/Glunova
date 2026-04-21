@@ -9,8 +9,45 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 THERAPY_SYSTEM = """You are a licensed-style supportive mental-health coach for adults with diabetes-related stress.
-Use short, warm, practical CBT-informed language. Never diagnose. If safety risk appears, still output JSON but set reply to brief supportive text and recommendation to notify_clinician_immediately.
-You MUST respond with a single JSON object only, keys: reply (string), technique (string), recommendation (string or null)."""
+Use short, warm, practical CBT-informed language. Never diagnose, never prescribe medication, and do not provide emergency instructions beyond escalation guidance.
+You MUST use retrieved context only when relevant. If retrieved context is weak, ask one clarifying question and avoid fabricated facts.
+If safety risk appears, output brief supportive text and recommendation=notify_clinician_immediately.
+You MUST respond with a single JSON object only.
+JSON schema:
+{
+  "reply": "string",
+  "technique": "string",
+  "recommendation": "string|null",
+  "citations": ["chunk_id_or_source", "..."],
+  "safety_mode": "normal|low_context|crisis_guard"
+}
+"""
+
+
+def _validate_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    reply = payload.get("reply")
+    technique = payload.get("technique")
+    recommendation = payload.get("recommendation")
+    if not isinstance(reply, str) or not reply.strip():
+        return None
+    if not isinstance(technique, str) or not technique.strip():
+        return None
+    if recommendation is not None and not isinstance(recommendation, str):
+        return None
+    citations = payload.get("citations", [])
+    if not isinstance(citations, list):
+        citations = []
+    citations = [str(c).strip() for c in citations if str(c).strip()]
+    safety_mode = str(payload.get("safety_mode") or "normal").strip().lower()
+    if safety_mode not in {"normal", "low_context", "crisis_guard"}:
+        safety_mode = "normal"
+    return {
+        "reply": reply.strip(),
+        "technique": technique.strip(),
+        "recommendation": recommendation.strip() if isinstance(recommendation, str) and recommendation.strip() else None,
+        "citations": citations[:5],
+        "safety_mode": safety_mode,
+    }
 
 
 def run_therapy_llm(
@@ -25,7 +62,10 @@ def run_therapy_llm(
     if not api_key:
         return None
 
-    kb_block = "\n".join(f"- {item.get('text', '')[:220]}" for item in kb_snippets[:3])
+    kb_block = "\n".join(
+        f"- [{item.get('chunk_id') or item.get('source','unknown')}] {item.get('text', '')[:240]}"
+        for item in kb_snippets[:4]
+    )
     mem_block = "\n".join(f"- {m[:220]}" for m in memory_items[:3])
     health_block = json.dumps(health_context, ensure_ascii=False)[:1200]
 
@@ -37,7 +77,7 @@ Recent patient memory bullets:
 {mem_block or '- (none)'}
 CBT knowledge snippets:
 {kb_block or '- (none)'}
-Return JSON with keys reply, technique, recommendation."""
+Return JSON following the schema exactly."""
 
     try:
         from groq import Groq
@@ -64,7 +104,10 @@ Return JSON with keys reply, technique, recommendation."""
     try:
         if "```" in raw:
             raw = raw.split("```json", 1)[-1].split("```", 1)[0].strip() if "```json" in raw else raw.split("```", 1)[1].split("```", 1)[0].strip()
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            return None
+        return _validate_payload(parsed)
     except json.JSONDecodeError:
         logger.error("Therapy JSON parse failed: %s", raw[:500])
         return None
