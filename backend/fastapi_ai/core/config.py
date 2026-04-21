@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     qdrant_collection_memory: str = "patient_memory"
     qdrant_vector_size: int = 256
     qdrant_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Absolute path to KB PDFs; empty = `<repo>/psychology data` (see `psychology/pdf_kb.py`).
+    psychology_data_dir: str = ""
 
 
 settings = Settings()

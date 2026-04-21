@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 from core.config import settings
+from psychology.chunking import chunk_manifest_stub, chunk_pdf_for_kb
+from psychology.pdf_kb import (
+    discover_pdf_files,
+    extract_pdf_text,
+    pdf_document_meta,
+    resolve_psychology_data_dir,
+    stable_point_id,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,17 +81,6 @@ SOURCES: list[KnowledgeSource] = [
 ]
 
 
-def chunk_text(content: str, chunk_size: int = 700, overlap: int = 90) -> list[str]:
-    chunks: list[str] = []
-    idx = 0
-    while idx < len(content):
-        chunk = content[idx : idx + chunk_size].strip()
-        if chunk:
-            chunks.append(chunk)
-        idx += max(1, chunk_size - overlap)
-    return chunks
-
-
 def build_ingestion_manifest(sources: Iterable[KnowledgeSource] = SOURCES) -> list[dict[str, str]]:
     manifest: list[dict[str, str]] = []
     for source in sources:
@@ -93,6 +93,20 @@ def build_ingestion_manifest(sources: Iterable[KnowledgeSource] = SOURCES) -> li
                 "notes": source.notes,
             }
         )
+    root = resolve_psychology_data_dir()
+    if root is not None:
+        for path in discover_pdf_files(root):
+            rel = path.relative_to(root).as_posix()
+            meta = pdf_document_meta(path, root)
+            manifest.append(
+                {
+                    "name": meta["source"],
+                    "category": meta["category"],
+                    "url": meta["url"],
+                    "language": meta["language"],
+                    "notes": f"Local PDF embedded to Qdrant on reindex. Path: {rel}",
+                }
+            )
     return manifest
 
 
@@ -142,21 +156,30 @@ class QdrantKnowledgeBase:
         except Exception:
             return False
 
-    def reindex_sources(self) -> int:
-        if not self.ensure_collection() or self._client is None:
-            return 0
+    def reindex_sources(self) -> dict[str, Any]:
+        """Upsert curated manifest stubs plus all PDFs under `psychology data/` (see `pdf_kb.py`)."""
+        empty: dict[str, Any] = {
+            "indexed_chunks": 0,
+            "manifest_chunks": 0,
+            "pdf_chunks": 0,
+            "pdf_files_seen": 0,
+            "pdf_files_indexed": 0,
+        }
+        if not self.enabled or self._client is None:
+            return empty
+        if not self.ensure_collection():
+            return empty
         try:
             from qdrant_client.models import PointStruct  # type: ignore
 
-            points: list[PointStruct] = []
-            point_id = 1
+            manifest_points: list[PointStruct] = []
             for source in SOURCES:
                 content = f"{source.name}. {source.notes}. Source: {source.url}"
-                for chunk in chunk_text(content):
+                for chunk in chunk_manifest_stub(content):
                     vector = self._embed_text(chunk)
-                    points.append(
+                    manifest_points.append(
                         PointStruct(
-                            id=point_id,
+                            id=stable_point_id("manifest_stub", source.name, chunk),
                             vector=vector,
                             payload={
                                 "source": source.name,
@@ -164,15 +187,51 @@ class QdrantKnowledgeBase:
                                 "url": source.url,
                                 "language": source.language,
                                 "text": chunk,
+                                "content_kind": "manifest_stub",
                             },
                         )
                     )
-                    point_id += 1
-            if points:
-                self._client.upsert(collection_name=self.collection, points=points)
-            return len(points)
-        except Exception:
-            return 0
+
+            pdf_points: list[PointStruct] = []
+            pdf_files_indexed = 0
+            data_root = resolve_psychology_data_dir()
+            pdf_paths = discover_pdf_files(data_root) if data_root is not None else []
+            for pdf_path in pdf_paths:
+                try:
+                    raw_text = extract_pdf_text(pdf_path)
+                except Exception as exc:
+                    logger.warning("Psychology PDF skipped (read error): %s — %s", pdf_path, exc)
+                    continue
+                if not raw_text.strip():
+                    logger.warning("Psychology PDF skipped (no extractable text): %s", pdf_path)
+                    continue
+                meta = pdf_document_meta(pdf_path, data_root)
+                file_chunks = 0
+                for chunk in chunk_pdf_for_kb(raw_text):
+                    pdf_points.append(
+                        PointStruct(
+                            id=stable_point_id("pdf", meta["file_path"], chunk),
+                            vector=self._embed_text(chunk),
+                            payload={**meta, "text": chunk},
+                        )
+                    )
+                    file_chunks += 1
+                if file_chunks:
+                    pdf_files_indexed += 1
+
+            all_points = manifest_points + pdf_points
+            if all_points:
+                self._client.upsert(collection_name=self.collection, points=all_points)
+            return {
+                "indexed_chunks": len(all_points),
+                "manifest_chunks": len(manifest_points),
+                "pdf_chunks": len(pdf_points),
+                "pdf_files_seen": len(pdf_paths),
+                "pdf_files_indexed": pdf_files_indexed,
+            }
+        except Exception as exc:
+            logger.exception("Qdrant reindex failed: %s", exc)
+            return empty
 
     def search(self, query: str, language: str | None = None, limit: int = 3) -> list[dict[str, str]]:
         if not self.enabled or self._client is None or not query.strip():

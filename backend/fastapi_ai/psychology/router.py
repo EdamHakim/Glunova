@@ -130,8 +130,8 @@ def knowledge_sources(
 def knowledge_reindex(
     _claims: dict = Depends(require_roles("doctor")),
 ) -> dict:
-    count = knowledge_base.reindex_sources()
-    return {"indexed_chunks": count, "qdrant_enabled": knowledge_base.enabled}
+    stats = knowledge_base.reindex_sources()
+    return {"qdrant_enabled": knowledge_base.enabled, **stats}
 
 
 @router.post("/crisis/ack")
