@@ -24,5 +24,9 @@ class Settings(BaseSettings):
     # Absolute path to KB PDFs; empty = `<repo>/psychology data` (see `psychology/pdf_kb.py`).
     psychology_data_dir: str = ""
 
+    # Azure Document Intelligence (OCR)
+    azure_document_intelligence_endpoint: str = ""
+    azure_document_intelligence_key: str = ""
+
 
 settings = Settings()

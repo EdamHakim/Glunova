@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { getAccessToken } from '@/lib/auth'
+import { useAuth } from '@/components/auth-context'
 
 export default function Home() {
   const router = useRouter()
