@@ -43,7 +43,7 @@ async def extract_azure_ocr_payload(file_bytes: bytes, mime_type: str) -> dict[s
         ) as client:
             poller = await client.begin_analyze_document(
                 "prebuilt-read",
-                analyze_request=file_bytes,
+                body=file_bytes,
                 content_type=mime_type
             )
             result: AnalyzeResult = await poller.result()
