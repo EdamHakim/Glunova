@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-21T06:24:50.477980+00:00",
+  "generated_at": "2026-04-21T06:14:53.155559+00:00",
   "validation": {
     "files": [
       {
@@ -22,15 +22,15 @@
             "preview": "Problem Areas In Diabetes (PAID) Scale Instructions: Which of the following diabetes issues are currently a problem for you? Tick the box that gives the best answer for you. Please provide an answer for each question. No"
           },
           "ADA_TK_02": {
-            "chars": 2224,
+            "chars": 20866,
             "preview": "scoring items and using these to start a conversation (sources of diabetes distress). 2. Calculating a total score (e.g., to assess change over time). The total score provides an indication of the severity of diabetes di"
           },
           "ADA_TK_03": {
-            "chars": 2714,
+            "chars": 5515,
             "preview": "PHQ-9) Instructions: For each statement, please tick the box below that best corresponds to your experience in the last two weeks. Over the last 2 weeks, how often have you been bothered by any of the following problems?"
           },
           "ADA_TK_04": {
-            "chars": 2561,
+            "chars": 4211,
             "preview": "GAD-7 measures. [cited 5 February 2015]. Available from: www.phqscreeners.com. 7. Kroenke K, Spitzer RL. The PHQ-9: a new depression diagnostic and severity measure. Psychiatric Annals. 2002;32(9):1-7. 8. van Steenbergen"
           },
           "ADA_TK_05": {
@@ -51,8 +51,8 @@
         ],
         "chunk_stats": {
           "ADA_S5_01": {
-            "chars": 7921,
-            "preview": "PSYCHOSOCIAL CARE Pl ease refer to the ADA position state- ment “Psychosocial Care for People With Diabetes” for a list of assessment tools and additional details and the ADA Beha vioral Health Toolkit for assessment que"
+            "chars": 64526,
+            "preview": "psychosocial care. Following an initial comprehensive health evaluation (see section 4, “Comprehensive Medic al Evaluation and Assessment of Comorbidities”), health care professionals sho uld engage in person-centered co"
           },
           "ADA_S5_02": {
             "chars": 7003,
@@ -63,15 +63,15 @@
             "preview": "Anxiety Recommendations 5.46 Screen for anxiety symptoms at least annually in people with dia- betes. Health care professionals can address anxiety symptoms within the scope of their practice. Consider re- ferral to a qu"
           },
           "ADA_S5_03": {
-            "chars": 3342,
+            "chars": 5501,
             "preview": "Depression Recommendations 5.48 Screen for depressive symptoms in all people with diabetes at least annually and more frequently among those with a history of depression. B Refer to qualiﬁed behavioral health pro- fessio"
           },
           "ADA_S5_05": {
-            "chars": 7705,
-            "preview": "Disordered eating behaviors (binge eating disorder, night eating syndr ome) (492,496,612–615) +/− + ? ? + + +++ +++ ? Serious mental illness (schizophrenia, bipolar disorder) (616–624 ) +/− ++ ++ +++ +++ +++ +++ +++ +++ "
+            "chars": 93466,
+            "preview": "disordered eating behaviors. Characterizing an individual’s past efforts with weight loss and their body weight history can also be very use- ful. Nutrition therapy should be individual- ized to help address maladaptive "
           },
           "ADA_S5_06": {
-            "chars": 3950,
+            "chars": 7154,
             "preview": "Routine care evaluations should include assessments of medical and behavioral health out comes, particularly during periods of changes in health and well-being. In accordance with the “2 022 National Standards for Diabet"
           }
         }

@@ -8,6 +8,20 @@ from core.config import settings
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def decode_access_token(token: str) -> dict:
+    try:
+        return jwt.decode(
+            token,
+            settings.jwt_shared_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        ) from exc
+
+
 def get_current_claims(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
@@ -23,14 +37,4 @@ def get_current_claims(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing token",
         )
-    try:
-        return jwt.decode(
-            token,
-            settings.jwt_shared_secret,
-            algorithms=[settings.jwt_algorithm],
-        )
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        ) from exc
+    return decode_access_token(token)

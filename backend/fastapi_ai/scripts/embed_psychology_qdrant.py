@@ -42,9 +42,9 @@ EXPECTED_CHUNKS: dict[str, dict[str, object]] = {
         "required_ids": {"ADA_TK_01", "ADA_TK_02", "ADA_TK_03", "ADA_TK_04", "ADA_TK_05"},
         "guards": {
             "ADA_TK_01": {"min_chars": 400, "keywords_any": ["paid", "problem areas in diabetes"]},
-            "ADA_TK_02": {"min_chars": 100, "keywords_any": ["scoring", "paid"]},
-            "ADA_TK_03": {"min_chars": 180, "keywords_any": ["phq-9", "depression"]},
-            "ADA_TK_04": {"min_chars": 160, "keywords_any": ["gad-7", "anxiety"]},
+            "ADA_TK_02": {"min_chars": 100, "max_chars": 3000, "keywords_any": ["scoring", "paid"]},
+            "ADA_TK_03": {"min_chars": 180, "max_chars": 3500, "keywords_any": ["phq-9", "depression"]},
+            "ADA_TK_04": {"min_chars": 160, "max_chars": 3500, "keywords_any": ["gad-7", "anxiety"]},
             "ADA_TK_05": {"min_chars": 80, "keywords_any": ["diabetes and emotional health guide"]},
         },
     },
@@ -52,11 +52,11 @@ EXPECTED_CHUNKS: dict[str, dict[str, object]] = {
         "required_ids": {"ADA_S5_01", "ADA_S5_02", "ADA_S5_03", "ADA_S5_04", "ADA_S5_05", "ADA_S5_06"},
         "guards": {
             "ADA_S5_01": {"min_chars": 180, "keywords_any": ["psychosocial care", "screen", "health care professionals"]},
-            "ADA_S5_02": {"min_chars": 120, "keywords_any": ["diabetes distress", "distress"]},
-            "ADA_S5_03": {"min_chars": 120, "keywords_any": ["depression", "depressive"]},
-            "ADA_S5_04": {"min_chars": 120, "keywords_any": ["anxiety", "fear of hypoglycemia", "hypoglycemia"]},
-            "ADA_S5_05": {"min_chars": 90, "keywords_any": ["disordered eating"]},
-            "ADA_S5_06": {"min_chars": 90, "keywords_any": ["referral", "mental health"]},
+            "ADA_S5_02": {"min_chars": 120, "max_chars": 9000, "keywords_any": ["diabetes distress", "distress"]},
+            "ADA_S5_03": {"min_chars": 120, "max_chars": 9000, "keywords_any": ["depression", "depressive"]},
+            "ADA_S5_04": {"min_chars": 120, "max_chars": 9000, "keywords_any": ["anxiety", "fear of hypoglycemia", "hypoglycemia"]},
+            "ADA_S5_05": {"min_chars": 90, "max_chars": 9000, "keywords_any": ["disordered eating"]},
+            "ADA_S5_06": {"min_chars": 90, "max_chars": 5000, "keywords_any": ["referral", "mental health"]},
         },
     },
 }
@@ -127,6 +127,9 @@ def _validate_curated_chunks(extractor: str = "pypdf") -> dict[str, object]:
                     min_chars = int(guard_raw.get("min_chars", 0))
                     if len(txt) < min_chars:
                         errors.append(f"{path.name}:{cid} too short ({len(txt)} < {min_chars})")
+                    max_chars = int(guard_raw.get("max_chars", 0))
+                    if max_chars > 0 and len(txt) > max_chars:
+                        errors.append(f"{path.name}:{cid} too long ({len(txt)} > {max_chars})")
                     probes = guard_raw.get("keywords_any", [])
                     if isinstance(probes, list) and probes and not _keyword_any_match(txt, [str(p) for p in probes]):
                         errors.append(f"{path.name}:{cid} failed keyword guard {probes}")

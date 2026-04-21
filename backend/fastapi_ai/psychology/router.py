@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from core.rbac import require_roles
+from core.security import decode_access_token
 from psychology.schemas import (
     CrisisAckRequest,
     CrisisEventsResponse,
@@ -58,6 +59,27 @@ def emotion_frame(
 
 @router.websocket("/ws/emotion/{patient_id}")
 async def emotion_stream(websocket: WebSocket, patient_id: int) -> None:
+    token = websocket.query_params.get("token") or websocket.cookies.get("access_token")
+    if not token:
+        await websocket.close(code=1008, reason="Missing token")
+        return
+    try:
+        claims = decode_access_token(token)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Invalid token")
+        return
+    role = str(claims.get("role") or "")
+    if role not in {"patient", "doctor"}:
+        await websocket.close(code=1008, reason="Insufficient role permissions")
+        return
+    if role == "patient":
+        try:
+            claim_user_id = int(claims.get("user_id") or claims.get("sub") or 0)
+        except (TypeError, ValueError):
+            claim_user_id = 0
+        if claim_user_id != patient_id:
+            await websocket.close(code=1008, reason="Patient stream access denied")
+            return
     await websocket.accept()
     try:
         while True:

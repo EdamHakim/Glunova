@@ -71,6 +71,14 @@ This checklist maps the architecture spec to current implementation status so th
   - `GET /psychology/knowledge/sources`
   - `POST /psychology/knowledge/reindex`
   - `GET /psychology/knowledge/search`
+- [x] Added local PDF ingestion from `psychology data/` into Qdrant during reindex (with deterministic IDs and collection reset option in script).
+- [x] Added curated source-specific extraction for core psychosocial docs:
+  - DDS17 (`DDS_01..DDS_03`)
+  - ADA toolkit (`ADA_TK_01..ADA_TK_05`)
+  - ADA Section 5 psychosocial slices (`ADA_S5_01..ADA_S5_06`)
+  - explicit IDF 2025 exclusion from psychology KB ingest
+- [x] Added fail-fast ingestion validation + audit JSON (`tmp/psychology_embed_audit*.json`) with required IDs, min/max char guards, and keyword checks.
+- [x] Added extractor switch wiring (`--extractor pypdf|chonkie` and API query param), with safe fallback path.
 
 ### Frontend Wiring
 - [x] Connected psychology dashboard page to backend session/message/trends/crisis APIs.
@@ -84,6 +92,10 @@ This checklist maps the architecture spec to current implementation status so th
 - [x] Structured logging on key psychology paths (session start, message handling, crisis, session end).
 - [x] `GET /health/psychology` — reports Postgres pool availability and Qdrant CBT flag; app lifespan closes DB pool on shutdown.
 - [x] FastAPI dependency: `psycopg[binary,pool]` in `fastapi_ai/requirements.txt`.
+- [x] WebSocket auth guard on `/psychology/ws/emotion/{patient_id}`:
+  - requires valid JWT (query token or cookie)
+  - role gate (`patient`, `doctor`)
+  - patient self-scope enforcement for patient role
 
 ---
 
@@ -109,7 +121,7 @@ This checklist maps the architecture spec to current implementation status so th
 - [ ] Wire `speech_audio_base64` → transcript → text emotion + SpeechBrain prosody in one tested flow.
 
 ### 6) Frontend UX (remaining)
-- [ ] Authenticate / authorize WebSocket emotion stream (token query or short-lived ticket).
+- [x] Authenticate / authorize WebSocket emotion stream (token/cookie JWT + role/scope checks).
 - [ ] Optional: upload recorded audio blob to FastAPI for server STT + SpeechBrain when available.
 
 ---
