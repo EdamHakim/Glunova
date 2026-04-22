@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from documents.access import can_access_patient_documents, parse_patient_pk
 from documents.models import PatientCaregiverLink
 from carecircle.models import CarePlan
-from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, RiskAssessment
+from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, RiskAssessment, PatientMedication
 from screening.models import ScreeningResult
 from users.models import UserRole
 
@@ -276,3 +276,46 @@ class DashboardOverviewView(APIView):
                 "recent_patients": recent_patients,
             }
         )
+
+
+class PatientMedicationsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
+        if error is not None:
+            return error
+        if not patient_ids:
+            return Response({"items": [], "total": 0})
+
+        items = (
+            PatientMedication.objects.filter(patient_id__in=patient_ids)
+            .select_related("source_document")
+            .order_by("-updated_at", "-created_at")
+        )
+        
+        payload = [
+            {
+                "id": med.id,
+                "patient_id": str(med.patient_id),
+                "source_document_id": str(med.source_document_id),
+                "source_document_filename": med.source_document.original_filename,
+                "source_document_created_at": med.source_document.created_at.isoformat(),
+                "source_document_mime_type": med.source_document.mime_type,
+                "source_document_preview_url": None, # Should be generated if needed
+                "source_document_count": 1, # TODO: implement aggregation if needed
+                "name_raw": med.name_raw,
+                "name_display": med.name_display,
+                "rxcui": med.rxcui,
+                "dosage": med.dosage,
+                "frequency": med.frequency,
+                "duration": med.duration,
+                "route": med.route,
+                "verification_status": med.verification_status,
+                "verification_detail": med.verification_detail,
+                "created_at": med.created_at.isoformat(),
+                "updated_at": med.updated_at.isoformat(),
+            }
+            for med in items
+        ]
+        return Response({"items": payload, "total": len(payload)})

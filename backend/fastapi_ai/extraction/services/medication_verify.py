@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import logging
 import re
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any
-from urllib import error, parse, request
+from urllib import parse
 
+import httpx
 import rapidfuzz
 from core.config import settings
 
@@ -71,7 +72,6 @@ async def _http_get_json_async(url: str, timeout: int) -> dict[str, Any]:
         return response.json()
 
 
-@lru_cache(maxsize=512)
 async def _cached_rxnorm_approximate_candidates(
     base_url: str,
     timeout: int,
@@ -821,7 +821,9 @@ async def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: st
         if isinstance(medication, dict):
             tasks.append(verify_medication_entry(medication, raw_ocr_text=raw_ocr_text, cache=cache))
         else:
-            tasks.append(asyncio.sleep(0, result=medication)) # Handle non-dict edge case
+            # Wrap non-dict values to ensure we return them as-is
+            async def identity(val): return val
+            tasks.append(identity(medication))
     
     verified_meds = await asyncio.gather(*tasks)
     
@@ -839,5 +841,4 @@ async def verify_and_enrich_medications(merged: dict[str, Any], raw_ocr_text: st
     
     enriched["medications"] = verified_meds
     enriched["drug_interactions"] = interactions
-    
     return enriched
