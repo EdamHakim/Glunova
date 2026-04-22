@@ -88,7 +88,12 @@ async def emotion_stream(websocket: WebSocket, patient_id: int) -> None:
             try:
                 data = await websocket.receive_json()
                 frame = data.get("frame_base64", "")
-                inferred = service.detect_emotion_frame(patient_id, frame)
+                # Run frame inference off the event loop and bound latency so
+                # model cold-start/download does not freeze websocket updates.
+                inferred = await asyncio.wait_for(
+                    asyncio.to_thread(service.detect_emotion_frame, patient_id, frame),
+                    timeout=2.5,
+                )
                 await websocket.send_json(
                     {
                         "patient_id": patient_id,
@@ -98,6 +103,20 @@ async def emotion_stream(websocket: WebSocket, patient_id: int) -> None:
                         "timestamp": datetime.utcnow().isoformat(),
                     }
                 )
+            except (asyncio.TimeoutError, TimeoutError):
+                try:
+                    await websocket.send_json(
+                        {
+                            "patient_id": patient_id,
+                            "label": "neutral",
+                            "confidence": 0.0,
+                            "distress_score": 0.2,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "error": "model_loading",
+                        }
+                    )
+                except Exception:
+                    break
             except WebSocketDisconnect:
                 break
             except Exception as exc:

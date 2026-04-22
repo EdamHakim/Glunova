@@ -51,6 +51,14 @@ export type PsychologyMessageResult = {
   reply: string
   emotion: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
   distress_score: number
+  fusion?: {
+    label: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
+    distress_score: number
+    confidence: number
+    stress_level: number
+    sentiment_score: number
+    modalities_used: Array<'text' | 'face' | 'speech'>
+  }
   language_detected: 'en' | 'fr' | 'ar' | 'darija' | 'mixed'
   technique_used: string
   recommendation: string | null

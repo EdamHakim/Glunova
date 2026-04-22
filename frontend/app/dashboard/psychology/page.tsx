@@ -109,6 +109,13 @@ export default function PsychologyPage() {
 
   const role = user?.role
   const isPatient = role === 'patient'
+  const displayEmotion = liveEmotion
+    ? { label: liveEmotion.label, confidence: liveEmotion.confidence }
+    : latestResult?.fusion
+      ? { label: latestResult.fusion.label, confidence: latestResult.fusion.confidence }
+      : latestResult
+        ? { label: latestResult.emotion, confidence: 0.65 }
+      : null
   const patientId = useMemo(() => {
     const fromSession = user?.userId
     if (typeof fromSession === 'number' && Number.isFinite(fromSession) && fromSession > 0) return fromSession
@@ -359,6 +366,12 @@ export default function PsychologyPage() {
         result = await sendPsychologyMessage({ ...multimodalPayload, session_id: refreshedSessionId })
       }
       setLatestResult(result)
+      setLiveEmotion((prev) => ({
+        label: result.fusion?.label ?? result.emotion,
+        confidence: result.fusion?.confidence ?? prev?.confidence ?? 0.65,
+        distress_score: result.fusion?.distress_score ?? result.distress_score,
+        timestamp: new Date().toISOString(),
+      }))
       await streamAssistantMessage(result.reply, result.technique_used)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -534,11 +547,11 @@ export default function PsychologyPage() {
             <div className="mt-3 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Emotion</span>
-                <span className="font-medium capitalize">{liveEmotion?.label || 'Not detected yet'}</span>
+                <span className="font-medium capitalize">{displayEmotion?.label || 'Not detected yet'}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Confidence</span>
-                <span className="font-medium">{liveEmotion ? `${Math.round(liveEmotion.confidence * 100)}%` : '—'}</span>
+                <span className="font-medium">{displayEmotion ? `${Math.round(displayEmotion.confidence * 100)}%` : '—'}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Camera mode</span>

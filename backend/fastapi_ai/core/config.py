@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     qdrant_collection_memory: str = "patient_memory"
     qdrant_vector_size: int = 256
     qdrant_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    psychology_face_emotion_model: str = "trpakov/vit-face-expression"
+    psychology_speech_emotion_model: str = "iic/emotion2vec_plus_large"
+    psychology_text_emotion_model: str = "tabularisai/multilingual-emotion-classification"
     # Absolute path to KB PDFs; empty = `<repo>/psychology data` (see `psychology/pdf_kb.py`).
     psychology_data_dir: str = ""
 

@@ -46,9 +46,9 @@ Detects the patient's emotional state from all available modalities and fuses th
 
 | Branch | Technology | Language Support |
 |--------|------------|-----------------|
-| Face (camera on) | DeepFace — pre-trained deep CNN AU remapping to 4 classes | Language-agnostic |
-| Speech (mic active) | SpeechBrain wav2vec2-IEMOCAP MFCC + prosody features | Language-agnostic |
-| Text (always on) | LLM API — EN + Darija + code-switch; returns emotion JSON in Sanadi reply | English + French + Darija + Mixed |
+| Face (camera on) | `trpakov/vit-face-expression` (ViT facial expression model) remapped to Glunova classes | Language-agnostic |
+| Speech (mic active) | `emotion2vec+` (audio emotion encoder/classifier) for speech affect | Language-agnostic |
+| Text (always on) | `tabularisai/multilingual-emotion-classification` for patient message emotion | English + French + Darija + Mixed |
 
 **Fusion output schema:**
 
@@ -207,10 +207,10 @@ Triggered by Sanadi when a specific recommendation type is identified in the the
 
 | Component | Approach | Est. Time | Status |
 |-----------|----------|-----------|--------|
-| Face emotion branch | DeepFace library (pre-trained) — no training needed | 2 hours setup | Use off-the-shelf |
-| Speech emotion branch | SpeechBrain wav2vec2 — no training needed | 2 hours setup | Use off-the-shelf |
+| Face emotion branch | `trpakov/vit-face-expression` (pre-trained) — no training needed | 2 hours setup | Use off-the-shelf |
+| Speech emotion branch | `emotion2vec+` (pre-trained) — no training needed | 2 hours setup | Use off-the-shelf |
 | Crisis detection | Fine-tune XLM-RoBERTa — CrisisNLP + SuicideWatch data | 1 day | **MUST TRAIN** |
-| Text emotion (Sanadi) | LLM JSON side-channel — no training needed | Prompt only | Prompt engineer |
+| Text emotion (messages) | `tabularisai/multilingual-emotion-classification` — no training needed | Prompt-free classifier | Use off-the-shelf |
 | Mental state classifier | Deterministic function — no ML involved | 1 hour code | Pure engineering |
 | Memory engine | Qdrant + PostgreSQL — no ML involved | 1 day | Pure engineering |
 | Alert system | Django signals — no ML involved | 1 day | Pure engineering |
@@ -289,11 +289,12 @@ Triggered by Sanadi when a specific recommendation type is identified in the the
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Face emotion** | DeepFace (Python library) | Pre-trained deep CNN for 7-class facial emotion — remapped to 4 Glunova classes |
-| **Speech emotion** | SpeechBrain wav2vec2-IEMOCAP | SOTA speech emotion from prosody — language-agnostic |
+| **Face emotion** | `trpakov/vit-face-expression` | ViT facial emotion classification — remapped to Glunova classes |
+| **Speech emotion** | `emotion2vec+` | Speech emotion representation/classification — language-agnostic |
 | **Speech transcription** | OpenAI Whisper (large-v3) | Real-time transcription — handles Darija + code-switching |
 | **Crisis detection** | Fine-tuned XLM-RoBERTa | Binary crisis / not-crisis classifier — only model you train |
-| **Sanadi LLM** | GPT-4 API or Claude API | Therapy responses + text emotion detection in one call |
+| **Text emotion** | `tabularisai/multilingual-emotion-classification` | Dedicated multilingual emotion classifier for patient messages |
+| **Sanadi LLM** | GPT-4 API or Claude API | Therapy response generation with emotion context |
 | **Agent orchestration** | LangGraph | Multi-step reasoning, memory state, conversation flow |
 | **Vector store** | Qdrant | CBT knowledge base + patient long-term memory |
 | **Time series DB** | TimescaleDB (PostgreSQL ext.) | Emotion trend data for longitudinal monitoring |

@@ -5,6 +5,7 @@ from datetime import datetime
 from statistics import fmean
 import base64
 import binascii
+from io import BytesIO
 import json
 import logging
 import math
@@ -13,6 +14,9 @@ import uuid
 from typing import Any
 
 import numpy as np
+from PIL import Image
+
+from core.config import settings
 
 from psychology.schemas import (
     CrisisEvent,
@@ -87,8 +91,9 @@ class PsychologyService:
         self._emotion_logs = emotion_logs or InMemoryTrendStore()
         self._memories = memories or InMemoryMemoryStore()
         self._knowledge_base = get_knowledge_base()
-        self._deepface_available = None
-        self._speechbrain_available = None
+        self._hf_face_bundle: tuple[Any, Any] | None = None
+        self._emotion2vec_infer: Any | None = None
+        self._hf_text_classifier: Any | None = None
         self._latest_face_by_patient: dict[int, tuple[EmotionLabel, float, datetime]] = {}
         self._face_distress_ema_by_patient: dict[int, float] = {}
 
@@ -396,7 +401,7 @@ class PsychologyService:
 
         speech_result = None
         if payload.speech_audio_base64:
-            speech_result = self._infer_speech_emotion_speechbrain(payload.speech_audio_base64)
+            speech_result = self._infer_speech_emotion_emotion2vec(payload.speech_audio_base64)
         if speech_result is None and payload.speech_emotion and payload.speech_confidence is not None:
             speech_result = (payload.speech_emotion, payload.speech_confidence)
         if speech_result is not None:
@@ -470,6 +475,9 @@ class PsychologyService:
         logger.warning("psychology.crisis.trigger patient_id=%s session_id=%s prob=%.3f", patient_id, session_id, probability)
 
     def _text_emotion(self, text: str) -> tuple[EmotionLabel, float, float]:
+        hf_text = self._infer_text_emotion_hf(text)
+        if hf_text is not None:
+            return hf_text
         lower = text.lower()
         if any(token in lower for token in ("suicide", "kill myself", "can't continue", "end it")):
             return EmotionLabel.depressed, 0.95, -0.95
@@ -854,76 +862,97 @@ class PsychologyService:
             return None
 
     def _infer_face_emotion_from_frame(self, frame_base64: str) -> tuple[EmotionLabel, float] | None:
-        deepface_result = self._infer_face_emotion_deepface(frame_base64)
-        if deepface_result is not None:
-            return deepface_result
-        return self._infer_face_emotion_opencv(frame_base64)
+        return self._infer_face_emotion_vit(frame_base64)
 
-    @staticmethod
-    def _infer_face_emotion_opencv(frame_base64: str) -> tuple[EmotionLabel, float] | None:
+    def _infer_face_emotion_vit(self, frame_base64: str) -> tuple[EmotionLabel, float] | None:
         try:
-            import cv2  # type: ignore
+            from transformers import AutoImageProcessor, AutoModelForImageClassification
+            import torch
         except Exception:
             return None
-        image_bytes = PsychologyService._safe_b64decode(frame_base64)
+        image_bytes = self._safe_b64decode(frame_base64)
         if image_bytes is None:
             return None
-        image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
-        if image is None:
+        try:
+            if self._hf_face_bundle is None:
+                model_id = settings.psychology_face_emotion_model.strip() or "trpakov/vit-face-expression"
+                processor = AutoImageProcessor.from_pretrained(model_id)
+                model = AutoModelForImageClassification.from_pretrained(model_id)
+                model.eval()
+                self._hf_face_bundle = (processor, model)
+            processor, model = self._hf_face_bundle
+            image = Image.open(BytesIO(image_bytes)).convert("RGB")
+            with torch.no_grad():
+                inputs = processor(images=image, return_tensors="pt")
+                logits = model(**inputs).logits
+                probs = torch.nn.functional.softmax(logits, dim=-1)
+                conf, idx = torch.max(probs, dim=-1)
+            raw_label = str(model.config.id2label.get(int(idx.item()), "neutral"))
+            mapped = self._map_face_label_generic(raw_label)
+            confidence = float(conf.item())
+            return mapped, max(0.4, min(0.99, confidence))
+        except Exception:
             return None
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        gray = cv2.equalizeHist(gray)
-        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-        smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smile.xml")
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=4, minSize=(48, 48))
-        if len(faces) == 0:
-            return None
-        x, y, w, h = max(faces, key=lambda item: item[2] * item[3])
-        roi = gray[y : y + h, x : x + w]
-        smiles = smile_cascade.detectMultiScale(roi, scaleFactor=1.35, minNeighbors=8, minSize=(18, 18))
-        if len(smiles) > 0:
-            smile_strength = min(1.0, max((sw * sh) / max((w * h), 1) * 10.0 for _, _, sw, sh in smiles))
-            return EmotionLabel.happy, max(0.62, min(0.9, 0.62 + 0.25 * smile_strength))
-        eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye_tree_eyeglasses.xml")
-        upper = roi[: max(1, int(0.55 * h)), :]
-        lower = roi[max(0, int(0.55 * h)) :, :]
-        eyes = eye_cascade.detectMultiScale(upper, scaleFactor=1.1, minNeighbors=4, minSize=(12, 12))
-        eye_ratio = float(np.mean([(eh / max(ew, 1)) for _, _, ew, eh in eyes])) if len(eyes) > 0 else 0.25
-        edges = cv2.Canny(lower, 50, 150)
-        mouth_edge_density = float(np.count_nonzero(edges)) / float(max(edges.size, 1))
-        face_brightness = float(np.mean(roi)) / 255.0
-        if eye_ratio > 0.34 and mouth_edge_density > 0.11:
-            return EmotionLabel.anxious, 0.6
-        if eye_ratio < 0.2 and mouth_edge_density < 0.06 and face_brightness < 0.42:
-            return EmotionLabel.depressed, 0.58
-        if mouth_edge_density > 0.095:
-            return EmotionLabel.distressed, 0.57
-        return EmotionLabel.neutral, 0.52
 
-    def _infer_speech_emotion_speechbrain(self, audio_base64: str) -> tuple[EmotionLabel, float] | None:
-        if self._speechbrain_available is False:
+    def _infer_speech_emotion_emotion2vec(self, audio_base64: str) -> tuple[EmotionLabel, float] | None:
+        try:
+            from modelscope.pipelines import pipeline as ms_pipeline
+            from modelscope.utils.constant import Tasks
+        except Exception:
+            return None
+        wav_bytes = self._safe_b64decode(audio_base64)
+        if wav_bytes is None:
             return None
         try:
-            from speechbrain.inference.classifiers import EncoderClassifier  # type: ignore
-
-            self._speechbrain_available = True
-            wav_bytes = self._safe_b64decode(audio_base64)
-            if wav_bytes is None:
-                return None
+            if self._emotion2vec_infer is None:
+                model_id = settings.psychology_speech_emotion_model.strip() or "iic/emotion2vec_plus_large"
+                self._emotion2vec_infer = ms_pipeline(task=Tasks.emotion_recognition, model=model_id)
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
                 tmp.write(wav_bytes)
                 tmp.flush()
-                classifier = EncoderClassifier.from_hparams(
-                    source="speechbrain/emotion-recognition-wav2vec2-IEMOCAP",
-                    savedir="pretrained_models/speechbrain_emotion",
-                )
-                _, _, _, text_lab = classifier.classify_file(tmp.name)
-            label_raw = text_lab[0].strip().lower() if text_lab else "neu"
-            mapped = self._map_speechbrain_label(label_raw)
-            confidence = 0.7
-            return mapped, confidence
+                raw = self._emotion2vec_infer(tmp.name, granularity="utterance", extract_embedding=False)
+            raw_label, confidence = self._extract_emotion2vec_result(raw)
+            mapped = self._map_speech_label_generic(raw_label)
+            return mapped, max(0.35, min(0.99, confidence))
         except Exception:
-            self._speechbrain_available = False
+            return None
+
+    def _infer_text_emotion_hf(self, text: str) -> tuple[EmotionLabel, float, float] | None:
+        try:
+            from transformers import pipeline
+        except Exception:
+            return None
+        try:
+            if self._hf_text_classifier is None:
+                model_id = (
+                    settings.psychology_text_emotion_model.strip()
+                    or "tabularisai/multilingual-emotion-classification"
+                )
+                self._hf_text_classifier = pipeline(
+                    "text-classification",
+                    model=model_id,
+                    tokenizer=model_id,
+                    top_k=1,
+                    truncation=True,
+                )
+            result = self._hf_text_classifier(text)
+            if not result:
+                return None
+            first = result[0]
+            if isinstance(first, list) and first:
+                first = first[0]
+            raw_label = str(first.get("label", "neutral"))
+            score = float(first.get("score", 0.6))
+            mapped = self._map_text_label_generic(raw_label)
+            sentiment = {
+                EmotionLabel.happy: 0.6,
+                EmotionLabel.neutral: 0.2,
+                EmotionLabel.anxious: -0.4,
+                EmotionLabel.distressed: -0.55,
+                EmotionLabel.depressed: -0.8,
+            }[mapped]
+            return mapped, max(0.35, min(0.99, score)), sentiment
+        except Exception:
             return None
 
     @staticmethod
@@ -935,28 +964,74 @@ class PsychologyService:
             return None
 
     @staticmethod
-    def _map_deepface_label(label: str) -> EmotionLabel:
-        if label in {"sad", "fear", "angry", "disgust"}:
-            return EmotionLabel.distressed
-        if label in {"surprise"}:
-            return EmotionLabel.anxious
-        if label in {"happy"}:
+    def _extract_emotion2vec_result(raw: Any) -> tuple[str, float]:
+        best_label = "neutral"
+        best_score = 0.6
+
+        def visit(node: Any) -> None:
+            nonlocal best_label, best_score
+            if isinstance(node, dict):
+                lbl = node.get("label") or node.get("emotion") or node.get("text")
+                scr = node.get("score") or node.get("confidence") or node.get("prob")
+                if isinstance(lbl, str):
+                    score_val = float(scr) if isinstance(scr, (int, float)) else 0.6
+                    if score_val >= best_score:
+                        best_label = lbl
+                        best_score = score_val
+                for v in node.values():
+                    visit(v)
+                return
+            if isinstance(node, list):
+                for item in node:
+                    visit(item)
+
+        visit(raw)
+        return best_label, best_score
+
+    @staticmethod
+    def _map_face_label_generic(label: str) -> EmotionLabel:
+        lower = label.lower()
+        if "happy" in lower or "joy" in lower:
             return EmotionLabel.happy
-        if label in {"neutral"}:
+        if "neutral" in lower or "calm" in lower:
             return EmotionLabel.neutral
+        if "sad" in lower or "depress" in lower:
+            return EmotionLabel.depressed
+        if "fear" in lower or "anx" in lower or "surprise" in lower:
+            return EmotionLabel.anxious
+        if "ang" in lower or "disgust" in lower or "frustrat" in lower:
+            return EmotionLabel.distressed
+        return EmotionLabel.neutral
+
+    @staticmethod
+    def _map_speech_label_generic(label: str) -> EmotionLabel:
+        lower = label.lower()
+        if "happy" in lower or "joy" in lower or "excit" in lower:
+            return EmotionLabel.happy
+        if "neutral" in lower or "calm" in lower:
+            return EmotionLabel.neutral
+        if "sad" in lower or "depress" in lower:
+            return EmotionLabel.depressed
+        if "fear" in lower or "anx" in lower:
+            return EmotionLabel.anxious
+        if "ang" in lower or "frustrat" in lower or "disgust" in lower:
+            return EmotionLabel.distressed
         return EmotionLabel.anxious
 
     @staticmethod
-    def _map_speechbrain_label(label: str) -> EmotionLabel:
-        if label in {"sad", "sadness"}:
-            return EmotionLabel.depressed
-        if label in {"ang", "angry", "fru", "frustrated"}:
-            return EmotionLabel.distressed
-        if label in {"hap", "exc", "happy", "excited"}:
+    def _map_text_label_generic(label: str) -> EmotionLabel:
+        lower = label.lower()
+        if "joy" in lower or "happy" in lower or "optim" in lower:
             return EmotionLabel.happy
-        if label in {"neu", "neutral"}:
+        if "neutral" in lower:
             return EmotionLabel.neutral
-        return EmotionLabel.anxious
+        if "sad" in lower or "depress" in lower:
+            return EmotionLabel.depressed
+        if "fear" in lower or "worry" in lower or "anx" in lower:
+            return EmotionLabel.anxious
+        if "anger" in lower or "angry" in lower or "stress" in lower or "distress" in lower:
+            return EmotionLabel.distressed
+        return EmotionLabel.neutral
 
 
 def create_psychology_service() -> PsychologyService:
