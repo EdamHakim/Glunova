@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
@@ -28,6 +29,7 @@ from psychology.service import create_psychology_service
 router = APIRouter(prefix="/psychology", tags=["psychology"])
 service = create_psychology_service()
 knowledge_base = get_knowledge_base()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/session/start", response_model=SessionStartResponse)
@@ -83,19 +85,38 @@ async def emotion_stream(websocket: WebSocket, patient_id: int) -> None:
     await websocket.accept()
     try:
         while True:
-            data = await websocket.receive_json()
-            frame = data.get("frame_base64", "")
-            inferred = service.detect_emotion_frame(patient_id, frame)
-            await websocket.send_json(
-                {
-                    "patient_id": patient_id,
-                    "label": inferred.label,
-                    "confidence": inferred.confidence,
-                    "distress_score": inferred.distress_score,
-                    "timestamp": datetime.utcnow().isoformat(),
-                }
-            )
-            await asyncio.sleep(0.5)  # 2 fps server-side cadence.
+            try:
+                data = await websocket.receive_json()
+                frame = data.get("frame_base64", "")
+                inferred = service.detect_emotion_frame(patient_id, frame)
+                await websocket.send_json(
+                    {
+                        "patient_id": patient_id,
+                        "label": inferred.label,
+                        "confidence": inferred.confidence,
+                        "distress_score": inferred.distress_score,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+                )
+            except WebSocketDisconnect:
+                break
+            except Exception as exc:
+                # Keep stream alive on per-frame inference or serialization failures.
+                logger.warning("emotion_stream frame handling failed for patient_id=%s: %s", patient_id, exc)
+                try:
+                    await websocket.send_json(
+                        {
+                            "patient_id": patient_id,
+                            "label": "neutral",
+                            "confidence": 0.35,
+                            "distress_score": 0.2,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "error": "frame_processing_failed",
+                        }
+                    )
+                except Exception:
+                    break
+            await asyncio.sleep(0.25)  # 4 fps server-side cadence.
     except WebSocketDisconnect:
         return
 

@@ -90,6 +90,7 @@ class PsychologyService:
         self._deepface_available = None
         self._speechbrain_available = None
         self._latest_face_by_patient: dict[int, tuple[EmotionLabel, float, datetime]] = {}
+        self._face_distress_ema_by_patient: dict[int, float] = {}
 
     def start_session(self, patient_id: int, preferred_language: str) -> SessionStartResponse:
         started = datetime.utcnow()
@@ -263,22 +264,35 @@ class PsychologyService:
         )
 
     def detect_emotion_frame(self, patient_id: int, frame_base64: str) -> EmotionFrameResponse:
-        face = self._infer_face_emotion_deepface(frame_base64)
+        face = self._infer_face_emotion_from_frame(frame_base64)
         if face is None:
-            # Deterministic fallback keeps endpoint stable if DeepFace is unavailable.
-            score = min(1.0, max(0.0, (len(frame_base64) % 100) / 100))
-            if score >= 0.8:
-                label = EmotionLabel.depressed
-            elif score >= 0.6:
-                label = EmotionLabel.distressed
-            elif score >= 0.35:
-                label = EmotionLabel.anxious
+            # If current frame failed, reuse the latest recent label to avoid hard-locking
+            # neutral 35% for transient detector failures.
+            cached = self._latest_face_by_patient.get(patient_id)
+            if cached is not None:
+                cached_label, cached_confidence, observed_at = cached
+                age = (datetime.utcnow() - observed_at).total_seconds()
+                if age <= 2.5:
+                    decay = max(0.55, 1.0 - (age / 4.0))
+                    label = cached_label
+                    confidence = max(0.4, min(0.95, cached_confidence * decay))
+                    score = self._label_to_distress(label)
+                else:
+                    label = EmotionLabel.neutral
+                    confidence = 0.45
+                    score = self._label_to_distress(label)
             else:
                 label = EmotionLabel.neutral
-            confidence = max(0.55, min(0.95, score + 0.2))
+                confidence = 0.45
+                score = self._label_to_distress(label)
         else:
             label, confidence = face
             score = self._label_to_distress(label)
+        prev_ema = self._face_distress_ema_by_patient.get(patient_id, score)
+        ema = (0.65 * prev_ema) + (0.35 * score)
+        self._face_distress_ema_by_patient[patient_id] = ema
+        score = max(0.0, min(1.0, ema))
+        label = self._score_to_label(score)
         self._latest_face_by_patient[patient_id] = (label, confidence, datetime.utcnow())
         ms = self._classify_mental_state(score, crisis_detected=False, trend_slope=0.0)
         self._emotion_logs.append(
@@ -354,7 +368,7 @@ class PsychologyService:
 
         face_result = None
         if payload.face_frame_base64:
-            face_result = self._infer_face_emotion_deepface(payload.face_frame_base64)
+            face_result = self._infer_face_emotion_from_frame(payload.face_frame_base64)
             if face_result is not None:
                 self._latest_face_by_patient[payload.patient_id] = (
                     face_result[0],
@@ -748,16 +762,17 @@ class PsychologyService:
 
     @staticmethod
     def _emotion_distribution(label: EmotionLabel, confidence: float) -> list[float]:
-        base = [0.25, 0.25, 0.25, 0.25]
+        base = [0.2, 0.2, 0.2, 0.2, 0.2]
         idx = {
             EmotionLabel.neutral: 0,
-            EmotionLabel.anxious: 1,
-            EmotionLabel.distressed: 2,
-            EmotionLabel.depressed: 3,
+            EmotionLabel.happy: 1,
+            EmotionLabel.anxious: 2,
+            EmotionLabel.distressed: 3,
+            EmotionLabel.depressed: 4,
         }[label]
         base[idx] = min(0.9, max(0.35, confidence))
-        rest = (1.0 - base[idx]) / 3.0
-        for i in range(4):
+        rest = (1.0 - base[idx]) / 4.0
+        for i in range(5):
             if i != idx:
                 base[i] = rest
         return base
@@ -766,6 +781,7 @@ class PsychologyService:
     def _label_to_distress(label: EmotionLabel) -> float:
         return {
             EmotionLabel.neutral: 0.2,
+            EmotionLabel.happy: 0.08,
             EmotionLabel.anxious: 0.47,
             EmotionLabel.distressed: 0.7,
             EmotionLabel.depressed: 0.9,
@@ -773,6 +789,8 @@ class PsychologyService:
 
     @staticmethod
     def _score_to_label(score: float) -> EmotionLabel:
+        if score <= 0.17:
+            return EmotionLabel.happy
         if score >= 0.8:
             return EmotionLabel.depressed
         if score >= 0.6:
@@ -795,25 +813,92 @@ class PsychologyService:
             image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
             if image is None:
                 return None
-            analysis = DeepFace.analyze(
-                img_path=image,
-                actions=["emotion"],
-                enforce_detection=False,
-                detector_backend="opencv",
-                silent=True,
-            )
-            if isinstance(analysis, list):
-                analysis = analysis[0]
-            emotion_scores = analysis.get("emotion", {})
-            if not emotion_scores:
-                return None
-            top_label = max(emotion_scores, key=emotion_scores.get).lower()
-            conf = float(emotion_scores[top_label]) / 100.0
-            mapped = self._map_deepface_label(top_label)
-            return mapped, max(0.45, min(0.99, conf))
-        except Exception:
+            for backend in ("opencv", "retinaface", "mtcnn"):
+                try:
+                    analysis = DeepFace.analyze(
+                        img_path=image,
+                        actions=["emotion"],
+                        enforce_detection=False,
+                        detector_backend=backend,
+                        silent=True,
+                    )
+                    if isinstance(analysis, list):
+                        analysis = analysis[0]
+                    emotion_scores = analysis.get("emotion", {})
+                    if not emotion_scores:
+                        continue
+                    normalized = {
+                        str(k).lower(): max(0.0, float(v))
+                        for k, v in emotion_scores.items()
+                    }
+                    total = sum(normalized.values()) or 1.0
+                    normalized = {k: v / total for k, v in normalized.items()}
+                    grouped = {
+                        EmotionLabel.happy: normalized.get("happy", 0.0),
+                        EmotionLabel.neutral: normalized.get("neutral", 0.0),
+                        EmotionLabel.anxious: normalized.get("fear", 0.0) + (0.55 * normalized.get("surprise", 0.0)),
+                        EmotionLabel.distressed: normalized.get("angry", 0.0) + normalized.get("disgust", 0.0) + (0.45 * normalized.get("sad", 0.0)),
+                        EmotionLabel.depressed: (0.55 * normalized.get("sad", 0.0)) + (0.25 * normalized.get("fear", 0.0)),
+                    }
+                    mapped = max(grouped, key=grouped.get)
+                    conf = grouped[mapped]
+                    return mapped, max(0.42, min(0.99, conf))
+                except Exception:
+                    continue
+            return None
+        except ImportError:
             self._deepface_available = False
             return None
+        except Exception:
+            # Keep detector available on transient frame/runtime errors.
+            return None
+
+    def _infer_face_emotion_from_frame(self, frame_base64: str) -> tuple[EmotionLabel, float] | None:
+        deepface_result = self._infer_face_emotion_deepface(frame_base64)
+        if deepface_result is not None:
+            return deepface_result
+        return self._infer_face_emotion_opencv(frame_base64)
+
+    @staticmethod
+    def _infer_face_emotion_opencv(frame_base64: str) -> tuple[EmotionLabel, float] | None:
+        try:
+            import cv2  # type: ignore
+        except Exception:
+            return None
+        image_bytes = PsychologyService._safe_b64decode(frame_base64)
+        if image_bytes is None:
+            return None
+        image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return None
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smile.xml")
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=4, minSize=(48, 48))
+        if len(faces) == 0:
+            return None
+        x, y, w, h = max(faces, key=lambda item: item[2] * item[3])
+        roi = gray[y : y + h, x : x + w]
+        smiles = smile_cascade.detectMultiScale(roi, scaleFactor=1.35, minNeighbors=8, minSize=(18, 18))
+        if len(smiles) > 0:
+            smile_strength = min(1.0, max((sw * sh) / max((w * h), 1) * 10.0 for _, _, sw, sh in smiles))
+            return EmotionLabel.happy, max(0.62, min(0.9, 0.62 + 0.25 * smile_strength))
+        eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye_tree_eyeglasses.xml")
+        upper = roi[: max(1, int(0.55 * h)), :]
+        lower = roi[max(0, int(0.55 * h)) :, :]
+        eyes = eye_cascade.detectMultiScale(upper, scaleFactor=1.1, minNeighbors=4, minSize=(12, 12))
+        eye_ratio = float(np.mean([(eh / max(ew, 1)) for _, _, ew, eh in eyes])) if len(eyes) > 0 else 0.25
+        edges = cv2.Canny(lower, 50, 150)
+        mouth_edge_density = float(np.count_nonzero(edges)) / float(max(edges.size, 1))
+        face_brightness = float(np.mean(roi)) / 255.0
+        if eye_ratio > 0.34 and mouth_edge_density > 0.11:
+            return EmotionLabel.anxious, 0.6
+        if eye_ratio < 0.2 and mouth_edge_density < 0.06 and face_brightness < 0.42:
+            return EmotionLabel.depressed, 0.58
+        if mouth_edge_density > 0.095:
+            return EmotionLabel.distressed, 0.57
+        return EmotionLabel.neutral, 0.52
 
     def _infer_speech_emotion_speechbrain(self, audio_base64: str) -> tuple[EmotionLabel, float] | None:
         if self._speechbrain_available is False:
@@ -856,7 +941,7 @@ class PsychologyService:
         if label in {"surprise"}:
             return EmotionLabel.anxious
         if label in {"happy"}:
-            return EmotionLabel.neutral
+            return EmotionLabel.happy
         if label in {"neutral"}:
             return EmotionLabel.neutral
         return EmotionLabel.anxious
@@ -868,7 +953,7 @@ class PsychologyService:
         if label in {"ang", "angry", "fru", "frustrated"}:
             return EmotionLabel.distressed
         if label in {"hap", "exc", "happy", "excited"}:
-            return EmotionLabel.neutral
+            return EmotionLabel.happy
         if label in {"neu", "neutral"}:
             return EmotionLabel.neutral
         return EmotionLabel.anxious

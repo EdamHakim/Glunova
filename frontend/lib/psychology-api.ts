@@ -38,10 +38,10 @@ export type PsychologyMessagePayload = {
   patient_id: number
   text: string
   face_frame_base64?: string
-  face_emotion?: 'neutral' | 'anxious' | 'distressed' | 'depressed'
+  face_emotion?: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
   face_confidence?: number
   speech_transcript?: string
-  speech_emotion?: 'neutral' | 'anxious' | 'distressed' | 'depressed'
+  speech_emotion?: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
   speech_confidence?: number
   speech_audio_base64?: string
 }
@@ -49,7 +49,7 @@ export type PsychologyMessagePayload = {
 export type PsychologyMessageResult = {
   session_id: string
   reply: string
-  emotion: 'neutral' | 'anxious' | 'distressed' | 'depressed'
+  emotion: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
   distress_score: number
   language_detected: 'en' | 'fr' | 'ar' | 'darija' | 'mixed'
   technique_used: string
@@ -94,7 +94,7 @@ export type SessionStartPayload = {
 
 export type EmotionFrameResult = {
   patient_id: number
-  label: 'neutral' | 'anxious' | 'distressed' | 'depressed'
+  label: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
   confidence: number
   distress_score: number
   timestamp: string

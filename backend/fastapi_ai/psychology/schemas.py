@@ -23,6 +23,7 @@ class Modality(str, Enum):
 
 class EmotionLabel(str, Enum):
     neutral = "neutral"
+    happy = "happy"
     anxious = "anxious"
     distressed = "distressed"
     depressed = "depressed"
