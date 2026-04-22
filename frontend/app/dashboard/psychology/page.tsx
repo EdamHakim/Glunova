@@ -6,10 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import {
   acknowledgeCrisisEvent,
+  detectEmotionFrame,
   clearPhysicianSessionGate,
   endPsychologySession,
   getPsychologyTrends,
@@ -35,6 +37,8 @@ type LiveEmotion = {
   timestamp: string
 }
 
+type LanguageMode = 'en' | 'auto'
+
 function getErrorMessage(error: unknown): string {
   const fallback = 'Could not start session.'
   if (error instanceof Error && error.message) {
@@ -49,6 +53,29 @@ function getErrorMessage(error: unknown): string {
     return raw
   }
   return fallback
+}
+
+function detectLikelyLanguage(text: string): string {
+  const lower = text.toLowerCase()
+  if (/[ء-ي]/.test(text) || /(?:\b(?:salam|marhba|ana|inti|enta)\b)/i.test(text)) return 'ar'
+  if (/\b(?:bonjour|merci|je|vous|suis|avec|salut)\b/i.test(lower)) return 'fr'
+  if (/\b(?:chnowa|3andi|barsha|mouch|nheb|labes)\b/i.test(lower)) return 'darija'
+  return 'en'
+}
+
+function inferSpeechEmotionFromText(text: string): { label: LiveEmotion['label']; confidence: number } | null {
+  const lower = text.toLowerCase()
+  if (!lower.trim()) return null
+  if (/(suicide|kill myself|end my life|hopeless|worthless|ma nhebch n3ich|منهار|بلا أمل)/i.test(lower)) {
+    return { label: 'depressed', confidence: 0.82 }
+  }
+  if (/(panic|overwhelmed|stressed|can't breathe|anxious|قلق|متوتر|ضغط|barsha stress)/i.test(lower)) {
+    return { label: 'anxious', confidence: 0.76 }
+  }
+  if (/(angry|crying|exhausted|drained|مش قادر|تعبان|fedayet|mnayek)/i.test(lower)) {
+    return { label: 'distressed', confidence: 0.72 }
+  }
+  return { label: 'neutral', confidence: 0.62 }
 }
 
 export default function PsychologyPage() {
@@ -67,11 +94,15 @@ export default function PsychologyPage() {
   const [latestSpeechTranscript, setLatestSpeechTranscript] = useState('')
   const [startingSession, setStartingSession] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
+  const [languageMode, setLanguageMode] = useState<LanguageMode>('en')
+  const [detectedSpeechLanguage, setDetectedSpeechLanguage] = useState<string | null>(null)
+  const [cameraTransport, setCameraTransport] = useState<'idle' | 'websocket' | 'http-fallback'>('idle')
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const captureTimerRef = useRef<number | null>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const role = user?.role
   const isPatient = role === 'patient'
@@ -93,7 +124,7 @@ export default function PsychologyPage() {
     if (!forceNew && sessionId) return sessionId
     setStartingSession(true)
     try {
-      const payload = await startPsychologySession(patientId, 'en')
+      const payload = await startPsychologySession(patientId, languageMode === 'auto' ? 'mixed' : 'en')
       if (payload.allowed === false || !payload.session_id) {
         setSessionBlocked(payload.block_reason || 'Could not start session.')
         setSessionId(null)
@@ -109,12 +140,12 @@ export default function PsychologyPage() {
     } finally {
       setStartingSession(false)
     }
-  }, [patientId, sessionId])
+  }, [languageMode, patientId, sessionId])
 
   useEffect(() => {
     if (!patientId) return
     let cancelled = false
-    void startPsychologySession(patientId, 'en')
+    void startPsychologySession(patientId, languageMode === 'auto' ? 'mixed' : 'en')
       .then((payload) => {
         if (cancelled) return
         if (payload.allowed === false) {
@@ -134,7 +165,7 @@ export default function PsychologyPage() {
     return () => {
       cancelled = true
     }
-  }, [patientId])
+  }, [languageMode, patientId])
 
   useEffect(() => {
     if (!patientId) return
@@ -173,7 +204,54 @@ export default function PsychologyPage() {
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraOn(false)
+    setCameraTransport('idle')
     setLiveEmotion(null)
+  }, [])
+
+  const captureFrameAndInferEmotion = useCallback(
+    async (canvas: HTMLCanvasElement, width: number, height: number) => {
+      const vid = videoRef.current
+      if (!vid || !patientId) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(vid, 0, 0, width, height)
+      const frame = canvas.toDataURL('image/jpeg', 0.55)
+
+      const socket = wsRef.current
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        setCameraTransport('websocket')
+        socket.send(JSON.stringify({ frame_base64: frame }))
+        return
+      }
+      setCameraTransport('http-fallback')
+      try {
+        const inferred = await detectEmotionFrame(patientId, frame)
+        setLiveEmotion({
+          label: inferred.label,
+          confidence: inferred.confidence,
+          distress_score: inferred.distress_score,
+          timestamp: inferred.timestamp,
+        })
+      } catch {
+        /* ignore intermittent fallback errors */
+      }
+    },
+    [patientId],
+  )
+
+  const captureFrameBase64 = useCallback((): string | null => {
+    const vid = videoRef.current
+    if (!vid) return null
+    if (!captureCanvasRef.current) captureCanvasRef.current = document.createElement('canvas')
+    const canvas = captureCanvasRef.current
+    const width = 320
+    const height = 240
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(vid, 0, 0, width, height)
+    return canvas.toDataURL('image/jpeg', 0.6)
   }, [])
 
   const startCamera = useCallback(async () => {
@@ -188,6 +266,9 @@ export default function PsychologyPage() {
       const wsUrl = `${psychologyWsBase()}${process.env.NEXT_PUBLIC_PSYCHOLOGY_PREFIX || '/psychology'}/ws/emotion/${patientId}`
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
+      ws.onopen = () => setCameraTransport('websocket')
+      ws.onerror = () => setCameraTransport('http-fallback')
+      ws.onclose = () => setCameraTransport('http-fallback')
       ws.onmessage = (ev) => {
         try {
           const data = JSON.parse(String(ev.data)) as LiveEmotion
@@ -202,21 +283,14 @@ export default function PsychologyPage() {
       canvas.width = w
       canvas.height = h
       const tick = () => {
-        const vid = videoRef.current
-        const socket = wsRef.current
-        if (!vid || !socket || socket.readyState !== WebSocket.OPEN) return
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
-        ctx.drawImage(vid, 0, 0, w, h)
-        const frame = canvas.toDataURL('image/jpeg', 0.55)
-        socket.send(JSON.stringify({ frame_base64: frame }))
+        void captureFrameAndInferEmotion(canvas, w, h)
       }
-      captureTimerRef.current = window.setInterval(tick, 500)
+      captureTimerRef.current = window.setInterval(tick, 700)
       setCameraOn(true)
     } catch {
       setCameraOn(false)
     }
-  }, [isPatient, patientId])
+  }, [captureFrameAndInferEmotion, isPatient, patientId])
 
   useEffect(() => () => stopCamera(), [stopCamera])
 
@@ -230,12 +304,14 @@ export default function PsychologyPage() {
       return
     }
     const rec = new SR()
-    rec.lang = 'fr-FR'
+    rec.lang = languageMode === 'en' ? 'en-US' : navigator.language || 'en-US'
     rec.interimResults = false
     rec.continuous = false
     rec.onresult = (event) => {
       const text = event.results[0]?.[0]?.transcript?.trim()
       if (text) {
+        const resultLang = event.results[0]?.[0]?.language || detectLikelyLanguage(text)
+        setDetectedSpeechLanguage(resultLang)
         setLatestSpeechTranscript(text)
         setInput((prev) => (prev ? `${prev} ${text}` : text))
       }
@@ -247,7 +323,7 @@ export default function PsychologyPage() {
     recognitionRef.current = rec
     rec.start()
     setMicListening(true)
-  }, [micListening])
+  }, [languageMode, micListening])
 
   const stressPercent = useMemo(() => {
     if (!latestResult) return 25
@@ -277,14 +353,18 @@ export default function PsychologyPage() {
       return
     }
     const patientText = input.trim()
+    const speechEmotion = inferSpeechEmotionFromText(latestSpeechTranscript || patientText)
+    const liveFrame = cameraOn ? captureFrameBase64() : null
     const multimodalPayload = {
       session_id: activeSessionId,
       patient_id: patientId,
       text: patientText,
+      face_frame_base64: liveFrame || undefined,
       face_emotion: liveEmotion?.label,
       face_confidence: liveEmotion?.confidence,
       speech_transcript: latestSpeechTranscript || undefined,
-      speech_confidence: latestSpeechTranscript ? 0.65 : undefined,
+      speech_emotion: speechEmotion?.label,
+      speech_confidence: speechEmotion?.confidence,
     }
     setInput('')
     setLatestSpeechTranscript('')
@@ -451,13 +531,22 @@ export default function PsychologyPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Video className="h-4 w-4" />
-              Camera & voice capture
+              Sanadi multimodal capture
             </CardTitle>
-            <CardDescription>Stream face frames to the emotion WebSocket (2 fps). Use the mic for speech-to-text (browser).</CardDescription>
+            <CardDescription>Open camera for real-time emotion sensing and use speech input. English is primary, or switch to auto language mode.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
             <video ref={videoRef} className="h-36 w-48 rounded-md border bg-black object-cover" playsInline muted />
             <div className="flex flex-col gap-2">
+              <Select value={languageMode} onValueChange={(value: LanguageMode) => setLanguageMode(value)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Choose language mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">English (primary)</SelectItem>
+                  <SelectItem value="auto">Auto detect</SelectItem>
+                </SelectContent>
+              </Select>
               <Button type="button" variant={cameraOn ? 'secondary' : 'default'} size="sm" onClick={() => (cameraOn ? stopCamera() : void startCamera())}>
                 {cameraOn ? (
                   <>
@@ -471,8 +560,12 @@ export default function PsychologyPage() {
               </Button>
               <Button type="button" variant={micListening ? 'secondary' : 'outline'} size="sm" onClick={() => toggleMic()}>
                 <Mic className="mr-2 h-4 w-4" />
-                {micListening ? 'Stop microphone' : 'Speech to text (FR)'}
+                {micListening ? 'Stop microphone' : languageMode === 'en' ? 'Speech to text (EN)' : 'Speech to text (Auto)'}
               </Button>
+              <p className="text-xs text-muted-foreground">
+                Camera transport: {cameraTransport === 'idle' ? 'not started' : cameraTransport === 'websocket' ? 'WebSocket live stream' : 'HTTP fallback'}
+              </p>
+              {detectedSpeechLanguage && <p className="text-xs text-muted-foreground">Detected speech language: {detectedSpeechLanguage}</p>}
             </div>
           </CardContent>
         </Card>
@@ -483,11 +576,11 @@ export default function PsychologyPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-psychology-soft-purple" />
-              {isPatient ? 'AI Therapy Session' : isDoctor ? 'Clinical Wellness Summary' : 'Support Summary'}
+              {isPatient ? 'Sanadi Chatbot Session' : isDoctor ? 'Clinical Wellness Summary' : 'Support Summary'}
             </CardTitle>
             <CardDescription>
               {isPatient
-                ? 'Chat with your AI therapist'
+                ? 'Chat with Sanadi, your multimodal mental wellness assistant'
                 : isDoctor
                   ? 'Read-only signals and patterns for follow-up planning'
                   : 'High-level wellness guidance appropriate for caregiver access'}
@@ -500,7 +593,7 @@ export default function PsychologyPage() {
                   {chat.length === 0 && (
                     <div className="flex justify-start">
                       <div className="bg-psychology-soft-purple/10 text-psychology-soft-purple px-4 py-2 rounded-lg max-w-xs">
-                        <p className="text-sm">How are you feeling right now? I can support you with a short CBT check-in.</p>
+                        <p className="text-sm">I am Sanadi. How are you feeling right now? I can track your mood in real time and support you with a short CBT check-in.</p>
                       </div>
                     </div>
                   )}

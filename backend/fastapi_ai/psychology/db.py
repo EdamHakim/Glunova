@@ -40,7 +40,14 @@ def get_connection_pool() -> ConnectionPool | None:
         return None
     conninfo = normalize_postgres_conninfo(settings.database_url)
     try:
-        _pool = ConnectionPool(conninfo=conninfo, min_size=1, max_size=8)
+        # Disable server-side prepared statements to avoid duplicate prepared
+        # statement errors when connections are multiplexed by poolers.
+        _pool = ConnectionPool(
+            conninfo=conninfo,
+            min_size=1,
+            max_size=8,
+            kwargs={"prepare_threshold": None},
+        )
         logger.info("Psychology PostgreSQL pool initialized")
         return _pool
     except Exception as exc:

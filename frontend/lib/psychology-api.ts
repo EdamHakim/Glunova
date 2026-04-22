@@ -37,6 +37,7 @@ export type PsychologyMessagePayload = {
   session_id: string
   patient_id: number
   text: string
+  face_frame_base64?: string
   face_emotion?: 'neutral' | 'anxious' | 'distressed' | 'depressed'
   face_confidence?: number
   speech_transcript?: string
@@ -89,6 +90,14 @@ export type SessionStartPayload = {
   allowed: boolean
   block_reason?: string | null
   physician_review_required?: boolean
+}
+
+export type EmotionFrameResult = {
+  patient_id: number
+  label: 'neutral' | 'anxious' | 'distressed' | 'depressed'
+  confidence: number
+  distress_score: number
+  timestamp: string
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -179,4 +188,14 @@ export async function clearPhysicianSessionGate(patientId: number) {
     body: JSON.stringify({ patient_id: patientId }),
   })
   return parseJson<{ ok: boolean }>(response)
+}
+
+export async function detectEmotionFrame(patientId: number, frameBase64: string) {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/emotion/frame`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ patient_id: patientId, frame_base64: frameBase64 }),
+  })
+  return parseJson<EmotionFrameResult>(response)
 }

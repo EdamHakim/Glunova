@@ -89,6 +89,7 @@ class PsychologyService:
         self._knowledge_base = get_knowledge_base()
         self._deepface_available = None
         self._speechbrain_available = None
+        self._latest_face_by_patient: dict[int, tuple[EmotionLabel, float, datetime]] = {}
 
     def start_session(self, patient_id: int, preferred_language: str) -> SessionStartResponse:
         started = datetime.utcnow()
@@ -278,6 +279,7 @@ class PsychologyService:
         else:
             label, confidence = face
             score = self._label_to_distress(label)
+        self._latest_face_by_patient[patient_id] = (label, confidence, datetime.utcnow())
         ms = self._classify_mental_state(score, crisis_detected=False, trend_slope=0.0)
         self._emotion_logs.append(
             patient_id,
@@ -353,8 +355,28 @@ class PsychologyService:
         face_result = None
         if payload.face_frame_base64:
             face_result = self._infer_face_emotion_deepface(payload.face_frame_base64)
+            if face_result is not None:
+                self._latest_face_by_patient[payload.patient_id] = (
+                    face_result[0],
+                    face_result[1],
+                    datetime.utcnow(),
+                )
         if face_result is None and payload.face_emotion and payload.face_confidence is not None:
             face_result = (payload.face_emotion, payload.face_confidence)
+            self._latest_face_by_patient[payload.patient_id] = (
+                face_result[0],
+                face_result[1],
+                datetime.utcnow(),
+            )
+        if face_result is None:
+            cached_face = self._latest_face_by_patient.get(payload.patient_id)
+            if cached_face is not None:
+                label, confidence, observed_at = cached_face
+                # Reuse only recent camera evidence so stale frames do not bias chat.
+                age_seconds = (datetime.utcnow() - observed_at).total_seconds()
+                if age_seconds <= 6.0:
+                    freshness_decay = max(0.55, 1.0 - (age_seconds / 10.0))
+                    face_result = (label, max(0.4, min(0.95, confidence * freshness_decay)))
         if face_result is not None:
             entries.append((face_result[0], face_result[1], Modality.face))
 
