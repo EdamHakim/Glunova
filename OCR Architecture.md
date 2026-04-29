@@ -24,36 +24,8 @@ The pipeline employs a **hybrid architecture** combining state-of-the-art cloud 
 
 The pipeline orchestrator (`orchestrator.py`) handles documents through 6 sequential phases:
 
-<div id="mmd" style="padding: 1rem 0"></div>
-<script type="module">
-import mermaid from 'https://esm.sh/mermaid@11/dist/mermaid.esm.min.mjs';
-const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-await document.fonts.ready;
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'base',
-  fontFamily: '"Anthropic Sans", sans-serif',
-  themeVariables: {
-    darkMode: dark,
-    fontSize: '13px',
-    fontFamily: '"Anthropic Sans", sans-serif',
-    lineColor: dark ? '#9c9a92' : '#73726c',
-    textColor: dark ? '#c2c0b6' : '#3d3d3a',
-    primaryColor: dark ? '#3C3489' : '#EEEDFE',
-    primaryTextColor: dark ? '#CECBF6' : '#3C3489',
-    primaryBorderColor: dark ? '#534AB7' : '#534AB7',
-    secondaryColor: dark ? '#085041' : '#E1F5EE',
-    secondaryTextColor: dark ? '#9FE1CB' : '#085041',
-    secondaryBorderColor: dark ? '#0F6E56' : '#0F6E56',
-    tertiaryColor: dark ? '#3d3d3a' : '#F1EFE8',
-    tertiaryTextColor: dark ? '#D3D1C7' : '#444441',
-    tertiaryBorderColor: dark ? '#5F5E5A' : '#888780',
-    noteBkgColor: dark ? '#444441' : '#FAEEDA',
-    noteTextColor: dark ? '#FAC775' : '#633806',
-  },
-});
-
-const diagram = `flowchart TD
+```mermaid
+flowchart TD
     A(["Document Input<br/>JPEG / PNG / PDF / TIFF"]) --> B
 
     B["Preprocessing<br/>Resize · Grayscale · Binarize · Denoise"]
@@ -86,13 +58,7 @@ const diagram = `flowchart TD
     N -- "All checks pass" --> P(["Verified Structured JSON"])
 
     P --> Q["Observability<br/>DeepEval · GEval metrics<br/>OCR fidelity · Groundedness · Schema accuracy"]
-`;
-
-const { svg } = await mermaid.render('mmd-svg', diagram);
-document.getElementById('mmd').innerHTML = svg;
-const el = document.querySelector('#mmd svg');
-if (el) { el.style.width = '100%'; el.style.height = 'auto'; }
-</script>
+```
 
 ---
 ## Module Breakdown
