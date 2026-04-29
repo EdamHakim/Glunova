@@ -53,19 +53,55 @@ def _measure_geval(metric, *, input_text: str, expected_text: str, actual_text: 
 def _build_judge_model(provider: str, model_name: str | None):
     provider = (provider or "auto").strip().lower()
     if provider == "auto":
-        if os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
+        if os.getenv("GROQ_API_KEY"):
+            provider = "groq"
+        elif os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
             provider = "gemini"
         elif os.getenv("OPENAI_API_KEY"):
             provider = "openai"
         else:
             return None
 
+    if provider == "groq":
+        from deepeval.models import DeepEvalBaseLLM
+        import groq
+
+        class GroqModel(DeepEvalBaseLLM):
+            def __init__(self, model_name="llama-3.3-70b-versatile"):
+                self.model_name = model_name
+                self.sync_client = groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
+                self.async_client = groq.AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+
+            def load_model(self):
+                return self.model_name
+
+            def generate(self, prompt: str, **kwargs) -> str:
+                res = self.sync_client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=self.model_name,
+                    temperature=0
+                )
+                return res.choices[0].message.content or ""
+
+            async def a_generate(self, prompt: str, **kwargs) -> str:
+                res = await self.async_client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=self.model_name,
+                    temperature=0
+                )
+                return res.choices[0].message.content or ""
+
+            def get_model_name(self):
+                return self.model_name
+
+        return GroqModel(model_name=model_name or os.getenv("DEEPEVAL_GROQ_MODEL") or "llama-3.3-70b-versatile")
+
     if provider == "gemini":
         from deepeval.models import GeminiModel
 
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         return GeminiModel(
-            model=model_name or os.getenv("DEEPEVAL_GEMINI_MODEL") or "gemini-1.5-pro",
+            model=model_name or os.getenv("DEEPEVAL_GEMINI_MODEL") or "gemini-2.0-flash",
             api_key=api_key,
             temperature=0,
         )
@@ -101,7 +137,9 @@ def run_deepeval_eval(
     try:
         from deepeval.metrics import GEval
         from deepeval.test_case import SingleTurnParams
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         cases = [_fallback_case(row) for row in rows]
         return {
             "engine": "fallback",
@@ -117,7 +155,9 @@ def run_deepeval_eval(
 
     try:
         judge_model_instance = _build_judge_model(judge_provider, judge_model)
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         judge_model_instance = None
 
     try:
@@ -153,7 +193,9 @@ def run_deepeval_eval(
             model=judge_model_instance,
             threshold=0.7,
         )
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         cases = [_fallback_case(row) for row in rows]
         return {
             "engine": "fallback",
