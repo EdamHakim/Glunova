@@ -54,38 +54,38 @@ mermaid.initialize({
 });
 
 const diagram = `flowchart TD
-    A([Document Input\\nJPEG / PNG / PDF / TIFF]) --> B
+    A(["Document Input<br/>JPEG / PNG / PDF / TIFF"]) --> B
 
-    B[Preprocessing\\nResize · Grayscale · Binarize · Denoise]
+    B["Preprocessing<br/>Resize · Grayscale · Binarize · Denoise"]
     B --> C
 
-    C{Azure OCR\\navailable?}
-    C -- Yes --> D[Azure Document Intelligence\\nprebuilt-layout]
-    C -- No / quota --> E[Fallback: PyTesseract\\nLocal OCR]
-    D --> F{OCR quality\\nacceptable?}
+    C{"Azure OCR<br/>available?"}
+    C -- "Yes" --> D["Azure Document Intelligence<br/>prebuilt-layout"]
+    C -- "No / quota" --> E["Fallback: PyTesseract<br/>Local OCR"]
+    D --> F{"OCR quality<br/>acceptable?"}
     E --> F
 
-    F -- Low confidence --> G[Vision Rescue\\nGroq Llama-3.2-Vision\\nimage → text]
-    F -- OK --> H
+    F -- "Low confidence" --> G["Vision Rescue<br/>Groq Llama-3.2-Vision<br/>image → text"]
+    F -- "OK" --> H
 
     G --> K
 
-    H{Dual-path\\nextraction}
-    H --> I[Deterministic Rules\\nRegex for BP · HR · BMI · Dates]
-    H --> J[LLM Structured Parsing\\nGroq Llama-3.3-70b\\nDemographics · Dx · Medications]
+    H{"Dual-path<br/>extraction"}
+    H --> I["Deterministic Rules<br/>Regex for BP · HR · BMI · Dates"]
+    H --> J["LLM Structured Parsing<br/>Groq Llama-3.3-70b<br/>Demographics · Dx · Medications"]
 
-    I --> L[Merge & Validate\\nConflict resolution: rules override LLM]
+    I --> L["Merge & Validate<br/>Conflict resolution: rules override LLM"]
     J --> L
-    K[Groq Vision Extract\\nSkips rules + LLM paths] --> L
+    K["Groq Vision Extract<br/>Skips rules + LLM paths"] --> L
 
-    L --> M[Clinical Verification\\nRxNorm API lookup · DDI screening\\nLLM tie-breaker for ambiguous drugs]
+    L --> M["Clinical Verification<br/>RxNorm API lookup · DDI screening<br/>LLM tie-breaker for ambiguous drugs"]
 
-    M --> N{Gating Logic\\nRequires human review?}
+    M --> N{"Gating Logic<br/>Requires human review?"}
 
-    N -- OCR conf < 70%\\nSevere DDI\\nUnverified drugs\\nVision rescue used --> O([Flag for Doctor Review])
-    N -- All checks pass --> P([Verified Structured JSON])
+    N -- "OCR conf < 70%<br/>Severe DDI<br/>Unverified drugs<br/>Vision rescue used" --> O(["Flag for Doctor Review"])
+    N -- "All checks pass" --> P(["Verified Structured JSON"])
 
-    P --> Q[Observability\\nDeepEval · GEval metrics\\nOCR fidelity · Groundedness · Schema accuracy]
+    P --> Q["Observability<br/>DeepEval · GEval metrics<br/>OCR fidelity · Groundedness · Schema accuracy"]
 `;
 
 const { svg } = await mermaid.render('mmd-svg', diagram);
