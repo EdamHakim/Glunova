@@ -4,3 +4,4 @@ __pycache__/
 *.py[cod]
 **/models/
 /psychology data
+psychology_todo.md

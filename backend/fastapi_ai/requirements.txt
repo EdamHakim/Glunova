@@ -27,3 +27,7 @@ modelscope>=1.18.1
 azure-ai-documentintelligence>=1.0.0b1
 aiohttp>=3.9.0
 rapidfuzz>=3.9.0
+ragas>=0.1.21
+deepeval>=1.1.4
+datasets>=2.20.0
+pandas>=2.2.2
