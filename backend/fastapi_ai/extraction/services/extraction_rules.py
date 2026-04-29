@@ -69,30 +69,63 @@ def _extract_dates(text: str) -> list[str]:
 
 def _extract_labs(text: str) -> list[dict[str, Any]]:
     labs: list[dict[str, Any]] = []
-    tl = text.lower()
+    seen: set[tuple[str, str, str]] = set()
 
     def add(name: str, value: str, unit: str | None = None) -> None:
-        labs.append({"name": name, "value": value, "unit": unit})
+        clean_value = value.strip()
+        clean_unit = (unit or "").strip()
+        key = (name.lower(), clean_value.lower(), clean_unit.lower())
+        if key in seen:
+            return
+        seen.add(key)
+        labs.append({"name": name, "value": clean_value, "unit": clean_unit or None})
+
+    def _add_matches(pattern: str, name: str, unit_group: int | None = 2, value_group: int = 1) -> None:
+        for match in re.finditer(pattern, text, re.I | re.S):
+            value = match.group(value_group)
+            unit = match.group(unit_group) if unit_group is not None and match.lastindex and match.lastindex >= unit_group else None
+            if value:
+                add(name, value, unit)
 
     patterns = [
-        (r"(?:glucose|blood\s*glucose)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg/dl|mmol/l)?", "Glucose"),
-        (r"hba1c\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(%|mmol/mol)?", "HbA1c"),
+        (r"(?:glucose|blood\s*glucose|glyc[eé]mie)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg/dl|mmol/l|g/l)?", "Glucose"),
+        (r"(\d+(?:\.\d+)?)\s*(mg/dl|mmol/l|g/l)\s*(?:glucose|blood\s*glucose|glyc[eé]mie)", "Glucose"),
+        (r"(?:hba1c|h[eé]moglobine\s+glyqu[eé]e)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(%|mmol/mol)?", "HbA1c"),
+        (r"(\d+(?:\.\d+)?)\s*(%|mmol/mol)\s*(?:hba1c|h[eé]moglobine\s+glyqu[eé]e|r[eé]sultat)", "HbA1c"),
         (r"(?:total\s*cholesterol|cholesterol)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg/dl|mmol/l)?", "Cholesterol"),
-        (r"creatinine\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg/dl|umol/l)?", "Creatinine"),
-        (r"alt\s*[:\-]?\s*(\d+)\s*(u/l)?", "ALT"),
-        (r"ast\s*[:\-]?\s*(\d+)\s*(u/l)?", "AST"),
-        (r"potassium|k\+\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mmol/l|meq/l)?", "Potassium"),
-        (r"sodium|na\+\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mmol/l|meq/l)?", "Sodium"),
-        (r"insulin\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:u|units)?", "Insulin"),
+        (r"(?:creatinine|cr[eé]atinine)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg/dl|umol/l|µmol/l|mg/l)?", "Creatinine"),
+        (r"(\d+(?:\.\d+)?)\s*(mg/dl|umol/l|µmol/l|mg/l)\s*(?:creatinine|cr[eé]atinine)", "Creatinine"),
+        (r"(?:alt)\s*[:\-]?\s*(\d+)\s*(u/l|ui/l)?", "ALT"),
+        (r"(?:ast)\s*[:\-]?\s*(\d+)\s*(u/l|ui/l)?", "AST"),
+        (r"(?:potassium|k\+)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mmol/l|meq/l)?", "Potassium"),
+        (r"(\d+(?:\.\d+)?)\s*(mmol/l|meq/l)\s*(?:potassium|k\+)", "Potassium"),
+        (r"(?:sodium|na\+)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mmol/l|meq/l)?", "Sodium"),
+        (r"(\d+(?:\.\d+)?)\s*(mmol/l|meq/l)\s*(?:sodium|na\+)", "Sodium"),
+        (r"(?:insulin)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(u|units)?", "Insulin"),
+        (r"(?:calcium)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mmol/l|mg/l)?", "Calcium"),
+        (r"(\d+(?:\.\d+)?)\s*(mmol/l|mg/l)\s*(?:calcium)", "Calcium"),
+        (r"(?:prot[eé]ine\s*c\s*r[eé]active|crp)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg/l)?", "CRP"),
+        (r"(\d+(?:\.\d+)?)\s*(mg/l)\s*(?:prot[eé]ine\s*c\s*r[eé]active|crp)", "CRP"),
+        (r"(?:chlorures?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mmol/l)?", "Chloride"),
+        (r"(?:r[eé]serve\s+alcaline)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mmol/l)?", "Bicarbonate"),
+        (r"(?:protides?\s+totaux)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(g/l)?", "Total Protein"),
+        (r"(?:folates?\s+s[eé]riques)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(nmol/l|ng/ml)?", "Serum Folate"),
+        (r"(?:ft4)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(pmol/l)?", "FT4"),
+        (r"(?:tsh)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(µui/ml|mui/l|iu/ml)?", "TSH"),
+        (r"(?:ferritin[eé]mie|ferritine)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ng/ml)?", "Ferritin"),
+        (r"(?:vitamine\s*b\s*12|vitamin\s*b\s*12)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(pg/ml)?", "Vitamin B12"),
+        (r"(?:c\.?p\.?k\.?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ui/l|u/l)?", "CPK"),
+        (r"(?:ft3)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(pmol/l)?", "FT3"),
+        (r"(?:vitamine\s*d(?:\s*\(25\s*hydroxy\))?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ng/ml)?", "Vitamin D"),
+        (r"(?:cortisol[eé]mie|cortisol\s+s[eé]rique)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ng/ml|nmol/l)?", "Cortisol"),
+        (r"(?:premi[eè]re\s+heure)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mm)?", "ESR 1h"),
+        (r"(?:deuxi[eè]me\s+heure)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mm)?", "ESR 2h"),
     ]
 
     for pattern, name in patterns:
-        m = re.search(pattern, tl, re.I)
-        if m:
-            unit = m.group(2) if len(m.groups()) > 1 else None
-            add(name, m.group(1), unit)
+        _add_matches(pattern, name)
 
-    return labs
+    return labs[:100]
 
 
 def _extract_meds(text: str) -> list[dict[str, Any]]:

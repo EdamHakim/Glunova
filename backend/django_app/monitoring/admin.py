@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import DiseaseProgression, HealthAlert, MonitoringLog, PatientMedication, RiskAssessment
+from .models import DiseaseProgression, HealthAlert, MonitoringLog, PatientLabResult, PatientMedication, RiskAssessment
 
 
 @admin.register(MonitoringLog)
@@ -27,6 +27,27 @@ class PatientMedicationAdmin(admin.ModelAdmin):
         "name_raw",
         "name_display",
         "rxcui",
+        "source_document__original_filename",
+    )
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(PatientLabResult)
+class PatientLabResultAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "patient",
+        "test_name",
+        "value",
+        "unit",
+        "observed_at",
+        "source_document",
+        "updated_at",
+    )
+    search_fields = (
+        "patient__username",
+        "test_name",
+        "normalized_name",
         "source_document__original_filename",
     )
     readonly_fields = ("created_at", "updated_at")
