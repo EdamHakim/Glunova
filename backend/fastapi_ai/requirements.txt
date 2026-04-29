@@ -31,3 +31,4 @@ ragas>=0.1.21
 deepeval>=1.1.4
 datasets>=2.20.0
 pandas>=2.2.2
+google-genai>=1.0.0

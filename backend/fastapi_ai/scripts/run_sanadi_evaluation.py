@@ -57,13 +57,29 @@ def main() -> int:
     if not dataset_path.exists():
         build_default_dataset(dataset_path)
 
+    out = Path(args.output_dir)
+    print(
+        "Sanadi evaluation starting (this can take minutes: Groq judge, embeddings, DeepEval).\n"
+        f"  Dataset:  {dataset_path}\n"
+        f"  Output:   {out.resolve()}",
+        file=sys.stderr,
+        flush=True,
+    )
+
     report = run_full_evaluation(
         dataset_path=dataset_path,
-        output_dir=Path(args.output_dir),
+        output_dir=out,
         calibration_path=calibration_path,
         fail_on_thresholds=bool(args.strict),
     )
-    print(json.dumps({"run_id": report["run_id"], "json_report_path": report["json_report_path"]}, indent=2))
+    summary = {
+        "run_id": report["run_id"],
+        "json_report_path": report["json_report_path"],
+        "markdown_report_path": report.get("markdown_report_path", ""),
+        "hint": "Open the .md file for human-readable scores; full metrics are in the .json.",
+    }
+    print(json.dumps(summary, indent=2))
+    print(summary["hint"], file=sys.stderr)
     return 0
 
 

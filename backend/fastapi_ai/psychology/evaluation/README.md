@@ -11,6 +11,15 @@ From `backend/fastapi_ai`:
 
 `python scripts/run_sanadi_evaluation.py`
 
+### API keys (pick one vendor for evaluator LLMs)
+
+- **Gemini (Google AI Studio, no OpenAI account):** set `GOOGLE_API_KEY` or `GEMINI_API_KEY` in `backend/.env`. RAGAS and DeepEval will use Gemini for metric scoring.
+- **OpenAI instead:** set `OPENAI_API_KEY` in `backend/.env`.
+
+Optional model override for eval only:
+
+`SANADI_EVAL_GEMINI_MODEL` (default `gemini-2.0-flash`)
+
 Optional flags:
 - `--dataset <path>` custom JSONL dataset
 - `--calibration <path>` custom judge calibration set

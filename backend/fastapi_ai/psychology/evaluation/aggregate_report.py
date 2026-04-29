@@ -13,12 +13,17 @@ from psychology.evaluation.runner import run_samples
 
 
 def _build_markdown_summary(report: dict[str, Any]) -> str:
-    ragas = report["ragas"]["aggregate"]
-    deepeval = report["deepeval"]["aggregate"]
+    ragas_raw = report.get("ragas") or {}
+    ragas = ragas_raw.get("aggregate") or {}
+    ragas_engine = ragas_raw.get("engine", "?")
+    ragas_note = ragas_raw.get("fallback_reason")
+    deepeval_raw = report.get("deepeval") or {}
+    deepeval = deepeval_raw.get("aggregate") or {}
+    deepeval_engine = deepeval_raw.get("engine", "?")
+    deepeval_note = deepeval_raw.get("fallback_reason")
     judge = report["llm_judge"]["aggregate"]
     calibration = report["judge_calibration"]
-    return "\n".join(
-        [
+    lines = [
             "# Sanadi Evaluation Report",
             "",
             f"- Run id: `{report['run_id']}`",
@@ -26,12 +31,25 @@ def _build_markdown_summary(report: dict[str, Any]) -> str:
             f"- Cases: `{report['dataset_size']}`",
             "",
             "## RAGAS",
+            f"- Engine: `{ragas_engine}`",
+    ]
+    if ragas_note:
+        lines.append(f"- Note: {ragas_note}")
+    lines.extend(
+        [
             f"- Context precision: `{ragas.get('context_precision', 0.0):.3f}`",
             f"- Context recall: `{ragas.get('context_recall', 0.0):.3f}`",
             f"- Faithfulness: `{ragas.get('faithfulness', 0.0):.3f}`",
             f"- Answer relevancy: `{ragas.get('answer_relevancy', 0.0):.3f}`",
             "",
             "## DeepEval",
+            f"- Engine: `{deepeval_engine}`",
+        ]
+    )
+    if deepeval_note:
+        lines.append(f"- Note: {deepeval_note}")
+    lines.extend(
+        [
             f"- Avg answer relevancy: `{deepeval.get('avg_answer_relevancy', 0.0):.3f}`",
             f"- Avg safety score: `{deepeval.get('avg_safety_score', 0.0):.3f}`",
             f"- Pass rate: `{deepeval.get('pass_rate', 0.0):.3f}`",
@@ -45,6 +63,7 @@ def _build_markdown_summary(report: dict[str, Any]) -> str:
             "",
         ]
     )
+    return "\n".join(lines)
 
 
 def run_full_evaluation(

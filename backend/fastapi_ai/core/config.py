@@ -22,9 +22,17 @@ class Settings(BaseSettings):
     qdrant_collection_memory: str = "patient_memory"
     qdrant_vector_size: int = 256
     qdrant_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    psychology_face_emotion_model: str = "trpakov/vit-face-expression"
+    # Lighter default (~86M params) to avoid multi-GB Hub downloads on dev machines.
+    # For the previous ViT checkpoint, set PSYCHOLOGY_FACE_EMOTION_MODEL=trpakov/vit-face-expression
+    psychology_face_emotion_model: str = "dima806/facial_emotions_image_detection"
     psychology_speech_emotion_model: str = "iic/emotion2vec_plus_large"
-    psychology_text_emotion_model: str = "tabularisai/multilingual-emotion-classification"
+    # Huge multilingual checkpoint (~GB+ download) — blocks /psychology/message on first send if enabled.
+    # Default: off — use keyword heuristics in _text_emotion instead (instant, no HF).
+    # Enable with PSYCHOLOGY_TEXT_EMOTION_USE_HF=true; optionally set psychology_text_emotion_model to:
+    #   tabularisai/multilingual-emotion-classification  (heavy, multilingual)
+    #   j-hartmann/emotion-english-distilroberta-base   (much lighter English)
+    psychology_text_emotion_use_hf: bool = False
+    psychology_text_emotion_model: str = "j-hartmann/emotion-english-distilroberta-base"
     # Absolute path to KB PDFs; empty = `<repo>/psychology data` (see `psychology/pdf_kb.py`).
     psychology_data_dir: str = ""
 

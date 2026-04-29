@@ -475,9 +475,12 @@ class PsychologyService:
         logger.warning("psychology.crisis.trigger patient_id=%s session_id=%s prob=%.3f", patient_id, session_id, probability)
 
     def _text_emotion(self, text: str) -> tuple[EmotionLabel, float, float]:
-        hf_text = self._infer_text_emotion_hf(text)
-        if hf_text is not None:
-            return hf_text
+        # Hugging Face text classifier can trigger multi‑GB downloads and block the HTTP request.
+        # Use PSYCHOLOGY_TEXT_EMOTION_USE_HF=true only after models are cached (or offline).
+        if settings.psychology_text_emotion_use_hf:
+            hf_text = self._infer_text_emotion_hf(text)
+            if hf_text is not None:
+                return hf_text
         lower = text.lower()
         if any(token in lower for token in ("suicide", "kill myself", "can't continue", "end it")):
             return EmotionLabel.depressed, 0.95, -0.95
@@ -875,7 +878,10 @@ class PsychologyService:
             return None
         try:
             if self._hf_face_bundle is None:
-                model_id = settings.psychology_face_emotion_model.strip() or "trpakov/vit-face-expression"
+                model_id = (
+                    settings.psychology_face_emotion_model.strip()
+                    or "dima806/facial_emotions_image_detection"
+                )
                 processor = AutoImageProcessor.from_pretrained(model_id)
                 model = AutoModelForImageClassification.from_pretrained(model_id)
                 model.eval()
