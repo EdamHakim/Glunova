@@ -111,11 +111,11 @@ The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 ### LLM Choice and Rationale
 
 - **Primary Model**: `llama-3.3-70b-versatile` (via Groq).
-- **Why**: 
-    - **Reasoning Capabilities**: Llama 3.3 70B provides near-frontier performance, essential for complex CBT-informed therapy reasoning and handling multi-turn emotional context.
-    - **Speed (Groq)**: The Groq LPU allows for sub-second generation times, which is critical for maintaining the flow of a therapy session.
-    - **Versatility**: It handles multiple languages (English, French, Arabic/Darija) effectively in a single prompt context.
-    - **JSON Output**: It reliably follows the strict JSON schema required for system orchestration.
+- **Why Llama vs. GPT-4/Claude Sonnet/Opus**:
+    1. **Inference Latency (The "Groq Advantage")**: For a psychology assistant, real-time response is critical for maintaining patient rapport. Llama on Groq delivers sub-second Token-Per-Second (TPS) speeds that far exceed the latency of GPT-4 or Claude 3 Opus, which can have significant "thinking" delays.
+    2. **Cost-Efficiency**: Llama 3.3 70B provides GPT-4 class reasoning at a fraction of the cost per million tokens, allowing the platform to scale to more patients without prohibitive API overhead.
+    3. **Data Sovereignty & Future-Proofing**: Since Llama is an open-weights model, Glunova retains a clear path to **self-hosting (On-Premise)** for strict medical data privacy (HIPAA compliance) in the future. GPT and Claude are closed-source and lock the platform into a third-party vendor's infrastructure.
+    4. **Empathetic Nuance**: In benchmarks and internal testing, Llama 3 exhibits a highly conversational and empathetic "personality" suitable for CBT-informed coaching, whereas some closed models can feel overly "robotic" or over-refusal prone in mental health contexts.
 - **Vision Model**: `llama-3.2-11b-vision-preview` (via Groq).
 - **Why**: Used for multimodal context where visual analysis of a patient's state or environment is required, providing a compact but capable vision-language bridge.
 
