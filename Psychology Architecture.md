@@ -36,7 +36,7 @@ This document reflects what is currently implemented in `backend/fastapi_ai/psyc
 
 ```mermaid
 flowchart LR
-    ui[Frontend Psychology UI] --> api[/psychology/message]
+    ui[Frontend Psychology UI] --> api["/psychology/message"]
     api --> svc[PsychologyService.handle_message]
     svc --> fusion[MultimodalFusion]
     svc --> kb[QdrantKnowledgeBase.search]
