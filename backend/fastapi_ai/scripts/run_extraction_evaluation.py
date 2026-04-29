@@ -10,6 +10,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from dotenv import load_dotenv
+load_dotenv(ROOT_DIR.parent / ".env")
+
 from extraction.evaluation.run_deepeval_eval import run_deepeval_eval
 from extraction.evaluation.runner import build_runtime_rows_sync
 
