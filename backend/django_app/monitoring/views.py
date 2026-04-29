@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from documents.access import can_access_patient_documents, parse_patient_pk
 from documents.models import PatientCaregiverLink
 from carecircle.models import CarePlan
-from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, RiskAssessment, PatientMedication
+from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, PatientLabResult, RiskAssessment, PatientMedication
 from screening.models import ScreeningResult
 from users.models import UserRole
 
@@ -148,6 +148,22 @@ class MonitoringTimelineView(APIView):
                     "title": "Monitoring Log",
                     "description": log.source,
                     "value": str(log.payload.get("risk_score", "")),
+                }
+            )
+        for lab in (
+            PatientLabResult.objects.filter(patient_id__in=patient_ids)
+            .select_related("patient", "source_document")
+            .order_by("-observed_at", "-updated_at", "-created_at")[:limit]
+        ):
+            entries.append(
+                {
+                    "type": "lab_result",
+                    "timestamp": lab.observed_at or lab.created_at,
+                    "patient_id": int(lab.patient_id),
+                    "patient_username": lab.patient.username,
+                    "title": "Lab Result Recorded",
+                    "description": lab.test_name,
+                    "value": f"{lab.value}{f' {lab.unit}' if lab.unit else ''}",
                 }
             )
 
@@ -317,5 +333,43 @@ class PatientMedicationsView(APIView):
                 "updated_at": med.updated_at.isoformat(),
             }
             for med in items
+        ]
+        return Response({"items": payload, "total": len(payload)})
+
+
+class PatientLabResultsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
+        if error is not None:
+            return error
+        if not patient_ids:
+            return Response({"items": [], "total": 0})
+
+        items = (
+            PatientLabResult.objects.filter(patient_id__in=patient_ids)
+            .select_related("source_document")
+            .order_by("-observed_at", "-updated_at", "-created_at")
+        )
+        payload = [
+            {
+                "id": row.id,
+                "patient_id": str(row.patient_id),
+                "source_document_id": str(row.source_document_id),
+                "source_document_filename": row.source_document.original_filename,
+                "source_document_created_at": row.source_document.created_at.isoformat(),
+                "test_name": row.test_name,
+                "normalized_name": row.normalized_name,
+                "value": row.value,
+                "numeric_value": row.numeric_value,
+                "unit": row.unit,
+                "reference_range": row.reference_range,
+                "observed_at": row.observed_at.isoformat() if row.observed_at else None,
+                "raw_payload": row.raw_payload,
+                "created_at": row.created_at.isoformat(),
+                "updated_at": row.updated_at.isoformat(),
+            }
+            for row in items
         ]
         return Response({"items": payload, "total": len(payload)})

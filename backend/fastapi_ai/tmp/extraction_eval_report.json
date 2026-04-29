@@ -1,0 +1,30 @@
+{
+  "run_at": "2026-04-29T06:02:41.772525+00:00",
+  "dataset": "D:\\Everything\\ESPRIT\\3IA\\2eme semestre\\AI Project\\Act Phase\\Glunova\\backend\\fastapi_ai\\extraction\\evaluation\\data\\ocr_evalset.sample.jsonl",
+  "ocr_backend": "azure",
+  "judge_provider": "auto",
+  "judge_model": null,
+  "samples": 1,
+  "report": {
+    "engine": "fallback",
+    "cases": [
+      {
+        "sample_id": "prescription-sample",
+        "ocr_fidelity": 0.0,
+        "structured_correctness": 0.017017253604348855,
+        "document_type_correct": 1.0,
+        "groundedness": 0.6,
+        "overall": 0.4042543134010872,
+        "pass": false,
+        "engine": "fallback"
+      }
+    ],
+    "aggregate": {
+      "avg_ocr_fidelity": 0.0,
+      "avg_structured_correctness": 0.017017253604348855,
+      "avg_document_type_correct": 1.0,
+      "avg_groundedness": 0.6,
+      "pass_rate": 0.0
+    }
+  }
+}

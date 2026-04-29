@@ -117,13 +117,99 @@ def _extract_labs(text: str) -> list[dict[str, Any]]:
         (r"(?:c\.?p\.?k\.?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ui/l|u/l)?", "CPK"),
         (r"(?:ft3)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(pmol/l)?", "FT3"),
         (r"(?:vitamine\s*d(?:\s*\(25\s*hydroxy\))?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ng/ml)?", "Vitamin D"),
-        (r"(?:cortisol[eé]mie|cortisol\s+s[eé]rique)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ng/ml|nmol/l)?", "Cortisol"),
+        (r"(?:cortisol[eé]mie|cortisol\s+s[eé]rique)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(ng/ml|nmol/l)", "Cortisol"),
         (r"(?:premi[eè]re\s+heure)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mm)?", "ESR 1h"),
         (r"(?:deuxi[eè]me\s+heure)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mm)?", "ESR 2h"),
     ]
 
     for pattern, name in patterns:
         _add_matches(pattern, name)
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    def _looks_like_value(line: str) -> bool:
+        return bool(re.fullmatch(r"-?\d+(?:[.,]\d+)?", line))
+
+    def _looks_like_unit(line: str) -> bool:
+        if len(line) > 32 or line.startswith("("):
+            return False
+        if _looks_like_value(line):
+            return False
+        if not re.fullmatch(r"[%/A-Za-zµμ0-9,.\-\s²³]+", line):
+            return False
+        return any(ch.isalpha() for ch in line) or "%" in line or "/" in line or "²" in line or "³" in line
+
+    def _norm_unit(line: str) -> str:
+        return re.sub(r"\s+", "", line.strip().lower().replace("μ", "µ"))
+
+    def _collect_line_pairs(index: int, allowed_units: set[str]) -> list[tuple[str, str]]:
+        def _scan(start: int, stop: int) -> list[tuple[int, str, str]]:
+            found: list[tuple[int, str, str]] = []
+            for j in range(start, stop):
+                if j == index or j + 1 == index:
+                    continue
+                first = lines[j]
+                second = lines[j + 1]
+                distance = min(abs(index - j), abs(index - (j + 1)))
+
+                if _looks_like_unit(first) and _looks_like_value(second):
+                    found.append((distance, second.replace(",", "."), first))
+            return found
+
+        prev_candidates = _scan(max(0, index - 6), index - 1)
+        next_candidates = _scan(index + 1, min(len(lines) - 1, index + 6))
+
+        if allowed_units:
+            prev_preferred = [row for row in prev_candidates if _norm_unit(row[2]) in allowed_units]
+            next_preferred = [row for row in next_candidates if _norm_unit(row[2]) in allowed_units]
+            if prev_preferred:
+                candidates = prev_preferred
+            elif next_preferred:
+                candidates = next_preferred
+            else:
+                candidates = prev_candidates or next_candidates
+        else:
+            candidates = prev_candidates or next_candidates
+
+        deduped: list[tuple[str, str]] = []
+        seen_pairs: set[tuple[str, str]] = set()
+        for _distance, value, unit in sorted(candidates, key=lambda item: item[0]):
+            key = (value.lower(), _norm_unit(unit))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            deduped.append((value, unit))
+        return deduped[:1]
+
+    alias_map: dict[str, tuple[list[str], set[str]]] = {
+        "Glucose": ([r"glyc[eé]mie", r"glucose"], {"mmol/l", "mg/dl", "g/l"}),
+        "HbA1c": ([r"hba1c", r"h[eé]moglobine\s+glyqu[eé]e"], {"%", "mmol/mol"}),
+        "Creatinine": ([r"cr[eé]atinine", r"creatinine"], {"µmol/l", "umol/l", "mg/l", "mg/dl"}),
+        "Calcium": ([r"calcium"], {"mmol/l", "mg/l"}),
+        "CRP": ([r"prot[eé]ine\s*c\s*r[eé]active", r"\bcrp\b"], {"mg/l"}),
+        "Sodium": ([r"sodium"], {"mmol/l", "meq/l"}),
+        "Potassium": ([r"potassium"], {"mmol/l", "meq/l"}),
+        "Chloride": ([r"chlorures?"], {"mmol/l"}),
+        "Bicarbonate": ([r"r[eé]serve\s+alcaline"], {"mmol/l"}),
+        "Total Protein": ([r"protides?\s+totaux"], {"g/l"}),
+        "Serum Folate": ([r"folates?\s+s[eé]riques"], {"nmol/l", "ng/ml"}),
+        "FT4": ([r"\bft4\b"], {"pmol/l"}),
+        "TSH": ([r"\btsh\b"], {"µui/ml", "mui/l", "iu/ml"}),
+        "Ferritin": ([r"ferritin[eé]mie", r"ferritine"], {"ng/ml"}),
+        "Vitamin B12": ([r"vitamine\s*b\s*12", r"vitamin\s*b\s*12"], {"pg/ml"}),
+        "CPK": ([r"c\.?p\.?k\.?"], {"ui/l", "u/l"}),
+        "FT3": ([r"\bft3\b"], {"pmol/l"}),
+        "Vitamin D": ([r"vitamine\s*d"], {"ng/ml"}),
+        "Cortisol": ([r"cortisol[eé]mie", r"cortisol\s+s[eé]rique"], {"ng/ml", "nmol/l"}),
+        "ESR 1h": ([r"premi[eè]re\s+heure"], {"mm"}),
+        "ESR 2h": ([r"deuxi[eè]me\s+heure"], {"mm"}),
+    }
+
+    for idx, line in enumerate(lines):
+        for name, (aliases, allowed_units) in alias_map.items():
+            if any(re.search(alias, line, re.I) for alias in aliases):
+                for value, unit in _collect_line_pairs(idx, allowed_units):
+                    add(name, value, unit)
 
     return labs[:100]
 

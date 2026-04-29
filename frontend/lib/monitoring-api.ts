@@ -24,7 +24,7 @@ export type MonitoringAlert = {
 }
 
 export type MonitoringTimelineItem = {
-  type: 'screening' | 'progression' | 'alert' | 'log'
+  type: 'screening' | 'progression' | 'alert' | 'log' | 'lab_result'
   timestamp: string
   relative_time: string
   patient_id: number
@@ -39,6 +39,24 @@ export type MonitoringTierSummary = {
   count: number
   avg_score: number
   percentage: number
+}
+
+export type PatientLabResultRow = {
+  id: number
+  patient_id: string
+  source_document_id: string
+  source_document_filename: string
+  source_document_created_at: string
+  test_name: string
+  normalized_name: string
+  value: string
+  numeric_value: number | null
+  unit: string | null
+  reference_range: string | null
+  observed_at: string | null
+  raw_payload: Record<string, unknown>
+  created_at: string
+  updated_at: string
 }
 
 async function getJson<T>(path: string) {
@@ -64,4 +82,9 @@ export async function listMonitoringTimeline(patientId?: string, limit = 30) {
 export async function getMonitoringProgression(patientId?: string) {
   const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
   return getJson<{ tiers: MonitoringTierSummary[]; total_patients: number }>(`/monitoring/progression${query}`)
+}
+
+export async function listLabResults(patientId: string) {
+  const q = new URLSearchParams({ patient_id: patientId })
+  return getJson<{ items: PatientLabResultRow[]; total: number }>(`/lab-results?${q.toString()}`)
 }

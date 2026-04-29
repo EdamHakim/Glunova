@@ -6,14 +6,16 @@ import logging
 import os
 import re
 import httpx
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone as django_timezone
+from django.utils.dateparse import parse_date
 from jose import jwt
 
 from documents.models import MedicalDocument
-from monitoring.models import PatientMedication
+from monitoring.models import PatientLabResult, PatientMedication
 
 from .storage import upload_medical_file
 
@@ -102,6 +104,83 @@ def _persist_patient_medications(doc: MedicalDocument, extracted_json: dict) -> 
         PatientMedication.objects.bulk_create(rows)
 
 
+def _normalize_lab_name(value: str) -> str:
+    lowered = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+    return re.sub(r"\s+", " ", lowered)
+
+
+def _coerce_float(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().replace(",", ".")
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?", cleaned):
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _resolve_observed_at(doc: MedicalDocument, extracted_json: dict) -> datetime:
+    raw_date = extracted_json.get("date") or extracted_json.get("document_date")
+    if isinstance(raw_date, str):
+        parsed = parse_date(raw_date.strip())
+        if parsed is not None:
+            return django_timezone.make_aware(datetime.combine(parsed, time.min), django_timezone.get_current_timezone())
+    return doc.created_at
+
+
+def _persist_patient_lab_results(doc: MedicalDocument, extracted_json: dict) -> None:
+    PatientLabResult.objects.filter(source_document=doc).delete()
+
+    labs = extracted_json.get("labs")
+    if extracted_json.get("document_type") != "lab_report" or not isinstance(labs, list):
+        return
+
+    observed_at = _resolve_observed_at(doc, extracted_json)
+    rows: list[PatientLabResult] = []
+    seen_in_current_batch: set[tuple[str, str, str]] = set()
+
+    for lab in labs:
+        if not isinstance(lab, dict):
+            continue
+        test_name = lab.get("name")
+        value = lab.get("value")
+        if not isinstance(test_name, str) or not isinstance(value, str):
+            continue
+        test_name = test_name.strip()
+        value = value.strip()
+        if not test_name or not value:
+            continue
+
+        unit = lab.get("unit") if isinstance(lab.get("unit"), str) and lab.get("unit").strip() else None
+        normalized_name = _normalize_lab_name(test_name)
+        dedupe_key = (normalized_name, value.lower(), (unit or "").lower())
+        if dedupe_key in seen_in_current_batch:
+            continue
+        seen_in_current_batch.add(dedupe_key)
+
+        rows.append(
+            PatientLabResult(
+                patient=doc.patient,
+                source_document=doc,
+                test_name=test_name,
+                normalized_name=normalized_name,
+                value=value,
+                numeric_value=_coerce_float(value),
+                unit=unit.strip() if unit else None,
+                reference_range=lab.get("reference_range") if isinstance(lab.get("reference_range"), str) else None,
+                observed_at=observed_at,
+                raw_payload=lab,
+            )
+        )
+
+    if rows:
+        PatientLabResult.objects.bulk_create(rows)
+
+
 def _get_service_token(user_id: int) -> str:
     """Generate a short-lived JWT for service-to-service communication."""
     secret = getattr(settings, "JWT_SHARED_SECRET", settings.SECRET_KEY)
@@ -188,3 +267,4 @@ def process_document_upload(doc: MedicalDocument, file_bytes: bytes, mime_type: 
             ]
         )
         _persist_patient_medications(doc, merged)
+        _persist_patient_lab_results(doc, merged)

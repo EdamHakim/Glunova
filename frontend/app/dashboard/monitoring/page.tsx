@@ -11,9 +11,11 @@ import { Label } from '@/components/ui/label'
 import { listMedications, type PatientMedicationRow } from '@/lib/medications-api'
 import {
   getMonitoringProgression,
+  listLabResults,
   listMonitoringAlerts,
   listMonitoringTimeline,
   type MonitoringAlert,
+  type PatientLabResultRow,
   type MonitoringTierSummary,
   type MonitoringTimelineItem,
 } from '@/lib/monitoring-api'
@@ -50,10 +52,12 @@ export default function MonitoringPage() {
   const [patientId, setPatientId] = useState('')
   const [medications, setMedications] = useState<PatientMedicationRow[]>([])
   const [alerts, setAlerts] = useState<MonitoringAlert[]>([])
+  const [labResults, setLabResults] = useState<PatientLabResultRow[]>([])
   const [timelineEvents, setTimelineEvents] = useState<MonitoringTimelineItem[]>([])
   const [progression, setProgression] = useState<MonitoringTierSummary[]>([])
   const [medicationError, setMedicationError] = useState<string | null>(null)
   const [monitoringError, setMonitoringError] = useState<string | null>(null)
+  const [labLoading, setLabLoading] = useState(false)
   const [medicationLoading, setMedicationLoading] = useState(false)
   const [monitoringLoading, setMonitoringLoading] = useState(false)
   const role = user?.role
@@ -75,6 +79,7 @@ export default function MonitoringPage() {
     if (!patientId) {
       setMedications([])
       setAlerts([])
+      setLabResults([])
       setTimelineEvents([])
       setProgression([])
       return
@@ -83,6 +88,7 @@ export default function MonitoringPage() {
     let cancelled = false
     setMedicationLoading(true)
     setMedicationError(null)
+    setLabLoading(true)
     setMonitoringLoading(true)
     setMonitoringError(null)
     void listMedications(patientId)
@@ -100,6 +106,21 @@ export default function MonitoringPage() {
         if (!cancelled) {
           setMedicationLoading(false)
         }
+      })
+
+    void listLabResults(patientId)
+      .then((payload) => {
+        if (!cancelled) {
+          setLabResults(payload.items)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setMonitoringError(error instanceof Error ? error.message : 'Failed to load lab results')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLabLoading(false)
       })
 
     void Promise.all([
@@ -219,6 +240,57 @@ export default function MonitoringPage() {
                           Also seen in {medication.source_document_count - 1} other document{medication.source_document_count > 2 ? 's' : ''}
                         </div>
                       )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Latest Lab Results</CardTitle>
+          <CardDescription>
+            Structured values extracted from uploaded lab reports are available here for follow-up and monitoring.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {patientId && labLoading && labResults.length === 0 && (
+            <p className="text-sm text-muted-foreground">Loading lab results...</p>
+          )}
+
+          {patientId && !labLoading && labResults.length === 0 && !monitoringError && (
+            <p className="text-sm text-muted-foreground">No persisted lab results available for this patient yet.</p>
+          )}
+
+          {labResults.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Test</TableHead>
+                  <TableHead>Result</TableHead>
+                  <TableHead>Observed</TableHead>
+                  <TableHead>Source</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {labResults.map((result) => (
+                  <TableRow key={result.id}>
+                    <TableCell className="whitespace-normal font-medium">{result.test_name}</TableCell>
+                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
+                      {result.value}
+                      {result.unit ? ` ${result.unit}` : ''}
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
+                      {new Date(result.observed_at || result.source_document_created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="whitespace-normal text-sm">
+                      <div>{result.source_document_filename}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Uploaded {new Date(result.source_document_created_at).toLocaleDateString()}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
