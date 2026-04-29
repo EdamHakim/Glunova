@@ -1,5 +1,5 @@
-# Glunova AI Platform — Psychology Module
-**Current Architecture & Implementation Guide (Code-Aligned)**
+# Glunova AI Platform - Psychology Module
+**Current Architecture and Implementation Guide (Code-Aligned)**
 
 *Innova Team • ESPRIT • Class 3IA3 • 2026*
 
@@ -8,9 +8,9 @@
 ## Executive Summary
 
 **Sanadi (سنَدي)** is Glunova's multimodal psychology assistant for diabetic patients.  
-It runs as a FastAPI AI service with:
+It runs as a FastAPI-based AI service with:
 
-- real-time emotion inference (face/speech/text),
+- real-time emotion inference (face, speech, text),
 - deterministic distress fusion + mental-state classification,
 - CBT-oriented RAG + LLM response generation,
 - crisis safety gating and physician-review control,
@@ -36,7 +36,7 @@ This document reflects what is currently implemented in `backend/fastapi_ai/psyc
 
 ```mermaid
 flowchart LR
-    ui[Frontend Psychology UI] --> api[/psychology/message]
+    ui[Frontend Psychology UI] --> api["/psychology/message"]
     api --> svc[PsychologyService.handle_message]
     svc --> fusion[MultimodalFusion]
     svc --> kb[QdrantKnowledgeBase.search]
@@ -52,7 +52,7 @@ flowchart LR
 
 The message pipeline accepts optional camera/audio signals and always processes text:
 
-- `text` is required logically (or auto-filled from `speech_transcript`).
+- `text` is logically required (or auto-filled from `speech_transcript`).
 - `face_frame_base64` is optional.
 - `speech_audio_base64` is optional.
 - fallback to cached face evidence if the latest frame fails.
@@ -64,7 +64,7 @@ This is implemented in `_fusion()` and request validation in `psychology/schemas
 
 ## 3) Emotion + Mental State Stack
 
-## 3.1 Emotion Inference
+### 3.1 Emotion Inference
 
 | Branch | Current implementation |
 |---|---|
@@ -72,14 +72,14 @@ This is implemented in `_fusion()` and request validation in `psychology/schemas
 | Speech | ModelScope `emotion2vec` pipeline from `PSYCHOLOGY_SPEECH_EMOTION_MODEL` |
 | Text | HF text classifier **optional** (`PSYCHOLOGY_TEXT_EMOTION_USE_HF`); otherwise keyword heuristic fallback |
 
-### Important current default
+#### Important current default
 
-To avoid large blocking downloads during chat requests, text HF inference is guarded by:
+To avoid large blocking downloads during chat requests, HF text inference is guarded by:
 
 - `PSYCHOLOGY_TEXT_EMOTION_USE_HF=false` (default in code path),
 - fallback lexical heuristics in `_text_emotion()` if disabled/unavailable.
 
-## 3.2 Fusion Output Schema
+### 3.2 Fusion Output Schema
 
 ```json
 {
@@ -92,9 +92,9 @@ To avoid large blocking downloads during chat requests, text HF inference is gua
 }
 ```
 
-## 3.3 Mental State Classification
+### 3.3 Mental State Classification
 
-Mental state is deterministic (not a separate trained classifier):
+Mental-state classification is deterministic (not a separately trained classifier):
 
 - crisis => `Crisis`,
 - else thresholds on distress score (+ trend slope adjustment):
@@ -118,7 +118,7 @@ The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 
 ### LLM Provider (current code)
 
-- Groq chat completion client.
+- Groq Chat Completions client.
 - model from `settings.groq_model`.
 - response format: JSON object.
 - safety-oriented system prompt (no diagnosis/no prescribing, multilingual handling, escalation instruction).
@@ -159,10 +159,10 @@ The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 
 ## 5) Retrieval and Knowledge Base
 
-### 5.1 Store
+### 5.1 Storage
 
 - Qdrant collection for CBT/psychology knowledge.
-- embeddings via SentenceTransformers model from settings.
+- embeddings via a SentenceTransformers model from settings.
 - ingestion from manifest + local PDF sources.
 
 ### 5.2 Retrieval Pipeline
@@ -191,14 +191,14 @@ This means Sanadi never uses raw vector hits directly in final prompt assembly; 
 
 ## 6) Safety and Crisis Controls
 
-Current crisis logic is rule/probability based inside service flow (not an external fine-tuned crisis model in this code path):
+Current crisis logic is rule/probability-based within the service flow (not an external fine-tuned crisis model in this code path):
 
 - crisis probability from text,
 - trigger by threshold/history,
 - crisis event recording,
 - safe static crisis response (`SAFE_CRISIS_REPLY`),
 - recommendation forced to `notify_clinician_immediately`,
-- physician review gate support:
+- physician-review gate support:
   - block new session if gate is active,
   - `POST /psychology/physician/clear-gate` to clear.
 
@@ -215,7 +215,7 @@ Current anomaly families:
 - generation anomalies: `llm_parse_fallback`, `llm_missing_citations`, `llm_low_context_fallback`, `llm_elevated_guard_mode`, `llm_crisis_guard_mode`
 - safety trend anomalies: `safety_elevated`, `fusion_abrupt_jump`
 
-These flags are logged and returned to the caller, so monitoring/doctor-facing layers can detect degraded retrieval or unstable generation behavior.
+These flags are logged and returned to the caller so monitoring and doctor-facing layers can detect degraded retrieval or unstable generation behavior.
 
 ---
 
@@ -223,7 +223,7 @@ These flags are logged and returned to the caller, so monitoring/doctor-facing l
 
 `PsychologyService` supports both:
 
-- PostgreSQL-backed stores (if DB pool exists),
+- PostgreSQL-backed stores (if a DB pool exists),
 - in-memory fallback stores.
 
 Primary runtime entities:
@@ -243,7 +243,7 @@ Core endpoints:
 - `GET /psychology/crisis/events`
 - `POST /psychology/crisis/ack`
 
-Realtime camera stream:
+Real-time camera stream:
 
 - `WS /psychology/ws/emotion/{patient_id}`
 
@@ -251,7 +251,7 @@ Realtime camera stream:
 
 ## 8) API Schemas (Request Examples)
 
-## 8.1 Start Session
+### 8.1 Start Session
 
 ```json
 {
@@ -260,7 +260,7 @@ Realtime camera stream:
 }
 ```
 
-## 8.2 Message
+### 8.2 Message
 
 ```json
 {
@@ -273,7 +273,7 @@ Realtime camera stream:
 }
 ```
 
-## 8.3 Emotion Frame
+### 8.3 Emotion Frame
 
 ```json
 {
@@ -298,7 +298,7 @@ Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
 - evaluator keys loaded from `backend/.env`,
 - Gemini key (`GOOGLE_API_KEY` / `GEMINI_API_KEY`) supported for both RAGAS and DeepEval,
 - OpenAI optional fallback path,
-- lexical fallback path remains for resilience when provider/config fails,
+- lexical fallback path remains for resilience when provider/configuration fails,
 - report outputs:
   - `backend/fastapi_ai/tmp/sanadi_eval_reports/<run_id>.json`
   - `backend/fastapi_ai/tmp/sanadi_eval_reports/<run_id>.md`
@@ -308,7 +308,7 @@ Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
 ## 10) Known Operational Notes
 
 - First-run model downloads may happen for HF models if cache is cold.
-- Gemini free-tier quota can throttle evaluator LLM calls (429), which can degrade RAGAS score quality.
+- Gemini free-tier quotas can throttle evaluator LLM calls (429), which can degrade RAGAS score quality.
 - For stable eval baselines, use a quota-ready API key and run at low frequency/batch size.
 
 ---
@@ -330,4 +330,4 @@ Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
 
 ---
 
-*Confidential — Glunova AI Platform • Psychology Module Architecture (Current Implementation)*
+*Confidential - Glunova AI Platform - Psychology Module Architecture (Current Implementation)*
