@@ -179,6 +179,9 @@ class QdrantKnowledgeBase:
         }
         if not self.enabled or self._client is None:
             return empty
+        if self._embedder is None and self._real_embeddings_enabled:
+            # Initialize embedder early so collection size matches real embedding dimension.
+            self._init_embedder()
         if not self.ensure_collection():
             return empty
         try:
@@ -342,15 +345,63 @@ class QdrantKnowledgeBase:
                     ]
                 )
             recall = max(RECALL_LIMIT, limit * 4)
-            hits = self._client.search(
-                collection_name=self.collection,
-                query_vector=self._embed_text(query),
-                query_filter=query_filter,
-                limit=recall,
-                with_payload=True,
-            )
+            query_vector = self._embed_text(query)
+            target_dim = self._collection_vector_size() or len(query_vector)
+            if target_dim > 0 and len(query_vector) != target_dim:
+                # Keep retrieval alive for existing collections with older dimensions.
+                query_vector = self._fallback_embed_text(query, size=target_dim)
+            hits: list[Any] = []
+            try:
+                if hasattr(self._client, "search"):
+                    # Legacy qdrant-client API.
+                    hits = list(
+                        self._client.search(
+                            collection_name=self.collection,
+                            query_vector=query_vector,
+                            query_filter=query_filter,
+                            limit=recall,
+                            with_payload=True,
+                        )
+                    )
+                elif hasattr(self._client, "query_points"):
+                    # qdrant-client >=1.10 switched to query_points().
+                    result = self._client.query_points(
+                        collection_name=self.collection,
+                        query=query_vector,
+                        query_filter=query_filter,
+                        limit=recall,
+                        with_payload=True,
+                    )
+                    points = getattr(result, "points", None)
+                    if isinstance(points, list):
+                        hits = points
+            except Exception as exc:
+                # Some Qdrant clusters require a payload index for filtered search.
+                # If language index is missing, retry without filter instead of failing closed.
+                if query_filter is not None and "Index required but not found" in str(exc):
+                    if hasattr(self._client, "search"):
+                        hits = list(
+                            self._client.search(
+                                collection_name=self.collection,
+                                query_vector=query_vector,
+                                limit=recall,
+                                with_payload=True,
+                            )
+                        )
+                    elif hasattr(self._client, "query_points"):
+                        result = self._client.query_points(
+                            collection_name=self.collection,
+                            query=query_vector,
+                            limit=recall,
+                            with_payload=True,
+                        )
+                        points = getattr(result, "points", None)
+                        if isinstance(points, list):
+                            hits = points
+                else:
+                    raise
             final_limit = min(max(limit, 1), FINAL_LIMIT)
-            return self._rerank_hits(query, list(hits), final_limit)
+            return self._rerank_hits(query, hits, final_limit)
         except Exception:
             return []
         finally:
@@ -393,16 +444,31 @@ class QdrantKnowledgeBase:
                 return list(emb[0])
             except Exception:
                 self._real_embeddings_enabled = False
-        return self._fallback_embed_text(text)
+        return self._fallback_embed_text(text, size=self.vector_size)
 
-    def _fallback_embed_text(self, text: str) -> list[float]:
+    def _collection_vector_size(self) -> int | None:
+        if not self.enabled or self._client is None:
+            return None
+        try:
+            info = self._client.get_collection(collection_name=self.collection)
+            config = getattr(info, "config", None)
+            params = getattr(config, "params", None)
+            vectors = getattr(params, "vectors", None)
+            size = getattr(vectors, "size", None)
+            if isinstance(size, int) and size > 0:
+                return size
+        except Exception:
+            return None
+        return None
+
+    def _fallback_embed_text(self, text: str, size: int) -> list[float]:
         # Deterministic fallback embeddings keep retrieval operational if model load fails.
         import hashlib
 
-        vec = [0.0] * self.vector_size
+        vec = [0.0] * max(1, int(size))
         for token in text.lower().split():
             digest = hashlib.sha256(token.encode("utf-8")).digest()
-            idx = int.from_bytes(digest[:4], "little") % self.vector_size
+            idx = int.from_bytes(digest[:4], "little") % len(vec)
             sign = 1.0 if digest[4] % 2 == 0 else -1.0
             vec[idx] += sign
         norm = sum(x * x for x in vec) ** 0.5
