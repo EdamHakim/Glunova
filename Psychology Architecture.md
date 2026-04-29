@@ -1,346 +1,333 @@
 # Glunova AI Platform — Psychology Module
-**Full Architecture & Implementation Guide**
+**Current Architecture & Implementation Guide (Code-Aligned)**
 
 *Innova Team • ESPRIT • Class 3IA3 • 2026*
-*Author: Yessine Hakim • Supervisor: Mme Jihene Hlel • Mr Fedi Baccar*
 
 ---
 
 ## Executive Summary
 
-**Sanadi (سنَدي)** is Glunova's AI-powered psychology module — a real-time, multimodal mental health companion built specifically for diabetic patients. It detects emotional states through face, voice, and text; conducts CBT-based therapy conversations; monitors psychological trends over time; and escalates crisis situations to clinical staff automatically. The module handles English, French, Tunisian Darija, Arabic, and code-switched input natively. It operates whether the patient's camera is on or off, speaking or typing.
+**Sanadi (سنَدي)** is Glunova's multimodal psychology assistant for diabetic patients.  
+It runs as a FastAPI AI service with:
+
+- real-time emotion inference (face/speech/text),
+- deterministic distress fusion + mental-state classification,
+- CBT-oriented RAG + LLM response generation,
+- crisis safety gating and physician-review control,
+- session, trend, and crisis observability endpoints,
+- offline evaluation harness (RAGAS + DeepEval, Gemini/OpenAI capable).
+
+This document reflects what is currently implemented in `backend/fastapi_ai/psychology/`.
 
 ---
 
-## 1. High-Level Architecture
+## 1) Runtime Architecture
 
-The module follows a layered architecture with a clear separation between the frontend, orchestration, AI services, and data storage layers.
+| Layer | Main Pieces |
+|---|---|
+| Frontend | Psychology dashboard/chat UI (Next.js app) |
+| API Gateway | FastAPI routes in `psychology/router.py` |
+| Core Service | `PsychologyService` orchestration in `psychology/service.py` |
+| Knowledge/RAG | `QdrantKnowledgeBase` in `psychology/knowledge_ingestion.py` |
+| Persistence | PostgreSQL stores via `psychology/repositories.py` + in-memory fallback |
+| Safety | crisis probability + triggers + crisis event logging and gate clearing |
 
-| Layer | Components |
-|-------|------------|
-| **Frontend** | React — Chat / Voice / Camera UI |
-| **Orchestration** | FastAPI AI Gateway — Orchestrator |
-| **AI Services** | Emotion Detection • Mental State Classifier • Sanadi Agent • Memory Engine • Crisis Engine • Recommendation Engine |
-| **Data Storage** | PostgreSQL • Qdrant • TimescaleDB • Alert System |
+### Request Path
+
+```mermaid
+flowchart LR
+    ui[Frontend Psychology UI] --> api[/psychology/message]
+    api --> svc[PsychologyService.handle_message]
+    svc --> fusion[MultimodalFusion]
+    svc --> kb[QdrantKnowledgeBase.search]
+    svc --> llm[run_therapy_llm]
+    llm --> schema[JSONValidationAndFallback]
+    svc --> stores[SessionTrendCrisisStores]
+    stores --> resp[MessageResponse]
+```
 
 ---
 
-## 2. Input Modalities & Scenario Handling
+## 2) Input Modalities and Fallback Behavior
 
-The system adapts automatically to which input signals are available. All four scenarios use the same pipeline — unavailable modalities are masked by the fusion gate.
+The message pipeline accepts optional camera/audio signals and always processes text:
 
-| Scenario | Camera | Microphone | Active Modalities |
-|----------|--------|------------|-------------------|
-| Camera + Voice | ON | ON | Face + Speech prosody + Text (LLM) |
-| Camera + Typing | ON | OFF | Face + Text (LLM) |
-| Voice only | OFF | ON | Speech prosody + Text via Whisper (LLM) |
-| Text only | OFF | OFF | Text (LLM) only |
+- `text` is required logically (or auto-filled from `speech_transcript`).
+- `face_frame_base64` is optional.
+- `speech_audio_base64` is optional.
+- fallback to cached face evidence if the latest frame fails.
+- if all optional modalities are absent, text-only still works.
+
+This is implemented in `_fusion()` and request validation in `psychology/schemas.py`.
 
 ---
 
-## 3. AI Service Components
+## 3) Emotion + Mental State Stack
 
-### 3.1 Emotion Detection Service
+## 3.1 Emotion Inference
 
-Detects the patient's emotional state from all available modalities and fuses them into a single distress score that all downstream components consume.
+| Branch | Current implementation |
+|---|---|
+| Face | Hugging Face image classifier from `PSYCHOLOGY_FACE_EMOTION_MODEL` |
+| Speech | ModelScope `emotion2vec` pipeline from `PSYCHOLOGY_SPEECH_EMOTION_MODEL` |
+| Text | HF text classifier **optional** (`PSYCHOLOGY_TEXT_EMOTION_USE_HF`); otherwise keyword heuristic fallback |
 
-| Branch | Technology | Language Support |
-|--------|------------|-----------------|
-| Face (camera on) | `trpakov/vit-face-expression` (ViT facial expression model) remapped to Glunova classes | Language-agnostic |
-| Speech (mic active) | `emotion2vec+` (audio emotion encoder/classifier) for speech affect | Language-agnostic |
-| Text (always on) | `tabularisai/multilingual-emotion-classification` for patient message emotion | English + French + Darija + Mixed |
+### Important current default
 
-**Fusion output schema:**
+To avoid large blocking downloads during chat requests, text HF inference is guarded by:
+
+- `PSYCHOLOGY_TEXT_EMOTION_USE_HF=false` (default in code path),
+- fallback lexical heuristics in `_text_emotion()` if disabled/unavailable.
+
+## 3.2 Fusion Output Schema
 
 ```json
 {
-  "label":           "anxious",       // neutral | anxious | distressed | depressed
-  "distress_score":  0.42,            // continuous [0.0 – 1.0]
-  "confidence":      0.78,
-  "stress_level":    4,               // mapped integer 1–10
+  "label": "anxious",
+  "distress_score": 0.42,
+  "confidence": 0.78,
+  "stress_level": 4,
   "sentiment_score": -0.4,
   "modalities_used": ["text", "face"]
 }
 ```
 
-> **Fusion gate logic:** The `AttentionGateFusion` layer dynamically weights each modality by its prediction confidence (entropy). Low-confidence modalities (e.g. face branch when camera is at low light) are down-weighted automatically. Unavailable modalities are masked to uniform distribution and excluded from scoring.
+## 3.3 Mental State Classification
+
+Mental state is deterministic (not a separate trained classifier):
+
+- crisis => `Crisis`,
+- else thresholds on distress score (+ trend slope adjustment):
+  - `>= 0.80`: `Depressed`
+  - `>= 0.60`: `Distressed`
+  - `>= 0.35`: `Anxious`
+  - else `Neutral`
 
 ---
 
-### 3.2 Mental State Classifier
+## 4) Therapy Generation (RAG + LLM)
 
-A deterministic function — not a trained model — that derives the final clinical state label from the emotion fusion output, the crisis classifier result, and the 7-session trend.
+The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 
-```python
-def classify_mental_state(
-    distress_score: float,  # from fusion gate
-    crisis_detected: bool,  # from fine-tuned XLM-R classifier
-    trend_slope: float      # from TimescaleDB rolling 7-session window
-) -> str:
-    if crisis_detected:         return 'Crisis'
-    if distress_score >= 0.80:  return 'Depressed'
-    if distress_score >= 0.60:  return 'Distressed'
-    if distress_score >= 0.35:  return 'Anxious'
-    return 'Neutral'
-```
+1. Retrieve KB snippets from Qdrant (`limit=5`).
+2. Compute retrieval quality (`ok`, `low_score`, `empty`).
+3. Build contextual prompt: user text + language + fusion summary + memory + health context + KB snippets.
+4. Call `run_therapy_llm()` (Groq).
+5. Validate strict JSON response.
+6. If invalid/unavailable: deterministic fallback templates.
 
-| State | Distress Range | Downstream Action |
-|-------|---------------|-------------------|
-| Neutral | 0.0 – 0.34 | Normal Sanadi response |
-| Anxious | 0.35 – 0.59 | Sanadi uses calming CBT tone + breathing suggestion |
-| Distressed | 0.60 – 0.79 | Sanadi uses grounding techniques + flags for review |
-| Depressed | 0.80 – 0.99 | Sanadi uses supportive CBT + physician soft alert |
-| **Crisis** | Classifier ≥ 0.75 | Safe static response + immediate doctor alert |
+### LLM Provider (current code)
 
----
+- Groq chat completion client.
+- model from `settings.groq_model`.
+- response format: JSON object.
+- safety-oriented system prompt (no diagnosis/no prescribing, multilingual handling, escalation instruction).
 
-### 3.3 Sanadi Therapy Agent
-
-An LLM-powered conversational therapist using CBT techniques, adaptive memory, and real-time emotion context. Implemented as a LangGraph agent with RAG over a curated clinical knowledge base.
-
-#### Architecture: RAG + LLM (no fine-tuning required)
-
-At every conversation turn, the system assembles a context-rich prompt from four sources:
-
-| Context Block | Content | Storage |
-|---------------|---------|---------|
-| CBT knowledge base | Therapy techniques, CBT scripts, ADA mental health guidelines, diabetes distress protocols | Qdrant — similarity search per patient message |
-| Patient memory | Past session summaries, key personal facts, identified triggers, coping strategies used | Qdrant — top-3 relevant memories per turn |
-| Live emotion state | Current distress score, label, modalities active, trend direction | In-context from fusion gate (real-time) |
-| Health context | Glucose trends, risk level, complications, medications | PostgreSQL via Django API |
-
-#### Retrieval Quality Layer (implemented alignment)
-
-Sanadi retrieval is a two-stage pipeline:
-
-1. **Recall stage (Qdrant vector search)** — retrieves top-K candidate chunks with multilingual filtering.
-2. **Rerank stage (hybrid)** — combines vector score + lexical overlap + source-priority weighting, then deduplicates near-identical text.
-3. **Quality guard** — if best relevance is below threshold or no usable context is found, Sanadi switches to **low-context safe mode** (clarifying supportive response, no fabricated guidance).
-
-This prevents low-quality retrieval from silently contaminating therapy prompts.
-
-#### LLM Response Schema
+### LLM Internal Response Contract
 
 ```json
 {
-  "reply":             "...",         // therapeutic message in patient's language
-  "emotion":           "anxious",
-  "distress_score":    0.42,
-  "language_detected": "darija",      // en | fr | ar | darija | mixed
-  "technique_used":    "cognitive_restructuring",
-  "recommendation":    "breathing_478" // optional — triggers recommendation engine
+  "reply": "string",
+  "technique": "string",
+  "recommendation": "string|null",
+  "citations": ["chunk_id_or_source"],
+  "safety_mode": "normal|low_context|elevated_guard|crisis_guard"
 }
 ```
 
-Internal contract hardening:
-- System prompt enforces: no diagnosis, no medication prescribing, no hallucinated clinical claims.
-- JSON parser validates required keys (`reply`, `technique`, `recommendation`) and optional safety keys (`citations`, `safety_mode`).
-- On schema/parse violation, Sanadi falls back to deterministic template response.
+### External API Response Schema (`/psychology/message`)
 
-#### Multilingual Support
-
-Sanadi handles English, Modern Standard Arabic, Tunisian Darija, French, and code-switched sentences natively through the LLM. No fine-tuning or separate translation layer is required. The model detects the patient's language from each message and responds in kind.
-
----
-
-### 3.4 Memory Engine
-
-| Memory Type | Implementation |
-|-------------|----------------|
-| Short-term | Last 10 conversation turns held in LangGraph session state (in-context window). Cleared at session end. |
-| Long-term | After each session, Sanadi generates a structured summary (key emotions, triggers, breakthroughs, risk flags). Embedded via sentence-transformers and stored in Qdrant under patient namespace. |
-| Retrieval | At session start, top-3 most relevant long-term memories are retrieved via cosine similarity and injected into the system prompt. |
-| Profile | Static patient facts (name, age, complication profile, preferred coping strategies) stored in PostgreSQL `psychology_profiles` table. |
-
----
-
-### 3.5 Crisis Detection Engine
-
-> **Safety design principle:** Crisis detection is the ONLY component where a deterministic ML model (not an LLM) makes the decision. LLMs must never be trusted for safety-critical binary decisions. The crisis classifier fires BEFORE Sanadi generates a response — if crisis is detected, Sanadi receives a safe static template and cannot generate a free-form reply.
-
-| Property | Details |
-|----------|---------|
-| Model | Fine-tuned XLM-RoBERTa-base — binary classifier (crisis / not-crisis) |
-| Training data | CrisisNLP dataset, SuicideWatch Reddit corpus, CLPsych shared task data |
-| Languages | English + Arabic + French — XLM-R's cross-lingual transfer handles Darija and French natively |
-| Threshold | P(crisis) ≥ 0.75 triggers the alert — tuned for high recall over precision |
-| Trigger conditions | Suicide ideation keywords, self-harm intent, severe hopelessness patterns, `distress_score` ≥ 0.85 for 2+ consecutive turns |
-| Output | `{ "crisis": true, "severity": "high", "action": "alert_doctor" }` |
-
-#### Crisis Response Flow
-
-1. Crisis classifier fires (before LLM call)
-2. Event logged to `crisis_events` table with full message and severity
-3. Push notification sent to assigned physician dashboard
-4. Care Circle alert sent to designated caregiver
-5. Sanadi switches to safe static response — no LLM generation during crisis
-6. Session flagged — physician must review before next session is permitted
-
-#### Runtime Anomaly Detection (implemented alignment)
-
-Sanadi emits anomaly flags for clinician-safe observability:
-
-- **Retrieval anomalies:** `retrieval_empty`, `retrieval_low_score`
-- **LLM anomalies:** `llm_parse_fallback`, `llm_missing_citations`, `llm_low_context_fallback`, `llm_crisis_guard_mode`
-- **Fusion anomalies:** abrupt distress jump (`fusion_abrupt_jump`) between consecutive turns
-
-These are attached to message-level metadata and logs for review and debugging.
+```json
+{
+  "session_id": "uuid",
+  "reply": "string",
+  "emotion": "neutral|happy|anxious|distressed|depressed",
+  "distress_score": 0.42,
+  "language_detected": "en|fr|ar|darija|mixed",
+  "technique_used": "string",
+  "recommendation": "string|null",
+  "crisis_detected": false,
+  "mental_state": "Neutral|Anxious|Distressed|Depressed|Crisis",
+  "fusion": {},
+  "physician_review_required": false,
+  "anomaly_flags": [],
+  "retrieval_quality": "ok|low_score|empty"
+}
+```
 
 ---
 
-### 3.6 Recommendation Engine
+## 5) Retrieval and Knowledge Base
 
-Triggered by Sanadi when a specific recommendation type is identified in the therapy turn. Generates personalized suggestions using the LLM with patient health context.
+### 5.1 Store
 
-| Type | Trigger | Example Output |
-|------|---------|----------------|
-| Breathing exercise | Anxious state or distress_score 0.35–0.65 | 4-7-8 breathing — inhale 4s, hold 7s, exhale 8s. Animated overlay activated. |
-| Physical activity | Stable glucose + low-moderate distress | 15-minute walk recommended — safe given current glucose trend. |
-| Nutrition advice | Post-session with high stress | Magnesium-rich snack suggestion — dark chocolate, almonds. |
-| Social support | Depressed state or sustained isolation signals | Contact a trusted person. Connects to Care Circle module. |
+- Qdrant collection for CBT/psychology knowledge.
+- embeddings via SentenceTransformers model from settings.
+- ingestion from manifest + local PDF sources.
 
----
+### 5.2 Retrieval Pipeline
 
-## 4. Model Training Requirements
+- vector recall (`RECALL_LIMIT` candidates from Qdrant),
+- **mandatory hybrid rerank** (vector + lexical overlap + category priority boosts),
+- dedupe + final top-k,
+- retrieval quality gate used by response logic.
 
-> **Key principle: train only what must be trained.** Of 6 AI components in the module, only 3 require training a model. The rest are implemented through prompt engineering, RAG, and pure engineering. This is the correct approach — training unnecessarily wastes time and reduces accuracy.
+Current rerank scoring implementation (code-aligned):
 
-| Component | Approach | Est. Time | Status |
-|-----------|----------|-----------|--------|
-| Face emotion branch | `trpakov/vit-face-expression` (pre-trained) — no training needed | 2 hours setup | Use off-the-shelf |
-| Speech emotion branch | `emotion2vec+` (pre-trained) — no training needed | 2 hours setup | Use off-the-shelf |
-| Crisis detection | Fine-tune XLM-RoBERTa — CrisisNLP + SuicideWatch data | 1 day | **MUST TRAIN** |
-| Text emotion (messages) | `tabularisai/multilingual-emotion-classification` — no training needed | Prompt-free classifier | Use off-the-shelf |
-| Mental state classifier | Deterministic function — no ML involved | 1 hour code | Pure engineering |
-| Memory engine | Qdrant + PostgreSQL — no ML involved | 1 day | Pure engineering |
-| Alert system | Django signals — no ML involved | 1 day | Pure engineering |
-| Sanadi agent | RAG + LLM API — no fine-tuning needed | 2–3 days | Prompt + RAG |
-| Recommendation engine | LLM with health context — no training needed | 1 day | Prompt engineer |
+- `0.72 * vector_score`
+- `0.22 * lexical_overlap(query_tokens, doc_tokens)`
+- `+ category_priority(category)`
 
-### Crisis Classifier — Fine-tuning Details
+This means Sanadi never uses raw vector hits directly in final prompt assembly; results are always passed through hybrid reranking first.
 
-| Property | Value |
-|----------|-------|
-| Base model | `FacebookAI/xlm-roberta-base` (125M parameters) |
-| Task | Binary classification: crisis / not-crisis |
-| Training datasets | CrisisNLP (HuggingFace), SuicideWatch Reddit, CLPsych 2015 shared task |
-| Languages covered | English, Arabic, French (XLM-R cross-lingual transfer covers Darija and French — no retraining needed) |
-| Fine-tuning strategy | Freeze base layers 1–8. Train layers 9–12 + classification head. |
-| Decision threshold | P(crisis) ≥ 0.75 — tuned for high recall (missing a crisis is worse than a false alarm) |
-| Training time | ~3–4 hours on Google Colab T4 GPU |
-| Evaluation metric | F1-score on crisis class (not accuracy — class imbalance) |
+### 5.3 Retrieval Health & Ops Endpoints
+
+- `GET /psychology/knowledge/search`
+- `GET /psychology/knowledge/sources`
+- `POST /psychology/knowledge/reindex`
+- `GET /psychology/rag/health`
 
 ---
 
-## 5. Database Design
+## 6) Safety and Crisis Controls
 
-### 5.1 PostgreSQL — Core Tables (Django models)
+Current crisis logic is rule/probability based inside service flow (not an external fine-tuned crisis model in this code path):
 
-| Table | Key Fields | Purpose |
-|-------|-----------|---------|
-| **psychology_profiles** | user_id, baseline_stress, personality_notes, risk_level, assigned_physician | Static psychological profile per patient. Created at onboarding. |
-| **therapy_sessions** | id, patient_id, started_at, ended_at, session_summary, dominant_emotion, avg_distress | One row per Sanadi session. Summary generated by LLM at session end. |
-| **messages** | id, session_id, sender, content, emotion_detected, distress_score, mental_state, created_at | Full message log with emotion metadata per message. |
-| **emotion_logs** | id, patient_id, emotion, distress_score, stress_level, modalities_used, timestamp | Time-series emotion data. Stored in TimescaleDB for trend queries. |
-| **crisis_events** | id, patient_id, severity, detected_text, crisis_score, action_taken, resolved_at, resolved_by | Immutable audit log of every crisis detection event. |
+- crisis probability from text,
+- trigger by threshold/history,
+- crisis event recording,
+- safe static crisis response (`SAFE_CRISIS_REPLY`),
+- recommendation forced to `notify_clinician_immediately`,
+- physician review gate support:
+  - block new session if gate is active,
+  - `POST /psychology/physician/clear-gate` to clear.
 
-### 5.2 Qdrant — Vector Store Collections
+### 6.1 Runtime Anomaly Detection (Enabled by Default)
 
-| Collection | Contents |
-|------------|---------|
-| `cbt_knowledge` | Chunked CBT technique documents, ADA mental health guidelines, diabetes distress protocols. Used for RAG retrieval per patient message. |
-| `patient_{id}_memory` | Per-patient long-term memory embeddings. Session summaries, key facts, identified triggers. Retrieved at session start. |
-| `crisis_patterns` | Embeddings of known crisis language patterns used as a secondary reference for the crisis classifier (not primary decision). |
+Sanadi returns anomaly telemetry on each `/psychology/message` response through:
 
----
+- `retrieval_quality`: `ok | low_score | empty`
+- `anomaly_flags`: list of runtime flags
 
-## 6. API Design (FastAPI)
+Current anomaly families:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| **POST** | `/psychology/session/start` | Initialize session, load patient memory, set up LangGraph state. |
-| **POST** | `/psychology/message` | Main endpoint — full pipeline: store → detect → classify → crisis check → respond. |
-| **POST** | `/psychology/emotion/frame` | Single-frame face emotion from base64 JPEG (non-streaming). |
-| **WS** | `/ws/emotion/{patient_id}` | WebSocket for real-time camera emotion streaming at 2fps. |
-| **GET** | `/psychology/session/{id}` | Retrieve full session with all messages and emotion metadata. |
-| **GET** | `/psychology/trends/{patient_id}` | 7-session rolling emotional trend data from TimescaleDB. |
-| **GET** | `/psychology/crisis/events` | List all crisis events (physician dashboard). |
-| **POST** | `/psychology/session/end` | Finalize session — trigger LLM summary, store to long-term memory. |
+- retrieval anomalies: `retrieval_low_score`, `retrieval_empty`
+- generation anomalies: `llm_parse_fallback`, `llm_missing_citations`, `llm_low_context_fallback`, `llm_elevated_guard_mode`, `llm_crisis_guard_mode`
+- safety trend anomalies: `safety_elevated`, `fusion_abrupt_jump`
 
-### 6.1 Full Message Request Flow
-
-1. Receive patient message (text typed or Whisper transcript from voice)
-2. Store raw message to `messages` table
-3. **Run crisis classifier — if P(crisis) ≥ 0.75: trigger safety layer, skip to step 9**
-4. Merge text emotion + live face/speech scores → fusion gate → `distress_score`
-5. Classify mental state (Neutral / Anxious / Distressed / Depressed)
-6. Retrieve relevant CBT chunk from Qdrant (similarity search)
-7. Retrieve top-3 patient memories from Qdrant
-8. Assemble Sanadi system prompt with all context blocks
-9. Call LLM API → receive reply + emotion JSON
-10. Store Sanadi response + all emotion metadata to `messages` table
-11. Append `distress_score` to `emotion_logs` (TimescaleDB time series)
-12. If recommendation triggered: call Recommendation Engine in background
-13. Stream reply to frontend via WebSocket
+These flags are logged and returned to the caller, so monitoring/doctor-facing layers can detect degraded retrieval or unstable generation behavior.
 
 ---
 
-## 7. Full Technology Stack
+## 7) Session, Trends, and Storage
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Face emotion** | `trpakov/vit-face-expression` | ViT facial emotion classification — remapped to Glunova classes |
-| **Speech emotion** | `emotion2vec+` | Speech emotion representation/classification — language-agnostic |
-| **Speech transcription** | OpenAI Whisper (large-v3) | Real-time transcription — handles Darija + code-switching |
-| **Crisis detection** | Fine-tuned XLM-RoBERTa | Binary crisis / not-crisis classifier — only model you train |
-| **Text emotion** | `tabularisai/multilingual-emotion-classification` | Dedicated multilingual emotion classifier for patient messages |
-| **Sanadi LLM** | GPT-4 API or Claude API | Therapy response generation with emotion context |
-| **Agent orchestration** | LangGraph | Multi-step reasoning, memory state, conversation flow |
-| **Vector store** | Qdrant | CBT knowledge base + patient long-term memory |
-| **Time series DB** | TimescaleDB (PostgreSQL ext.) | Emotion trend data for longitudinal monitoring |
-| **Main database** | PostgreSQL (Django ORM) | Patient profiles, sessions, messages, crisis events |
-| **Backend API** | FastAPI (AI services) | WebSocket + async endpoints for all AI inference |
-| **Backend platform** | Django (patient/clinic data) | Auth, admin, patient records, appointments |
-| **Frontend** | React + TailwindCSS | Chat UI, emotion camera overlay, dashboards |
-| **Real-time** | WebSocket (FastAPI) | 2fps camera emotion stream + Sanadi reply streaming |
+`PsychologyService` supports both:
 
-> **Sanadi is:** AI Therapist • Emotion Analyzer • Risk Detector • Memory-Based Assistant • Care Coordinator
-> *English • French • Tunisian Darija • Arabic • Code-switched*
+- PostgreSQL-backed stores (if DB pool exists),
+- in-memory fallback stores.
 
----
+Primary runtime entities:
 
-## 8. External Data Sources for Sanadi RAG Knowledge Base
+- sessions + messages,
+- crisis events,
+- trend points (`distress_score` over time),
+- memory retrieval/injection.
 
-The following curated external datasets and clinical resources should be ingested, chunked, and embedded into the Qdrant `cbt_knowledge` collection to power Sanadi's RAG pipeline. All sources are openly accessible and do not require model fine-tuning.
+Core endpoints:
 
-### 8.1 CBT Scripts & Therapy Techniques
+- `POST /psychology/session/start`
+- `POST /psychology/message`
+- `POST /psychology/session/end`
+- `GET /psychology/session/{session_id}`
+- `GET /psychology/trends/{patient_id}`
+- `GET /psychology/crisis/events`
+- `POST /psychology/crisis/ack`
 
-### 8.2 ADA Mental Health & Diabetes Guidelines
+Realtime camera stream:
 
-### 8.3 Diabetes Distress Protocols & Psychoeducation
-
-### 8.4 Ingestion Validation & Drift Controls (implemented alignment)
-
-Before embedding to `cbt_knowledge`, Sanadi runs fail-fast validation:
-
-- required curated chunk IDs per source
-- min/max chunk lengths
-- keyword presence checks per chunk
-- symbol-noise ratio check
-- chunk-count drift vs baseline snapshot
-
-Artifacts are written to `backend/fastapi_ai/tmp/psychology_embed_audit*.json` and block ingestion when constraints fail.
+- `WS /psychology/ws/emotion/{patient_id}`
 
 ---
 
-### 8.5 Care Circle Crisis Notification — Planned Feature
+## 8) API Schemas (Request Examples)
 
-> ⚠️ **Planned: Care Circle Notification on Crisis**
->
-> When the care circle notification feature is implemented, the crisis response flow (Section 3.5) will be extended as follows: Step 4 (currently "Care Circle alert sent to designated caregiver") will trigger a push notification to all members of the patient's care circle — family contacts and designated supporters — via the existing Django alert system. The notification payload will include severity level and a safe, non-alarmist message template. No clinical details will be shared without patient consent configuration. The `crisis_events` table already supports this with the `action_taken` field.
->
-> **Implementation note:** Add a `care_circle_contacts` table (`patient_id`, `contact_name`, `contact_phone`, `contact_email`, `notify_on_crisis: bool`) and extend the Django crisis signal to fan out notifications via FCM push / SMS.
+## 8.1 Start Session
+
+```json
+{
+  "patient_id": 123,
+  "preferred_language": "en"
+}
+```
+
+## 8.2 Message
+
+```json
+{
+  "session_id": "uuid",
+  "patient_id": 123,
+  "text": "I feel overwhelmed today",
+  "face_frame_base64": null,
+  "speech_audio_base64": null,
+  "speech_transcript": null
+}
+```
+
+## 8.3 Emotion Frame
+
+```json
+{
+  "patient_id": 123,
+  "frame_base64": "data:image/jpeg;base64,..."
+}
+```
 
 ---
 
-*Confidential — Glunova AI Platform • Psychology Module Architecture*
+## 9) Evaluation Architecture (Current)
+
+Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
+
+### Current evaluators
+
+- **RAGAS** for retrieval/grounding metrics
+- **DeepEval** for answer relevancy/safety scoring
+
+### Key behavior
+
+- evaluator keys loaded from `backend/.env`,
+- Gemini key (`GOOGLE_API_KEY` / `GEMINI_API_KEY`) supported for both RAGAS and DeepEval,
+- OpenAI optional fallback path,
+- lexical fallback path remains for resilience when provider/config fails,
+- report outputs:
+  - `backend/fastapi_ai/tmp/sanadi_eval_reports/<run_id>.json`
+  - `backend/fastapi_ai/tmp/sanadi_eval_reports/<run_id>.md`
+
+---
+
+## 10) Known Operational Notes
+
+- First-run model downloads may happen for HF models if cache is cold.
+- Gemini free-tier quota can throttle evaluator LLM calls (429), which can degrade RAGAS score quality.
+- For stable eval baselines, use a quota-ready API key and run at low frequency/batch size.
+
+---
+
+## 11) Technology Stack (Code-Aligned Snapshot)
+
+| Area | Current implementation |
+|---|---|
+| API server | FastAPI |
+| Psychology orchestration | `PsychologyService` (Python) |
+| Therapy LLM | Groq chat completion |
+| Face emotion | HF image classifier |
+| Speech emotion | ModelScope emotion pipeline |
+| Text emotion | HF optional + heuristic fallback |
+| Vector DB | Qdrant |
+| Relational DB | PostgreSQL (with in-memory fallback in service layer) |
+| Auth/RBAC | JWT + role checks in FastAPI dependencies |
+| Evaluation | RAGAS + DeepEval |
+
+---
+
+*Confidential — Glunova AI Platform • Psychology Module Architecture (Current Implementation)*

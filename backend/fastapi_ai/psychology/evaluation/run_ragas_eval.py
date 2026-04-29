@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 from statistics import fmean
 from typing import Any
 
-from psychology.evaluation.llm_keys import gemini_eval_model_name, google_api_key, openai_api_key
+from psychology.evaluation.llm_keys import groq_api_key, groq_eval_model_name
 from psychology.evaluation.runner import EvalRuntimeRow
 
 
@@ -13,6 +14,16 @@ def _word_overlap(a: str, b: str) -> float:
     if not a_set:
         return 0.0
     return len(a_set.intersection(b_set)) / len(a_set)
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        return 0.0
+    if math.isnan(out) or math.isinf(out):
+        return 0.0
+    return out
 
 
 def _lexical_fallback(rows: list[EvalRuntimeRow], reason: str) -> dict[str, Any]:
@@ -49,10 +60,10 @@ def _cases_from_result(ragas_result: Any, rows: list[EvalRuntimeRow]) -> list[di
         cases.append(
             {
                 "sample_id": row.sample_id,
-                "context_precision": float(item.get("context_precision", 0.0) or 0.0),
-                "context_recall": float(item.get("context_recall", 0.0) or 0.0),
-                "faithfulness": float(item.get("faithfulness", 0.0) or 0.0),
-                "answer_relevancy": float(item.get("answer_relevancy", 0.0) or 0.0),
+                "context_precision": _safe_float(item.get("context_precision", 0.0)),
+                "context_recall": _safe_float(item.get("context_recall", 0.0)),
+                "faithfulness": _safe_float(item.get("faithfulness", 0.0)),
+                "answer_relevancy": _safe_float(item.get("answer_relevancy", 0.0)),
             }
         )
     return cases
@@ -73,50 +84,40 @@ def _success_payload(engine: str, ragas_result: Any, rows: list[EvalRuntimeRow])
     }
 
 
-def _evaluate_ragas_gemini(dataset: Any) -> Any:
-    """RAGAS metrics using Gemini (google-genai or OpenAI-compatible Gemini endpoint)."""
-    key = google_api_key()
+def _evaluate_ragas_groq(dataset: Any) -> Any:
+    """RAGAS metrics using Groq via LangChain wrapper."""
+    key = groq_api_key()
     if not key:
-        raise RuntimeError("missing GOOGLE_API_KEY")
-    model_name = gemini_eval_model_name()
+        raise RuntimeError("missing GROQ_API_KEY")
+    model_name = groq_eval_model_name()
     from ragas import evaluate
+    from ragas.llms import LangchainLLMWrapper
+    from langchain_groq import ChatGroq
 
-    llm = None
+    groq_llm = ChatGroq(model=model_name, api_key=key, temperature=0.0)
+    ragas_llm = LangchainLLMWrapper(groq_llm)
 
+    # Prefer module-level metrics API (as requested); fallback to class API by version.
     try:
-        from google import genai
-        from ragas.llms import llm_factory
+        from ragas.metrics import context_precision, context_recall, faithfulness
 
-        llm = llm_factory(model_name, provider="google", client=genai.Client(api_key=key))
+        faithfulness.llm = ragas_llm
+        context_precision.llm = ragas_llm
+        context_recall.llm = ragas_llm
+        metrics = [faithfulness, context_recall, context_precision]
     except Exception:
-        llm = None
+        from ragas.metrics import ContextPrecision, ContextRecall, Faithfulness
 
-    if llm is None:
-        from openai import OpenAI
-        from ragas.llms import llm_factory
-
-        llm = llm_factory(
-            model_name,
-            provider="openai",
-            client=OpenAI(
-                api_key=key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            ),
-        )
-
-    from ragas.metrics import AnswerRelevancy, ContextPrecision, ContextRecall, Faithfulness
-
-    metrics = [
-        ContextPrecision(llm=llm),
-        ContextRecall(llm=llm),
-        Faithfulness(llm=llm),
-        AnswerRelevancy(llm=llm),
-    ]
-    return evaluate(dataset=dataset, metrics=metrics)
+        metrics = [
+            Faithfulness(llm=ragas_llm),
+            ContextRecall(llm=ragas_llm),
+            ContextPrecision(llm=ragas_llm),
+        ]
+    return evaluate(dataset=dataset, metrics=metrics, llm=ragas_llm)
 
 
 def run_ragas_eval(rows: list[EvalRuntimeRow]) -> dict[str, Any]:
-    """RAGAS: prefer Gemini (GOOGLE_API_KEY), then OpenAI, else lexical overlap."""
+    """RAGAS with Groq judge; lexical fallback if unavailable."""
 
     try:
         from datasets import Dataset
@@ -131,33 +132,13 @@ def run_ragas_eval(rows: list[EvalRuntimeRow]) -> dict[str, Any]:
     }
     dataset = Dataset.from_dict(payload)
 
-    gemini_error: str | None = None
-    if google_api_key():
-        try:
-            rag = _evaluate_ragas_gemini(dataset)
-            return _success_payload("ragas_gemini", rag, rows)
-        except Exception as exc:
-            gemini_error = repr(exc)
-
-    if openai_api_key():
-        try:
-            from ragas import evaluate
-            from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
-
-            ragas_result = evaluate(
-                dataset=dataset,
-                metrics=[context_precision, context_recall, faithfulness, answer_relevancy],
-            )
-            return _success_payload("ragas_openai", ragas_result, rows)
-        except Exception as exc:
-            suffix = f" Gemini error was: {gemini_error}" if gemini_error else ""
-            return _lexical_fallback(rows, f"ragas evaluate failed: {exc!s}.{suffix}")
-
-    msg = (
-        "No GOOGLE_API_KEY / GEMINI_API_KEY or OPENAI_API_KEY — RAGAS LLM metrics skipped. "
-        "Add your Gemini key from AI Studio as GOOGLE_API_KEY in backend/.env (no OpenAI needed). "
-        "Install: pip install google-genai ragas (upgrade ragas if llm_factory is missing)."
-    )
-    if gemini_error:
-        msg += f" Last Gemini attempt: {gemini_error}"
-    return _lexical_fallback(rows, msg)
+    if not groq_api_key():
+        return _lexical_fallback(
+            rows,
+            "GROQ_API_KEY not set. Set GROQ_API_KEY in backend/.env for RAGAS Groq judging.",
+        )
+    try:
+        rag = _evaluate_ragas_groq(dataset)
+        return _success_payload("ragas_groq", rag, rows)
+    except Exception as exc:
+        return _lexical_fallback(rows, f"ragas groq evaluate failed: {exc!s}")

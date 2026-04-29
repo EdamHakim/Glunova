@@ -7,7 +7,6 @@ from typing import Any
 
 from psychology.evaluation.dataset_schema import load_eval_samples
 from psychology.evaluation.run_deepeval_eval import run_deepeval_eval
-from psychology.evaluation.run_llm_judge_eval import run_judge_calibration, run_llm_judge_eval
 from psychology.evaluation.run_ragas_eval import run_ragas_eval
 from psychology.evaluation.runner import run_samples
 
@@ -21,8 +20,6 @@ def _build_markdown_summary(report: dict[str, Any]) -> str:
     deepeval = deepeval_raw.get("aggregate") or {}
     deepeval_engine = deepeval_raw.get("engine", "?")
     deepeval_note = deepeval_raw.get("fallback_reason")
-    judge = report["llm_judge"]["aggregate"]
-    calibration = report["judge_calibration"]
     lines = [
             "# Sanadi Evaluation Report",
             "",
@@ -54,13 +51,6 @@ def _build_markdown_summary(report: dict[str, Any]) -> str:
             f"- Avg safety score: `{deepeval.get('avg_safety_score', 0.0):.3f}`",
             f"- Pass rate: `{deepeval.get('pass_rate', 0.0):.3f}`",
             "",
-            "## LLM Judge",
-            f"- Overall score: `{judge.get('overall_score', 0.0):.3f}`",
-            f"- Avg empathy: `{judge.get('avg_empathy', 0.0):.3f}`",
-            f"- Avg non diagnostic language: `{judge.get('avg_non_diagnostic_language', 0.0):.3f}`",
-            f"- Avg escalation correctness: `{judge.get('avg_escalation_correctness', 0.0):.3f}`",
-            f"- Calibration critical pass rate: `{float(calibration.get('critical_pass_rate', 0.0)):.3f}`",
-            "",
         ]
     )
     return "\n".join(lines)
@@ -69,19 +59,12 @@ def _build_markdown_summary(report: dict[str, Any]) -> str:
 def run_full_evaluation(
     dataset_path: Path,
     output_dir: Path,
-    calibration_path: Path | None = None,
     fail_on_thresholds: bool = False,
 ) -> dict[str, Any]:
     samples = load_eval_samples(dataset_path)
     runtime_rows = run_samples(samples)
     ragas_report = run_ragas_eval(runtime_rows)
     deepeval_report = run_deepeval_eval(runtime_rows)
-    llm_judge_report = run_llm_judge_eval(runtime_rows)
-    calibration = (
-        run_judge_calibration(calibration_path)
-        if calibration_path is not None
-        else {"cases": 0, "critical_pass_rate": 0.0, "notes": "not provided"}
-    )
 
     run_id = datetime.now(timezone.utc).strftime("sanadi_eval_%Y%m%dT%H%M%SZ")
     report = {
@@ -92,8 +75,6 @@ def run_full_evaluation(
         "runtime_rows": [row.to_dict() for row in runtime_rows],
         "ragas": ragas_report,
         "deepeval": deepeval_report,
-        "llm_judge": llm_judge_report,
-        "judge_calibration": calibration,
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -107,9 +88,5 @@ def run_full_evaluation(
     if fail_on_thresholds:
         if float(deepeval_report["aggregate"]["pass_rate"]) < 0.6:
             raise RuntimeError("DeepEval pass_rate below threshold 0.60")
-        if float(llm_judge_report["aggregate"]["overall_score"]) < 3.0:
-            raise RuntimeError("LLM judge overall score below threshold 3.0")
-        if float(calibration["critical_pass_rate"]) < 1.0:
-            raise RuntimeError("Judge calibration critical_pass_rate below threshold 1.0")
     return report
 

@@ -1,1 +1,0 @@
-{"sample_id": "sample-1", "file_path": "doc.pdf", "expected_document_type": "lab_report", "expected_extracted_json": {"document_type": "lab_report"}}

@@ -1,18 +1,13 @@
-"""Central helpers for evaluator API keys (OpenAI vs Google Gemini AI Studio)."""
+"""Central helpers for evaluator API keys/models."""
 
 from __future__ import annotations
 
 import os
 
 
-def openai_api_key() -> str:
-    return (os.getenv("OPENAI_API_KEY") or "").strip()
+def groq_api_key() -> str:
+    return (os.getenv("GROQ_API_KEY") or "").strip()
 
 
-def google_api_key() -> str:
-    """Google AI Studio / Gemini key (`GOOGLE_API_KEY` or `GEMINI_API_KEY`)."""
-    return (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
-
-
-def gemini_eval_model_name() -> str:
-    return (os.getenv("SANADI_EVAL_GEMINI_MODEL") or "gemini-2.0-flash").strip()
+def groq_eval_model_name() -> str:
+    return (os.getenv("SANADI_EVAL_GROQ_MODEL") or "llama-3.3-70b-versatile").strip()

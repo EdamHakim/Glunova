@@ -3,7 +3,7 @@ from __future__ import annotations
 from statistics import fmean
 from typing import Any
 
-from psychology.evaluation.llm_keys import gemini_eval_model_name, google_api_key, openai_api_key
+from psychology.evaluation.llm_keys import groq_api_key, groq_eval_model_name
 from psychology.evaluation.runner import EvalRuntimeRow
 
 
@@ -40,6 +40,38 @@ def _lexical_fallback(rows: list[EvalRuntimeRow], reason: str) -> dict[str, Any]
     }
 
 
+def _build_groq_deepeval_model() -> Any:
+    from deepeval.models import DeepEvalBaseLLM
+    from openai import OpenAI
+
+    key = groq_api_key()
+    model_name = groq_eval_model_name()
+
+    class GroqModel(DeepEvalBaseLLM):
+        def __init__(self, model_name: str, api_key: str) -> None:
+            self.model_name = model_name
+            self.client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+
+        def load_model(self) -> Any:
+            return self.client
+
+        def generate(self, prompt: str, schema: Any | None = None) -> str:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+            )
+            return str(response.choices[0].message.content or "")
+
+        async def a_generate(self, prompt: str, schema: Any | None = None) -> str:
+            return self.generate(prompt, schema=schema)
+
+        def get_model_name(self) -> str:
+            return self.model_name
+
+    return GroqModel(model_name=model_name, api_key=key)
+
+
 def run_deepeval_eval(rows: list[EvalRuntimeRow]) -> dict[str, Any]:
     try:
         from deepeval.metrics import AnswerRelevancyMetric
@@ -47,28 +79,20 @@ def run_deepeval_eval(rows: list[EvalRuntimeRow]) -> dict[str, Any]:
     except Exception as exc:
         return _lexical_fallback(rows, f"deepeval import failed: {exc!s}")
 
-    openai_ok = bool(openai_api_key())
-    gemini_ok = bool(google_api_key())
-
-    if not openai_ok and not gemini_ok:
+    if not groq_api_key():
         return _lexical_fallback(
             rows,
-            "Set OPENAI_API_KEY or GOOGLE_API_KEY (Gemini) for DeepEval AnswerRelevancyMetric. "
-            "Gemini: use AI Studio API key as GOOGLE_API_KEY in backend/.env — no OpenAI account needed.",
+            "GROQ_API_KEY not set. Set GROQ_API_KEY in backend/.env for DeepEval Groq judging.",
         )
 
-    deepeval_engine = "deepeval_openai"
+    deepeval_engine = "deepeval_groq"
 
     try:
-        if openai_ok:
-            metric = AnswerRelevancyMetric(threshold=0.5, include_reason=True)
-        else:
-            from deepeval.models import GeminiModel
-
-            gkey = google_api_key()
-            gm = GeminiModel(model=gemini_eval_model_name(), api_key=gkey, temperature=0.0)
-            metric = AnswerRelevancyMetric(threshold=0.5, include_reason=True, model=gm)
-            deepeval_engine = "deepeval_gemini"
+        metric = AnswerRelevancyMetric(
+            threshold=0.5,
+            include_reason=True,
+            model=_build_groq_deepeval_model(),
+        )
     except Exception as exc:
         return _lexical_fallback(rows, f"deepeval metric init failed: {exc!s}")
 

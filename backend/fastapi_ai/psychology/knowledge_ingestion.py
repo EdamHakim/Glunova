@@ -302,9 +302,14 @@ class QdrantKnowledgeBase:
             lexical = 0.0
             if q_tokens and d_tokens:
                 lexical = len(q_tokens.intersection(d_tokens)) / max(1, len(q_tokens))
+            # Qdrant similarity is our current neural relevance proxy.
             vector_score = float(getattr(hit, "score", 0.0) or 0.0)
             category = str(payload.get("category", ""))
-            score = (0.72 * vector_score) + (0.22 * lexical) + self._category_priority(category)
+            category_raw = self._category_priority(category)
+            # Normalize category bonus to [0, 1] so weighted blend remains interpretable.
+            category_norm = min(1.0, max(0.0, category_raw / 0.08))
+            # Suggested weighted blend: 0.75 neural + 0.15 lexical + 0.10 category.
+            score = (0.75 * vector_score) + (0.15 * lexical) + (0.10 * category_norm)
             ranked.append((score, payload))
         ranked.sort(key=lambda x: x[0], reverse=True)
         out: list[dict[str, Any]] = []

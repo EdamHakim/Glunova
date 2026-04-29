@@ -32,3 +32,4 @@ deepeval>=1.1.4
 datasets>=2.20.0
 pandas>=2.2.2
 google-genai>=1.0.0
+langchain-groq>=0.2.0

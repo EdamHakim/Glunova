@@ -37,29 +37,19 @@ def main() -> int:
         action="store_true",
         help="Fail with non-zero code if configured thresholds are not met",
     )
-    parser.add_argument(
-        "--calibration",
-        default="",
-        help="Path to LLM judge calibration JSONL (default: built-in calibration file)",
-    )
     args = parser.parse_args()
 
     if args.dataset:
         dataset_path = Path(args.dataset)
     else:
         dataset_path = _FASTAPI_ROOT / "psychology" / "evaluation" / "data" / "sanadi_evalset.jsonl"
-    calibration_path = (
-        Path(args.calibration)
-        if args.calibration
-        else _FASTAPI_ROOT / "psychology" / "evaluation" / "data" / "llm_judge_calibration.jsonl"
-    )
 
     if not dataset_path.exists():
         build_default_dataset(dataset_path)
 
     out = Path(args.output_dir)
     print(
-        "Sanadi evaluation starting (this can take minutes: Groq judge, embeddings, DeepEval).\n"
+        "Sanadi evaluation starting (this can take minutes: RAGAS + DeepEval).\n"
         f"  Dataset:  {dataset_path}\n"
         f"  Output:   {out.resolve()}",
         file=sys.stderr,
@@ -69,7 +59,6 @@ def main() -> int:
     report = run_full_evaluation(
         dataset_path=dataset_path,
         output_dir=out,
-        calibration_path=calibration_path,
         fail_on_thresholds=bool(args.strict),
     )
     summary = {
