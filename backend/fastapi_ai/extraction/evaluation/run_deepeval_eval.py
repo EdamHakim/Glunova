@@ -68,6 +68,9 @@ def _build_judge_model(provider: str, model_name: str | None):
 
         class GroqModel(DeepEvalBaseLLM):
             def __init__(self, model_name="llama-3.3-70b-versatile"):
+                # Map decommissioned or older model names to the current versatile model
+                if model_name in ("llama3-70b-8192", "llama3-70b-versatile", "llama-3.1-70b-versatile"):
+                    model_name = "llama-3.3-70b-versatile"
                 self.model_name = model_name
                 self.sync_client = groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
                 self.async_client = groq.AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
@@ -94,7 +97,8 @@ def _build_judge_model(provider: str, model_name: str | None):
             def get_model_name(self):
                 return self.model_name
 
-        return GroqModel(model_name=model_name or os.getenv("DEEPEVAL_GROQ_MODEL") or "llama-3.3-70b-versatile")
+        model_name_to_use = model_name or os.getenv("DEEPEVAL_GROQ_MODEL") or "llama-3.3-70b-versatile"
+        return GroqModel(model_name=model_name_to_use)
 
     if provider == "gemini":
         from deepeval.models import GeminiModel

@@ -1,30 +1,35 @@
 {
-  "run_at": "2026-04-29T06:12:34.706265+00:00",
+  "run_at": "2026-04-29T06:46:37.340804+00:00",
   "dataset": "D:\\Everything\\ESPRIT\\3IA\\2eme semestre\\AI Project\\Act Phase\\Glunova\\backend\\fastapi_ai\\extraction\\evaluation\\data\\ocr_evalset.sample.jsonl",
   "ocr_backend": "azure",
   "judge_provider": "auto",
-  "judge_model": null,
+  "judge_model": "llama3-70b-8192",
   "samples": 1,
   "report": {
-    "engine": "fallback",
+    "engine": "deepeval",
+    "judge_provider": "auto",
+    "judge_model": null,
     "cases": [
       {
         "sample_id": "prescription-sample",
-        "ocr_fidelity": 0.9140893470790378,
-        "structured_correctness": 0.14770696843359143,
+        "ocr_fidelity": 0.8,
+        "ocr_reason": "The Actual Output largely preserves the medical information from the Input reference transcript and Expected Output, with minor discrepancies such as the omission of '14th' in the address and variations in formatting, like '100mg' instead of '100 mg', and 'BD' instead of 'BID' for Betaloc. Additionally, the Actual Output introduces a 'signature' and 'OLABEL' not present in the Expected Output, but does not drop or hallucinate critical medical facts.",
+        "structured_correctness": 0.8,
+        "structured_reason": "The Actual Output captures most of the expected medical fields and values, including date, document type, medications, patient name, and provider name, with accurate information for Dorzolamidum, Cimetidine, and Oxprelol. However, it contains extra fields not present in the Expected Output, such as 'drug_interactions', 'labs', and 'vitals', and the frequency for Betaloc is incorrectly translated to 'twice daily' instead of 'BD'. Additionally, the dosage values for medications are sometimes provided without a space between the value and unit, differing from the Expected Output format.",
+        "groundedness": 0.8,
+        "groundedness_reason": "The extracted medical fields are generally well-represented and consistent with the content of the OCR transcript, with accurate extraction of patient name, provider name, and medications. However, there are some discrepancies, such as the handling of 'Betaloc' which does not have a direct match in the provided candidates, and 'Oxprelol' which is likely an OCR error corrected to 'oxprenolol'. The overall relevance and reliability of the extracted fields are good, but could be improved with more accurate handling of ambiguous or incorrect OCR extractions.",
         "document_type_correct": 1.0,
-        "groundedness": 0.6,
-        "overall": 0.6654490788781573,
-        "pass": false,
-        "engine": "fallback"
+        "overall": 0.8500000000000001,
+        "pass": true,
+        "engine": "deepeval"
       }
     ],
     "aggregate": {
-      "avg_ocr_fidelity": 0.9140893470790378,
-      "avg_structured_correctness": 0.14770696843359143,
+      "avg_ocr_fidelity": 0.8,
+      "avg_structured_correctness": 0.8,
       "avg_document_type_correct": 1.0,
-      "avg_groundedness": 0.6,
-      "pass_rate": 0.0
+      "avg_groundedness": 0.8,
+      "pass_rate": 1.0
     }
   }
 }

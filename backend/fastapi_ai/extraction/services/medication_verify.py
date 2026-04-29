@@ -801,6 +801,12 @@ async def check_drug_drug_interactions(rxcuis: list[str]) -> list[dict[str, Any]
                     "comment": comment
                 })
         return interactions
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            logger.debug("RxNav interaction API is retired (404 Not Found). Returning empty interactions.")
+        else:
+            logger.warning(f"Failed to check interactions: {exc}")
+        return []
     except Exception as exc:
         logger.warning(f"Failed to check interactions: {exc}")
         return []
