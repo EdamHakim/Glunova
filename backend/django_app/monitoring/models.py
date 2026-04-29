@@ -111,3 +111,28 @@ class PatientMedication(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name_display or self.name_raw} for patient {self.patient_id}"
+
+
+class PatientLabResult(models.Model):
+    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="patient_lab_results")
+    source_document = models.ForeignKey(
+        "documents.MedicalDocument",
+        on_delete=models.CASCADE,
+        related_name="patient_lab_results",
+    )
+    test_name = models.CharField(max_length=255)
+    normalized_name = models.CharField(max_length=255, blank=True)
+    value = models.CharField(max_length=64)
+    numeric_value = models.FloatField(null=True, blank=True)
+    unit = models.CharField(max_length=64, null=True, blank=True)
+    reference_range = models.CharField(max_length=255, null=True, blank=True)
+    observed_at = models.DateTimeField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-observed_at", "-updated_at", "-created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.test_name}: {self.value}{f' {self.unit}' if self.unit else ''}"

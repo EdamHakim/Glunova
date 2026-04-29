@@ -25,6 +25,12 @@ class MedRow(BaseModel):
 
 class ExtractedPayload(BaseModel):
     document_type: str = "unknown"
+    date: str | None = None
+    document_date: str | None = None
+    patient_name: str | None = None
+    provider_name: str | None = None
+    vitals: dict[str, Any] = Field(default_factory=dict)
+    labs: list[LabRow] = Field(default_factory=list)
     medications: list[MedRow] = Field(default_factory=list)
 
 
@@ -68,6 +74,60 @@ def merge_and_validate(
         if final.get("document_type") == "unknown" or _evidence_ok(fe.get("document_type"), raw):
             final["document_type"] = dt
 
+    for source_key, target_key in (("document_date", "date"), ("date", "date")):
+        candidate = llm_extracted.get(source_key)
+        if isinstance(candidate, str) and candidate.strip():
+            if not final.get(target_key) or _evidence_ok(fe.get(source_key) or fe.get(target_key), raw):
+                final[target_key] = candidate.strip()
+                final["document_date"] = candidate.strip()
+
+    for field in ("patient_name", "provider_name"):
+        candidate = llm_extracted.get(field)
+        if isinstance(candidate, str) and candidate.strip():
+            if not final.get(field) or _evidence_ok(fe.get(field), raw):
+                final[field] = candidate.strip()
+
+    if "document_date" not in final:
+        final["document_date"] = final.get("date")
+
+    g_labs = llm_extracted.get("labs")
+    if isinstance(g_labs, list):
+        import rapidfuzz
+
+        final_labs = final.get("labs", [])
+        for idx, row in enumerate(g_labs):
+            if not isinstance(row, dict):
+                continue
+            name = row.get("name")
+            value = row.get("value")
+            if not isinstance(name, str) or not isinstance(value, str):
+                continue
+            name = name.strip()
+            value = value.strip()
+            if len(name) < 2 or not value:
+                continue
+
+            evidence = fe.get(f"labs.{idx}.value") or fe.get(f"labs.{idx}.name")
+            if not _evidence_ok(evidence, raw) and (name.lower() not in raw.lower() or value.lower() not in raw.lower()):
+                continue
+
+            unit = row.get("unit") if isinstance(row.get("unit"), str) else None
+            is_duplicate = False
+            for existing in final_labs:
+                existing_name = str(existing.get("name", ""))
+                existing_value = str(existing.get("value", ""))
+                name_sim = rapidfuzz.fuzz.token_sort_ratio(name.lower(), existing_name.lower())
+                if name_sim > 88 and existing_value.strip().lower() == value.lower():
+                    if not existing.get("unit") and unit:
+                        existing["unit"] = unit
+                    is_duplicate = True
+                    break
+
+            if not is_duplicate:
+                final_labs.append({"name": name, "value": value, "unit": unit})
+
+        final["labs"] = final_labs
+
     # Medications: Deduplicate based on fuzzy name + dosage
     g_meds = llm_extracted.get("medications")
     if isinstance(g_meds, list):
@@ -94,9 +154,11 @@ def merge_and_validate(
                 existing_name = existing.get("name", "")
                 existing_dosage = _norm(str(existing.get("dosage") or ""))
                 
-                # If name is very similar AND dosage matches
+                # If name is very similar AND dosage matches (ignoring spaces)
                 name_sim = rapidfuzz.fuzz.token_sort_ratio(name.lower(), existing_name.lower())
-                if name_sim > 85 and (not dosage or not existing_dosage or dosage.lower() == existing_dosage.lower()):
+                dosage_clean = dosage.lower().replace(" ", "")
+                existing_dosage_clean = existing_dosage.lower().replace(" ", "")
+                if name_sim > 85 and (not dosage or not existing_dosage or dosage_clean == existing_dosage_clean):
                     is_duplicate = True
                     # Update existing with LLM info if missing (e.g. frequency normalization)
                     for key in ["frequency", "duration", "route", "dosage"]:
