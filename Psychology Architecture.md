@@ -66,18 +66,10 @@ This is implemented in `_fusion()` and request validation in `psychology/schemas
 
 ### 3.1 Emotion Inference
 
-| Branch | Current implementation |
-|---|---|
-| Face | Hugging Face image classifier from `PSYCHOLOGY_FACE_EMOTION_MODEL` |
-| Speech | ModelScope `emotion2vec` pipeline from `PSYCHOLOGY_SPEECH_EMOTION_MODEL` |
-| Text | HF text classifier **optional** (`PSYCHOLOGY_TEXT_EMOTION_USE_HF`); otherwise keyword heuristic fallback |
-
-#### Important current default
-
-To avoid large blocking downloads during chat requests, HF text inference is guarded by:
-
-- `PSYCHOLOGY_TEXT_EMOTION_USE_HF=false` (default in code path),
-- fallback lexical heuristics in `_text_emotion()` if disabled/unavailable.
+| Face | `dima806/facial_emotions_image_detection` (HF Image Classifier) | Chosen for its small footprint (~86M params) and high accuracy on the 7 basic emotions, avoiding massive multi-GB downloads during development while providing reliable real-time inference. |
+| Speech | `iic/emotion2vec_plus_large` (ModelScope Pipeline) | A state-of-the-art self-supervised model for speech emotion recognition. It provides robust feature extraction regardless of the spoken language, essential for supporting Arabic/Darija alongside English/French. |
+| Text | `j-hartmann/emotion-english-distilroberta-base` (Optional HF) | A lightweight and high-performing model for English text emotion. However, the system defaults to keyword-based heuristics to ensure near-zero latency and avoid cold-start delays. |
+| Embedding | `all-MiniLM-L6-v2` (SentenceTransformers) | Chosen for its extreme efficiency (80MB) and high performance in semantic retrieval, powering the Qdrant knowledge base without significant compute overhead. |
 
 ### 3.2 Fusion Output Schema
 
@@ -116,11 +108,20 @@ The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 5. Validate strict JSON response.
 6. If invalid/unavailable: deterministic fallback templates.
 
+### LLM Choice and Rationale
+
+- **Primary Model**: `llama-3.3-70b-versatile` (via Groq).
+- **Why**: 
+    - **Reasoning Capabilities**: Llama 3.3 70B provides near-frontier performance, essential for complex CBT-informed therapy reasoning and handling multi-turn emotional context.
+    - **Speed (Groq)**: The Groq LPU allows for sub-second generation times, which is critical for maintaining the flow of a therapy session.
+    - **Versatility**: It handles multiple languages (English, French, Arabic/Darija) effectively in a single prompt context.
+    - **JSON Output**: It reliably follows the strict JSON schema required for system orchestration.
+- **Vision Model**: `llama-3.2-11b-vision-preview` (via Groq).
+- **Why**: Used for multimodal context where visual analysis of a patient's state or environment is required, providing a compact but capable vision-language bridge.
+
 ### LLM Provider (current code)
 
-- Groq Chat Completions client.
-- model from `settings.groq_model`.
-- response format: JSON object.
+- Groq Chat Completions client for ultra-low latency.
 - safety-oriented system prompt (no diagnosis/no prescribing, multilingual handling, escalation instruction).
 
 ### LLM Internal Response Contract
@@ -315,18 +316,18 @@ Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
 
 ## 11) Technology Stack (Code-Aligned Snapshot)
 
-| Area | Current implementation |
-|---|---|
-| API server | FastAPI |
-| Psychology orchestration | `PsychologyService` (Python) |
-| Therapy LLM | Groq chat completion |
-| Face emotion | HF image classifier |
-| Speech emotion | ModelScope emotion pipeline |
-| Text emotion | HF optional + heuristic fallback |
-| Vector DB | Qdrant |
-| Relational DB | PostgreSQL (with in-memory fallback in service layer) |
-| Auth/RBAC | JWT + role checks in FastAPI dependencies |
-| Evaluation | RAGAS + DeepEval |
+| Area | Model / Implementation | Rationale |
+|---|---|---|
+| API server | FastAPI | High performance, async-first, and native JSON support. |
+| Orchestration | `PsychologyService` | Centralized logic for fusion, RAG, and safety gating. |
+| Therapy LLM | `llama-3.3-70b-versatile` (Groq) | Frontier reasoning + sub-second latency via Groq. |
+| Vision LLM | `llama-3.2-11b-vision-preview` (Groq) | Efficient visual understanding. |
+| Face emotion | `dima806/...facial_emotions...` | Lightweight (~86MB) but accurate real-time inference. |
+| Speech emotion | `emotion2vec_plus_large` | Robust, language-agnostic audio feature extraction. |
+| Text emotion | Heuristic + DistilRoBERTa | Optimized for latency (heuristics) with optional deep analysis. |
+| Embeddings | `all-MiniLM-L6-v2` | Fast, compact, and high-quality semantic vectors. |
+| Vector DB | Qdrant | Scalable, high-performance vector search with hybrid filtering. |
+| Evaluation | RAGAS + DeepEval | Rigorous multimodal/LLM-based quality metrics (using Gemini/OpenAI). |
 
 ---
 
