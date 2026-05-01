@@ -5,6 +5,7 @@ python-jose[cryptography]>=3.3
 pydantic-settings>=2.3
 python-dotenv>=1.0
 numpy>=1.26
+scipy>=1.11
 pillow>=10.0
 torch>=2.3
 torchvision>=0.18

@@ -68,3 +68,57 @@ class DFUSegmentationXAIResponse(BaseModel):
     xai_overlay_base64: str
     mask_base64: str
     ulcer_detected: bool
+
+
+# ─── Retinopathy (DR cascade V5.1 → V8) ──────────────────────────────
+
+
+class RetinopathyV51Detail(BaseModel):
+    dr_detected: bool
+    dr_probability: float = Field(ge=0, le=1)
+    no_dr_probability: float = Field(ge=0, le=1)
+    threshold_used: float = Field(ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
+    model_name: str
+    model_version: str
+
+
+class RetinopathyV8Detail(BaseModel):
+    grade_idx: int = Field(ge=0, le=3)
+    grade_label: str
+    confidence: float = Field(ge=0, le=1)
+    probabilities: dict[str, float]
+    model_name: str
+    model_version: str
+
+
+class RetinopathyInferenceResponse(BaseModel):
+    status: str = "ok"
+    patient_id: int = Field(gt=0)
+    reviewed_by_user_id: int = Field(gt=0)
+    clinical_grade: int = Field(ge=0, le=4)
+    clinical_grade_label: str
+    v51: RetinopathyV51Detail
+    v8: RetinopathyV8Detail | None = None
+
+
+class RetinopathyGradcamResponse(BaseModel):
+    status: str = "ok"
+    patient_id: int = Field(gt=0)
+    reviewed_by_user_id: int = Field(gt=0)
+    method: str
+    heatmap_base64: str
+    grade_label: str
+    confidence: float = Field(ge=0, le=1)
+    attention_area: float = Field(ge=0, le=1)
+
+
+class RetinopathyModelHealthResponse(BaseModel):
+    status: str
+    v51_file_exists: bool
+    v51_loaded: bool
+    v51_path: str
+    v8_file_exists: bool
+    v8_loaded: bool
+    v8_path: str
+    detail: str | None = None

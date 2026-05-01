@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import RoleGuard from '@/components/auth/role-guard'
 import { DFUSegmentationPanel } from '@/components/clinical/dfu-segmentation-panel'
+import { RetinopathyPanel } from '@/components/clinical/retinopathy-panel'
 import { ThermalFootPanel } from '@/components/clinical/thermal-foot-panel'
 import {
   getClinicalSummary,
@@ -110,6 +111,7 @@ export default function ClinicalPage() {
         {loading && <p className="text-sm text-muted-foreground">Loading clinical insights...</p>}
 
         <ThermalFootPanel />
+        <RetinopathyPanel />
         <DFUSegmentationPanel />
 
       {/* Patient Prioritization List */}

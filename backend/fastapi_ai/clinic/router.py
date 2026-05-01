@@ -9,16 +9,21 @@ from clinic.schemas import (
     DFUSegmentationInferenceResponse,
     DFUSegmentationModelHealthResponse,
     DFUSegmentationXAIResponse,
+    RetinopathyGradcamResponse,
+    RetinopathyInferenceResponse,
+    RetinopathyModelHealthResponse,
     ThermalFootGradcamResponse,
     ThermalFootInferenceResponse,
     ThermalFootModelHealthResponse,
 )
-from clinic.models.DFUSegmentation import DFUSegmenter
+# from clinic.models.DFUSegmentation import DFUSegmenter  # TODO: re-enable when DFU implementation is pushed by owner
+from clinic.services.retinopathy_service import RetinopathyService
 from clinic.services.thermal_foot_pt_service import ThermalFootPtService
 
 router = APIRouter(prefix="/clinic", tags=["clinic"])
 _thermal_foot_service = ThermalFootPtService()
-_dfu_segmentation_service = DFUSegmenter()
+# _dfu_segmentation_service = DFUSegmenter()  # TODO: re-enable when DFU implementation is pushed by owner
+_retinopathy_service = RetinopathyService()
 
 
 def _lesion_metrics(prediction, mm_per_pixel: float) -> dict:
@@ -460,4 +465,186 @@ async def thermal_foot_gradcam(
         heatmap_base64=data["heatmap_base64"],
         prediction_label=data["prediction_label"],
         probability=data["probability"],
+    )
+
+
+# ─── Retinopathy (DR cascade V5.1 → V8) ──────────────────────────────
+
+
+@router.post(
+    "/retinopathy/infer",
+    response_model=RetinopathyInferenceResponse,
+    summary="Diabetic retinopathy cascade V5.1 → V8 (doctor)",
+)
+async def infer_retinopathy(
+    patient_id: int = Form(..., description="Patient record id this image belongs to"),
+    image: UploadFile = File(...),
+    claims: dict = Depends(require_roles("doctor")),
+) -> RetinopathyInferenceResponse:
+    doctor_id = _user_id_from_claims(claims)
+    if patient_id <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="patient_id must be a positive integer.")
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must be an image.")
+
+    raw_bytes = await image.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
+
+    try:
+        result = _retinopathy_service.predict_cascade(raw_bytes)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Retinopathy checkpoint could not be loaded: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Retinopathy inference failed unexpectedly.",
+        )
+
+    v51 = result.binary
+    v51_payload = {
+        "dr_detected": v51.dr_detected,
+        "dr_probability": v51.dr_probability,
+        "no_dr_probability": v51.no_dr_probability,
+        "threshold_used": v51.threshold_used,
+        "confidence": v51.confidence,
+        "model_name": v51.model_name,
+        "model_version": v51.model_version,
+    }
+    v8_payload = None
+    if result.severity is not None:
+        v8 = result.severity
+        v8_payload = {
+            "grade_idx": v8.grade_idx,
+            "grade_label": v8.grade_label,
+            "confidence": v8.confidence,
+            "probabilities": v8.probabilities,
+            "model_name": v8.model_name,
+            "model_version": v8.model_version,
+        }
+
+    return RetinopathyInferenceResponse(
+        patient_id=patient_id,
+        reviewed_by_user_id=doctor_id,
+        clinical_grade=result.clinical_grade,
+        clinical_grade_label=result.clinical_grade_label,
+        v51=v51_payload,
+        v8=v8_payload,
+    )
+
+
+@router.post(
+    "/retinopathy/gradcam",
+    response_model=RetinopathyGradcamResponse,
+    summary="Retinopathy explainability heatmap (doctor)",
+)
+async def retinopathy_gradcam(
+    patient_id: int = Form(..., description="Patient record id this image belongs to"),
+    image: UploadFile = File(...),
+    claims: dict = Depends(require_roles("doctor")),
+) -> RetinopathyGradcamResponse:
+    doctor_id = _user_id_from_claims(claims)
+    if patient_id <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="patient_id must be a positive integer.")
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must be an image.")
+
+    raw_bytes = await image.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
+
+    try:
+        cascade = _retinopathy_service.predict_cascade(raw_bytes)
+        # Choose explainer based on cascade verdict: EigenCAM for No DR (gentle global view),
+        # multi-scale HiResCAM for any DR class (lesion-focused).
+        if cascade.severity is None:
+            data = _retinopathy_service.binary.generate_eigencam(raw_bytes)
+            method = "EigenCAM"
+            grade_label = cascade.clinical_grade_label
+            confidence = cascade.binary.confidence
+            attention_area = float(data["attention_area"])
+            heatmap_b64 = data["heatmap_base64"]
+        else:
+            data = _retinopathy_service.severity.generate_hires_cam(
+                raw_bytes, target_class=cascade.severity.grade_idx,
+            )
+            method = "HiResCAM-MultiScale"
+            grade_label = cascade.clinical_grade_label
+            confidence = cascade.severity.confidence
+            attention_area = float(data["attention_area"])
+            heatmap_b64 = data["heatmap_base64"]
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Retinopathy checkpoint could not be loaded: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Retinopathy heatmap generation failed unexpectedly.",
+        )
+
+    return RetinopathyGradcamResponse(
+        patient_id=patient_id,
+        reviewed_by_user_id=doctor_id,
+        method=method,
+        heatmap_base64=heatmap_b64,
+        grade_label=grade_label,
+        confidence=confidence,
+        attention_area=attention_area,
+    )
+
+
+@router.get("/retinopathy/health", response_model=RetinopathyModelHealthResponse)
+def retinopathy_model_health(
+    _claims: dict = Depends(require_roles("doctor")),
+) -> RetinopathyModelHealthResponse:
+    v51 = _retinopathy_service.binary
+    v8 = _retinopathy_service.severity
+    v51_path = v51.model_path
+    v8_path = v8.model_path
+    v51_exists = v51_path.exists()
+    v8_exists = v8_path.exists()
+
+    detail: str | None = None
+    if v51_exists:
+        try:
+            v51.ensure_loaded()
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            detail = f"V5.1 load error: {exc}"
+    if v8_exists and detail is None:
+        try:
+            v8.ensure_loaded()
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            detail = f"V8 load error: {exc}"
+
+    if not v51_exists or not v8_exists:
+        status_text = "missing_model"
+    elif detail is not None:
+        status_text = "load_failed"
+    elif v51.is_loaded and v8.is_loaded:
+        status_text = "ok"
+    else:
+        status_text = "partial"
+
+    return RetinopathyModelHealthResponse(
+        status=status_text,
+        v51_file_exists=v51_exists,
+        v51_loaded=v51.is_loaded,
+        v51_path=v51_path.as_posix(),
+        v8_file_exists=v8_exists,
+        v8_loaded=v8.is_loaded,
+        v8_path=v8_path.as_posix(),
+        detail=detail,
     )
