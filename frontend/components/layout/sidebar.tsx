@@ -76,12 +76,12 @@ export default function Sidebar() {
   return (
     <aside className="hidden w-64 border-r border-border bg-sidebar text-sidebar-foreground lg:flex lg:flex-col">
       <div className="flex items-center gap-3 border-b border-sidebar-border px-6 py-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
-          G
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-background overflow-hidden border border-sidebar-border shadow-sm">
+          <img src="/glunova_dark_logo.jpeg" alt="Glunova Logo" className="h-full w-full object-cover" />
         </div>
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">Glunova</h1>
-          <p className="text-xs text-muted-foreground">AI Healthcare</p>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-bold tracking-tight truncate">Glunova</h1>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">AI Healthcare</p>
         </div>
       </div>
 
