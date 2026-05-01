@@ -23,7 +23,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center">
-      <Spinner size="lg" />
+      <Spinner className="h-8 w-8" />
     </div>
   )
 }
