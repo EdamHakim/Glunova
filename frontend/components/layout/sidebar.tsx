@@ -77,7 +77,7 @@ export default function Sidebar() {
     <aside className="hidden w-64 border-r border-border bg-sidebar text-sidebar-foreground lg:flex lg:flex-col">
       <div className="flex items-center gap-3 border-b border-sidebar-border px-6 py-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-background overflow-hidden border border-sidebar-border shadow-sm">
-          <img src="/glunova_dark_logo.jpeg" alt="Glunova Logo" className="h-full w-full object-cover" />
+          <img src="/glunova_dark_logo.png" alt="Glunova Logo" className="h-full w-full object-cover" />
         </div>
         <div className="flex-1 min-w-0">
           <h1 className="text-lg font-bold tracking-tight truncate">Glunova</h1>
@@ -89,18 +89,17 @@ export default function Sidebar() {
         <ul className="space-y-2">
           {visibleMenuItems.map((item) => {
             const Icon = item.icon
-            const isActive = item.href === '/dashboard' 
-              ? pathname === '/dashboard' 
+            const isActive = item.href === '/dashboard'
+              ? pathname === '/dashboard'
               : pathname === item.href || pathname.startsWith(item.href + '/')
             return (
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${isActive
                       ? 'bg-sidebar-accent text-sidebar-primary'
                       : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                  }`}
+                    }`}
                 >
                   <Icon className="h-5 w-5" />
                   <span>{item.label}</span>
