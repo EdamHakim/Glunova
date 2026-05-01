@@ -1,0 +1,191 @@
+/* Monitoring UI Enhancements */
+
+.monitoring-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.medication-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.medication-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary);
+}
+
+.medication-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--primary);
+  opacity: 0.8;
+}
+
+.medication-card.matched::before { background: var(--health-success); }
+.medication-card.ambiguous::before { background: var(--health-warning); }
+.medication-card.failed::before { background: var(--health-danger); }
+
+.medication-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.medication-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--foreground);
+}
+
+.medication-details {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--muted);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.medication-source {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.source-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-cover: cover;
+  border: 1px solid var(--border);
+}
+
+/* Lab Results Styling */
+
+.lab-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.lab-metric-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  display: grid;
+  grid-template-columns: 200px 1fr 150px;
+  align-items: center;
+  gap: 1.5rem;
+  transition: background-color 0.2s ease;
+}
+
+@media (max-width: 768px) {
+  .lab-metric-card {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+.lab-metric-card:hover {
+  background: var(--accent);
+}
+
+.lab-info .test-name {
+  font-weight: 600;
+  display: block;
+}
+
+.lab-info .test-date {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.lab-value-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lab-value-text {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.lab-value-unit {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  margin-left: 0.25rem;
+}
+
+.range-viz {
+  height: 8px;
+  background: var(--muted);
+  border-radius: 4px;
+  position: relative;
+  width: 100%;
+  max-width: 300px;
+}
+
+.range-normal {
+  position: absolute;
+  height: 100%;
+  background: var(--health-success);
+  opacity: 0.3;
+  border-radius: 4px;
+}
+
+.range-marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  background: var(--primary);
+  border: 2px solid white;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  z-index: 2;
+}
+
+.lab-source-info {
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 768px) {
+  .lab-source-info {
+    text-align: left;
+  }
+}

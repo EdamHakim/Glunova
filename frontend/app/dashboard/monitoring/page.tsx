@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, Clock } from 'lucide-react'
+import { AlertCircle, Clock, Pill, FileText, CheckCircle2, Info, ArrowUpRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import './monitoring.css'
+
 import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,7 +21,6 @@ import {
   type MonitoringTierSummary,
   type MonitoringTimelineItem,
 } from '@/lib/monitoring-api'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 function getSeverityColor(severity: string) {
   switch (severity) {
@@ -192,59 +193,64 @@ export default function MonitoringPage() {
           )}
 
           {medications.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Medication</TableHead>
-                  <TableHead>Dosage & Frequency</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {medications.map((medication) => (
-                  <TableRow key={medication.id}>
-                    <TableCell className="whitespace-normal">
-                      <div className="font-medium">{medication.name_display || medication.name_raw}</div>
+            <div className="monitoring-grid">
+              {medications.map((medication) => (
+                <div key={medication.id} className={`medication-card ${medication.verification_status}`}>
+                  <div className="medication-header">
+                    <div>
+                      <div className="medication-name">{medication.name_display || medication.name_raw}</div>
                       {medication.name_display && medication.name_display !== medication.name_raw && (
-                        <div className="text-xs text-muted-foreground">OCR: {medication.name_raw}</div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">OCR: {medication.name_raw}</div>
                       )}
-                      {medication.rxcui && (
-                        <div className="text-xs text-muted-foreground">RxCUI: {medication.rxcui}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
-                      {[medication.dosage, medication.frequency, medication.duration, medication.route]
-                        .filter(Boolean)
-                        .join(' · ') || 'Not available'}
-                    </TableCell>
-                    <TableCell className="whitespace-normal">
-                      <Badge variant="outline" className={getMedicationBadgeClass(medication.verification_status)}>
-                        {medication.verification_status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm">
-                      {medication.source_document_preview_url ? (
-                        <img
-                          src={medication.source_document_preview_url}
-                          alt={medication.source_document_filename}
-                          className="mb-2 h-16 w-16 rounded-md border border-border object-cover"
-                        />
-                      ) : null}
-                      <div>{medication.source_document_filename}</div>
-                      <div className="text-xs text-muted-foreground">
+                    </div>
+                    <Badge variant="outline" className={getMedicationBadgeClass(medication.verification_status)}>
+                      {medication.verification_status}
+                    </Badge>
+                  </div>
+
+                  <div className="medication-details">
+                    {medication.dosage && (
+                      <div className="detail-item">
+                        <Pill className="h-3 w-3 text-primary" />
+                        <span>{medication.dosage}</span>
+                      </div>
+                    )}
+                    {medication.frequency && (
+                      <div className="detail-item">
+                        <Clock className="h-3 w-3 text-primary" />
+                        <span>{medication.frequency}</span>
+                      </div>
+                    )}
+                    {medication.route && (
+                      <div className="detail-item">
+                        <ArrowUpRight className="h-3 w-3 text-primary" />
+                        <span>{medication.route}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="medication-source">
+                    {medication.source_document_preview_url ? (
+                      <img
+                        src={medication.source_document_preview_url}
+                        alt="Source"
+                        className="source-thumb"
+                      />
+                    ) : (
+                      <div className="source-thumb flex items-center justify-center bg-muted">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium truncate">{medication.source_document_filename}</div>
+                      <div className="text-[10px] text-muted-foreground">
                         {new Date(medication.source_document_created_at).toLocaleDateString()}
                       </div>
-                      {medication.source_document_count > 1 && (
-                        <div className="text-xs text-muted-foreground">
-                          Also seen in {medication.source_document_count - 1} other document{medication.source_document_count > 2 ? 's' : ''}
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -266,36 +272,80 @@ export default function MonitoringPage() {
           )}
 
           {labResults.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Test</TableHead>
-                  <TableHead>Result</TableHead>
-                  <TableHead>Observed</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {labResults.map((result) => (
-                  <TableRow key={result.id}>
-                    <TableCell className="whitespace-normal font-medium">{result.test_name}</TableCell>
-                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
-                      {result.value}
-                      {result.unit ? ` ${result.unit}` : ''}
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
-                      {new Date(result.observed_at || result.source_document_created_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm">
-                      <div>{result.source_document_filename}</div>
-                      <div className="text-xs text-muted-foreground">
-                        Uploaded {new Date(result.source_document_created_at).toLocaleDateString()}
+            <div className="lab-results-list">
+              {labResults.map((result) => {
+                const rangeMatch = result.reference_range ? result.reference_range.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/) : null;
+                const min = rangeMatch ? parseFloat(rangeMatch[1]) : null;
+                const max = rangeMatch ? parseFloat(rangeMatch[2]) : null;
+                const val = result.numeric_value;
+                
+                let position = 50;
+                if (min !== null && max !== null && val !== null) {
+                  const padding = (max - min) * 0.2 || 1;
+                  const displayMin = min - padding;
+                  const displayMax = max + padding;
+                  position = ((val - displayMin) / (displayMax - displayMin)) * 100;
+                  position = Math.max(5, Math.min(95, position));
+                }
+
+                const isOutOfRange = val !== null && min !== null && max !== null && (val < min || val > max);
+
+                return (
+                  <div key={result.id} className="lab-metric-card">
+                    <div className="lab-info">
+                      <span className="test-name">{result.test_name}</span>
+                      <span className="test-date">
+                        Observed {new Date(result.observed_at || result.source_document_created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    <div className="lab-value-container">
+                      <div className="flex items-baseline gap-2">
+                        <span className={`lab-value-text ${isOutOfRange ? 'text-health-danger' : 'text-primary'}`}>
+                          {result.value}
+                        </span>
+                        <span className="lab-value-unit">{result.unit}</span>
+                        {isOutOfRange && (
+                          <Badge variant="outline" className="bg-health-danger/10 text-health-danger border-health-danger/20 ml-2 h-5">
+                            Out of Range
+                          </Badge>
+                        )}
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      
+                      {min !== null && max !== null && (
+                        <div className="flex flex-col gap-1.5 w-full max-w-[300px]">
+                          <div className="range-viz">
+                            <div 
+                              className="range-normal" 
+                              style={{ 
+                                left: '20%', 
+                                width: '60%' 
+                              }} 
+                            />
+                            <div 
+                              className="range-marker" 
+                              style={{ 
+                                left: `${position}%`,
+                                backgroundColor: isOutOfRange ? 'var(--health-danger)' : 'var(--primary)'
+                              }} 
+                            />
+                          </div>
+                          <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+                            <span>Ref: {min}</span>
+                            <span>{max}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="lab-source-info">
+                      <div className="font-medium truncate max-w-[150px] ml-auto">{result.source_document_filename}</div>
+                      <div className="text-[10px]">Uploaded {new Date(result.source_document_created_at).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
