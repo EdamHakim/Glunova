@@ -189,3 +189,31 @@
     text-align: left;
   }
 }
+/* Lab Document Accordion */
+
+.lab-document-item {
+  transition: all 0.2s ease;
+}
+
+.lab-document-item:hover {
+  background: var(--accent)/20;
+}
+
+.nested-lab-metric {
+  padding: 0.75rem !important;
+  grid-template-columns: 1fr auto !important;
+  gap: 0.5rem !important;
+  border-left: 3px solid var(--primary);
+}
+
+.nested-lab-metric.out-of-range {
+  border-left-color: var(--health-danger);
+}
+
+.lab-results-accordion .test-name {
+  font-size: 0.9rem;
+}
+
+.lab-results-accordion .lab-value-text {
+  font-size: 1rem;
+}

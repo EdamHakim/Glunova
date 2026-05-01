@@ -53,6 +53,7 @@ export type PatientLabResultRow = {
   numeric_value: number | null
   unit: string | null
   reference_range: string | null
+  is_out_of_range: boolean | null
   observed_at: string | null
   raw_payload: Record<string, unknown>
   created_at: string

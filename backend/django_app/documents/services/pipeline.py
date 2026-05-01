@@ -38,29 +38,22 @@ def safe_filename(name: str) -> str:
 
 
 def _persist_patient_medications(doc: MedicalDocument, extracted_json: dict) -> None:
-    # 1. Clear medications previously associated WITH THIS DOCUMENT
-    # (This ensures re-processing the same doc doesn't duplicate)
-    PatientMedication.objects.filter(source_document=doc).delete()
-
     medications = extracted_json.get("medications")
     if extracted_json.get("document_type") != "prescription" or not isinstance(medications, list):
         return
 
-    # 2. Fetch existing medications for THIS PATIENT (from other documents)
-    # to avoid cross-document duplicates.
+    # 1. Fetch existing medications for THIS PATIENT
+    # We map them by (rxcui, normalized_name, dosage) for quick lookup
     existing_meds = PatientMedication.objects.filter(patient=doc.patient)
-    existing_keys: set[tuple[str, str, str]] = set()
+    med_map: dict[tuple[str, str, str], PatientMedication] = {}
     for em in existing_meds:
-        # We deduplicate based on (rxcui, normalized_name, dosage)
         key = (
             str(em.rxcui or "").strip().lower(),
             str(em.name_raw or "").strip().lower(),
             str(em.dosage or "").strip().lower()
         )
-        existing_keys.add(key)
+        med_map[key] = em
 
-    rows: list[PatientMedication] = []
-    # seen_in_current_batch to handle duplicates within the SAME document
     seen_in_current_batch: set[tuple[str, str, str]] = set()
 
     for medication in medications:
@@ -76,32 +69,37 @@ def _persist_patient_medications(doc: MedicalDocument, extracted_json: dict) -> 
         name_key = raw_name.strip().lower()
 
         dedupe_key = (rxcui, name_key, dosage)
-
-        if dedupe_key in existing_keys or dedupe_key in seen_in_current_batch:
-            # Skip if patient already has this medication from another document
-            # or if we've already processed it in this batch.
+        if dedupe_key in seen_in_current_batch:
             continue
-        
         seen_in_current_batch.add(dedupe_key)
-        rows.append(
-            PatientMedication(
+
+        # Update existing or create new
+        med_obj = med_map.get(dedupe_key)
+        if med_obj:
+            # Update fields only if they are present in the new extraction
+            med_obj.source_document = doc
+            if medication.get("frequency"): med_obj.frequency = medication["frequency"]
+            if medication.get("duration"): med_obj.duration = medication["duration"]
+            if medication.get("route"): med_obj.route = medication["route"]
+            if medication.get("instructions"): med_obj.instructions = medication["instructions"]
+            med_obj.verification_status = verification.get("status", med_obj.verification_status)
+            med_obj.verification_detail = verification or med_obj.verification_detail
+            med_obj.save()
+        else:
+            PatientMedication.objects.create(
                 patient=doc.patient,
                 source_document=doc,
                 name_raw=raw_name.strip(),
-                name_display=verification.get("name_display") if isinstance(verification.get("name_display"), str) else None,
-                rxcui=verification.get("rxcui") if isinstance(verification.get("rxcui"), str) else None,
-                dosage=medication.get("dosage") if isinstance(medication.get("dosage"), str) else None,
-                frequency=medication.get("frequency") if isinstance(medication.get("frequency"), str) else None,
-                duration=medication.get("duration") if isinstance(medication.get("duration"), str) else None,
-                route=medication.get("route") if isinstance(medication.get("route"), str) else None,
-                verification_status=verification.get("status")
-                if verification.get("status") in dict(PatientMedication.VerificationStatus.choices)
-                else PatientMedication.VerificationStatus.UNVERIFIED,
-                verification_detail=verification if verification else {},
+                name_display=verification.get("name_display"),
+                rxcui=verification.get("rxcui"),
+                dosage=medication.get("dosage"),
+                frequency=medication.get("frequency"),
+                duration=medication.get("duration"),
+                route=medication.get("route"),
+                instructions=medication.get("instructions"),
+                verification_status=verification.get("status", "unverified"),
+                verification_detail=verification or {},
             )
-        )
-    if rows:
-        PatientMedication.objects.bulk_create(rows)
 
 
 def _normalize_lab_name(value: str) -> str:
@@ -133,14 +131,21 @@ def _resolve_observed_at(doc: MedicalDocument, extracted_json: dict) -> datetime
 
 
 def _persist_patient_lab_results(doc: MedicalDocument, extracted_json: dict) -> None:
-    PatientLabResult.objects.filter(source_document=doc).delete()
-
     labs = extracted_json.get("labs")
     if extracted_json.get("document_type") != "lab_report" or not isinstance(labs, list):
         return
 
     observed_at = _resolve_observed_at(doc, extracted_json)
-    rows: list[PatientLabResult] = []
+    
+    # 2. Fetch existing labs for this patient to update vs create
+    existing_labs = PatientLabResult.objects.filter(patient=doc.patient)
+    lab_map: dict[tuple[str, str, str], PatientLabResult] = {}
+    for el in existing_labs:
+        # Key by name, date (as date string), and unit
+        obs_date = el.observed_at.date().isoformat() if el.observed_at else "no-date"
+        key = (el.normalized_name, obs_date, (el.unit or "").lower())
+        lab_map[key] = el
+
     seen_in_current_batch: set[tuple[str, str, str]] = set()
 
     for lab in labs:
@@ -157,13 +162,26 @@ def _persist_patient_lab_results(doc: MedicalDocument, extracted_json: dict) -> 
 
         unit = lab.get("unit") if isinstance(lab.get("unit"), str) and lab.get("unit").strip() else None
         normalized_name = _normalize_lab_name(test_name)
-        dedupe_key = (normalized_name, value.lower(), (unit or "").lower())
+        obs_date_str = observed_at.date().isoformat()
+        dedupe_key = (normalized_name, obs_date_str, (unit or "").lower())
+        
         if dedupe_key in seen_in_current_batch:
             continue
         seen_in_current_batch.add(dedupe_key)
 
-        rows.append(
-            PatientLabResult(
+        lab_obj = lab_map.get(dedupe_key)
+        if lab_obj:
+            # Update existing
+            lab_obj.source_document = doc
+            lab_obj.value = value
+            lab_obj.numeric_value = _coerce_float(value)
+            if lab.get("reference_range"):
+                lab_obj.reference_range = lab["reference_range"]
+            lab_obj.is_out_of_range = lab.get("is_out_of_range")
+            lab_obj.raw_payload = lab
+            lab_obj.save()
+        else:
+            PatientLabResult.objects.create(
                 patient=doc.patient,
                 source_document=doc,
                 test_name=test_name,
@@ -171,14 +189,11 @@ def _persist_patient_lab_results(doc: MedicalDocument, extracted_json: dict) -> 
                 value=value,
                 numeric_value=_coerce_float(value),
                 unit=unit.strip() if unit else None,
-                reference_range=lab.get("reference_range") if isinstance(lab.get("reference_range"), str) else None,
+                reference_range=lab.get("reference_range"),
+                is_out_of_range=lab.get("is_out_of_range"),
                 observed_at=observed_at,
                 raw_payload=lab,
             )
-        )
-
-    if rows:
-        PatientLabResult.objects.bulk_create(rows)
 
 
 def _get_service_token(user_id: int) -> str:

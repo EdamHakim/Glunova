@@ -7,16 +7,16 @@
 
 ## Executive Summary
 
-The **OCR & Extraction Module** in Glunova is a robust, multi-layered service designed to process medical documents (prescriptions, lab results, clinical notes) and transform them into verified, structured JSON data. It is implemented in `backend/fastapi_ai/extraction/`.
+The **OCR & Extraction Module** in Glunova is a specialized, multi-layered service designed to process clinical documents and transform them into verified, longitudinal patient data. It is implemented in `backend/fastapi_ai/extraction/`.
 
-The pipeline employs a **hybrid architecture** combining state-of-the-art cloud OCR, deterministic rule-based engines, LLM-based structured extraction, and clinical database verification (RxNorm). 
+The pipeline employs a **hybrid architecture** that has been strictly optimized for two primary document classes: **Prescriptions** and **Lab Reports**. It combines state-of-the-art cloud OCR, deterministic rule-based engines, LLM-based structured extraction, and clinical database verification (RxNorm).
 
 ### Key Capabilities
+- **Specialized Classification**: Binary classification (Prescription vs. Lab Report) ensures high-fidelity extraction without the overhead of generic "vitals" logic.
 - **Adaptive OCR Engine**: Prioritizes Azure Document Intelligence with automatic fallback to local Tesseract OCR.
 - **Multimodal LLM Rescue**: Uses Vision-Language Models (Groq Llama-3.2-Vision) if standard OCR yields low-quality text.
-- **Deterministic Validation**: Regex-based rules baseline to prevent LLM hallucinations on critical metrics (HbA1c, Blood Pressure).
-- **Clinical Verification**: Automated lookup via National Library of Medicine (RxNorm) and Drug-Drug Interaction screening.
-- **Automated Observability**: DeepEval/LLM-as-a-judge harnesses for OCR fidelity and structural extraction evaluations.
+- **Longitudinal Persistence**: "Update vs. Create" logic (Upsert) ensures that scanned documents update existing medication regimens and lab trends instead of creating duplicates.
+- **Clinical Verification**: Automated lookup via National Library of Medicine (RxNorm) with support for qualitative *Instructions* and *Out-of-range* lab flagging.
 
 ---
 
@@ -43,79 +43,65 @@ flowchart TD
     G --> K
 
     H{"Dual-path<br/>extraction"}
-    H --> I["Deterministic Rules<br/>Regex for BP · HR · BMI · Dates"]
-    H --> J["LLM Structured Parsing<br/>Groq Llama-3.3-70b<br/>Demographics · Dx · Medications"]
+    H --> I["Deterministic Rules<br/>Regex for Lab Units · Reference Ranges · Dates"]
+    H --> J["LLM Structured Parsing<br/>Groq Llama-3.3-70b<br/>Prescription Details · Lab Test Names · Instructions"]
 
     I --> L["Merge & Validate<br/>Conflict resolution: rules override LLM"]
     J --> L
     K["Groq Vision Extract<br/>Skips rules + LLM paths"] --> L
 
-    L --> M["Clinical Verification<br/>RxNorm API lookup · DDI screening<br/>LLM tie-breaker for ambiguous drugs"]
+    L --> M["Clinical Verification<br/>RxNorm API lookup · RxCUI Mapping<br/>LLM tie-breaker for ambiguous drugs"]
 
-    M --> N{"Gating Logic<br/>Requires human review?"}
+    M --> N{"Persistence Layer<br/>Django Pipeline"}
 
-    N -- "OCR conf < 70%<br/>Severe DDI<br/>Unverified drugs<br/>Vision rescue used" --> O(["Flag for Doctor Review"])
-    N -- "All checks pass" --> P(["Verified Structured JSON"])
+    N -- "Existing Med Found" --> O["Update details: frequency · instructions"]
+    N -- "New Med/Lab" --> P["Create persistent patient record"]
+    N -- "Matching Lab/Date" --> Q["Update value · Out-of-range status"]
 
-    P --> Q["Observability<br/>DeepEval · GEval metrics<br/>OCR fidelity · Groundedness · Schema accuracy"]
+    O & P & Q --> R(["Monitoring Dashboard<br/>Grouped by Document"])
 ```
 
 ---
 ## Module Breakdown
 
 ### 1. Preprocessing (`preprocessing.py`)
-- Standardizes incoming file formats (JPEG, PNG, PDF, TIFF).
-- Resizes high-resolution images to a normalized DPI.
-- Converts to grayscale, applies binarization thresholds, and removes noise to improve structural clarity for OCR algorithms.
+- Standardizes incoming file formats and normalizes resolution for optimal OCR performance.
 
 ### 2. OCR Strategy (`azure_ocr.py` & `local_ocr.py`)
-- **Primary Engine (Azure)**: Uses `prebuilt-layout` models via `azure-ai-formrecognizer` to capture text, tables, and bounding boxes.
-- **Fallback Engine (Local)**: Uses PyTesseract if Azure is unconfigured, unreachable, or throws quota errors.
-- **Quality Analysis**: The output is scanned for low-confidence characteristics (excessive special characters, low string density). If the OCR text is deemed unusable, the pipeline activates **Vision Rescue**.
+- **Azure Engine**: Primary choice, utilizing `prebuilt-layout` for structural accuracy.
+- **Fallback Engine**: Local Tesseract ensures offline/low-cost availability.
+- **Vision Rescue**: If OCR fails, a multimodal Llama model interprets the image directly.
 
 ### 3. Dual-Path Extraction
-If the OCR text is healthy, the pipeline splits into two concurrent workflows:
+The pipeline splits into deterministic and probabilistic workflows:
 
 #### A. Deterministic Rules (`extraction_rules.py`)
-- Executes strict regular expressions.
-- Extracts heavily constrained metrics: *Blood Pressure (e.g., 120/80), Heart Rate, Weight, BMI, Dates*.
-- Extremely low hallucination rate; serves as the absolute source of truth.
+- Focused on high-precision numerical values: *Lab units, Reference ranges, and Document dates*.
+- Serves as the grounded "source of truth" to prevent LLM hallucinations on lab values.
 
 #### B. LLM Structured Parsing (`groq_extract.py`)
-- Analyzes the `raw_ocr` text using Groq's high-speed inference (Llama-3.3-70b-versatile).
-- Infers context and extracts: *Patient Demographics, Clinical Notes, Diagnosis, Complex Medication Regimens*.
-- Generates field-level "evidence" mapping (pinpointing the exact substring supporting an extracted value).
+- Uses Groq (Llama-3.3-70b) to extract complex text fields: *Medication name, instructions (directions), lab test names*.
+- Specifically trained (via few-shot prompts) to capture medication directions (e.g., *"Take after meals"*) as qualitative strings.
 
-*(Note: If Vision Rescue was activated, the image is passed directly to `run_groq_vision_extract` using a Llama-Vision model, skipping A and B).*
+### 4. Clinical Verification (`medication_verify.py`)
+- All medications are verified against **RxNorm**.
+- Generates `RxCUI` and `name_display` for standardized medical records.
+- Flags medications as **Matched**, **Ambiguous**, or **Unverified** for doctor review.
 
-### 4. Merging and Validation (`merge_validate.py`)
-- Fuses the deterministic rule output with the LLM output.
-- **Conflict Resolution**: If the LLM hallucinates an HbA1c of 12.0 but the deterministic rule found 8.5, the deterministic rule overrides the LLM output.
+### 5. Smart Persistence (`pipeline.py` - Django)
+- **Medication De-duplication**: Uses (RxCUI, Name, Dosage) to identify existing medications. If found, it updates the `frequency` and `instructions` instead of adding a new row.
+- **Lab Trend Matching**: Uses (Normalized Name, Date, Unit) to identify existing lab results, updating the `value` and `is_out_of_range` status.
 
-### 5. Clinical Verification (`medication_verify.py`)
-- Scans all extracted medications against the **National Library of Medicine (RxNorm)** API.
-- Generates fuzzy-matched `RxNormCandidate` clusters.
-- Re-ranks candidates based on neighboring OCR context (dosage, route, duration).
-- If ambiguous, it triggers an LLM tie-breaker to look at surrounding words.
-- Executes `check_drug_drug_interactions` on all verified `rxcuis`.
-
-### 6. Review & Gating Logic (`orchestrator.py`)
-The pipeline deterministically flags documents requiring human doctor review if:
-1. OCR average confidence < 70%.
-2. Severe drug interactions are detected.
-3. Medications remain unverified/ambiguous.
-4. Vision rescue was required.
+### 6. UI Representation
+- **Grouped Visualization**: Lab results are displayed in an **Accordion** format, grouped by the original scanned document for clinical context.
+- **Medication Tracking**: Historical medications show their extracted directions (Instructions) and RxNorm metadata.
 
 ---
 
 ## Observability & Evaluation (`evaluation/`)
 
-The module includes an offline evaluation harness (`run_deepeval_eval.py` & `test_deepeval_runner.py`) using **DeepEval**. 
-
-It uses the `LLM-as-a-Judge` methodology (GEval metrics) to grade the pipeline on:
-- **OCR Fidelity**: Did the OCR engine hallucinate or drop medical facts?
-- **Structured Correctness**: Did the LLM map the text into the JSON schema accurately?
-- **Groundedness**: Did the extracted fields directly originate from the document?
-- **Document Type Accuracy**: Was the document properly classified (prescription vs. lab report)?
-
-This evaluation suite handles decommissioned Groq models gracefully via fallback mapping.
+The module includes an offline evaluation harness using **DeepEval** (GEval metrics) to grade:
+- **OCR Fidelity**: Verification of raw text accuracy.
+- **Schema Mapping**: Accuracy of the Prescription/Lab classification.
+- **Instructions Accuracy**: Fidelity of qualitative direction extraction.
+- **Document Type Accuracy**: Success rate of the binary document classifier.

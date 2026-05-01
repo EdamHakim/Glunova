@@ -23,13 +23,16 @@ TASKS:
 3. For 'field_evidence', map dot-path keys to the verbatim text segment.
 
 MEDICAL INSTRUCTIONS:
+- Document Type: 
+    - 'prescription': If the document lists medications, dosages, and instructions (e.g., Rx).
+    - 'lab_report': If the document lists medical test results with values and units (e.g., Glucose, Calcium).
 - Abbreviations: "b.i.d" -> "twice daily", "q.d" -> "once daily", "t.i.d" -> "three times daily", "p.r.n" -> "as needed".
-- Vitals: Normalize BP (e.g., "120 over 80" -> "120/80"). Ensure units are consistent (kg, cm, mmHg).
 - Medications: Identify brand names and generic names. Capture the full dosage string (e.g., "500mg").
+- Labs: Extract test names, numerical values, and units. Identify if a value is flagged as out of range.
 
 EXAMPLES:
 
-Example 1 (Noisy OCR):
+Example 1 (Prescription):
 Input: "Rx: Metf0rmin 500mg - 1 tab b.i.d. for 30 days. Pat: John Doe. Date: 12/04/2024"
 Output:
 {
@@ -42,7 +45,8 @@ Output:
       "dosage": "500mg",
       "frequency": "twice daily",
       "duration": "30 days"
-    }]
+    }],
+    "labs": []
   },
   "field_evidence": {
     "patient_name": "John Doe",
@@ -60,8 +64,11 @@ Output:
     "labs": [{
       "name": "Hemoglobin A1c",
       "value": "7.2",
-      "unit": "%"
-    }]
+      "unit": "%",
+      "reference_range": "4.0-5.6",
+      "is_out_of_range": true
+    }],
+    "medications": []
   },
   "field_evidence": {
     "labs.0.value": "7.2"
@@ -71,31 +78,27 @@ Output:
 SCHEMA:
 {
   "extracted": {
-    "document_type": "prescription" | "lab_report" | "medical_report" | "unknown",
+    "document_type": "prescription" | "lab_report" | "unknown",
     "document_date": "YYYY-MM-DD" or null,
     "patient_name": string or null,
     "provider_name": string or null,
-    "vitals": {
-       "blood_pressure": string or null,
-       "heart_rate": string or null,
-       "spo2": string or null,
-       "weight": {"value": string, "unit": string} or null,
-       "temperature": {"value": string, "unit": string} or null
-    },
     "medications": [
       {
         "name": string,
         "dosage": string or null,
         "frequency": string or null,
         "duration": string or null,
-        "route": string or null
+        "route": string or null,
+        "instructions": string or null
       }
     ],
     "labs": [
       {
         "name": string,
         "value": string,
-        "unit": string or null
+        "unit": string or null,
+        "reference_range": string or null,
+        "is_out_of_range": boolean or null
       }
     ]
   },
