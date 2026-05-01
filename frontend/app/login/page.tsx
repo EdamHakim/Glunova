@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/components/auth-context'
+import { useTheme } from '@/app/providers'
 
 function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
@@ -17,6 +18,7 @@ function LoginForm() {
   const [localError, setLocalError] = useState<string | null>(null)
 
   const { login } = useAuth()
+  const { isDark } = useTheme()
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -49,13 +51,15 @@ function LoginForm() {
 
       <div className="w-full max-w-md relative z-10">
         {/* Logo Section */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-white shadow-lg shadow-primary/10 mb-4 overflow-hidden border border-border/50 transform hover:scale-105 transition-transform">
-            <img src="/glunova_logo.png" alt="Glunova Logo" className="h-full w-full object-cover" />
-          </div>
+        <Link href="/" className="text-center mb-8 block hover:opacity-80 transition-opacity">
+          <img 
+            src={isDark ? "/glunova_dark_logo.png" : "/glunova_logo.png"} 
+            alt="Glunova Logo" 
+            className="h-20 w-auto mb-4 object-contain mx-auto" 
+          />
           <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Glunova</h1>
           <p className="text-muted-foreground mt-2 font-medium">Elevating Diabetes Care with AI</p>
-        </div>
+        </Link>
 
         {/* Login Card */}
         <div className="bg-card/80 backdrop-blur-sm rounded-2xl shadow-xl border border-border/50 p-5 sm:p-8">
