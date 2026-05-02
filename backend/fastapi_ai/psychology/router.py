@@ -194,10 +194,9 @@ def knowledge_sources(
 
 @router.post("/knowledge/reindex")
 def knowledge_reindex(
-    extractor: str = Query(default="pypdf", pattern="^(pypdf|chonkie)$"),
     _claims: dict = Depends(require_roles("doctor")),
 ) -> dict:
-    stats = knowledge_base.reindex_sources(extractor=extractor)
+    stats = knowledge_base.reindex_sources()
     return {"qdrant_enabled": knowledge_base.enabled, **stats}
 
 

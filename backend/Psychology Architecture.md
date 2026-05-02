@@ -182,7 +182,7 @@ The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 
 - Qdrant **`qdrant_collection_cbt`** (CBT/psych knowledge) and **`qdrant_collection_memory`** (episodic memory); URLs/keys **`qdrant_url`**, **`qdrant_api_key`**.
 - Embeddings via **`qdrant_embedding_model`** (Sentence Transformers naming).
-- Ingestion: curated/manifest stubs + **`psychology pdf_kb`** / **`psychology curated_kb`** pipelines into Qdrant.
+- Ingestion: curated/manifest stubs + **`psychology data/sanadi_knowledge_base.md`** only (section-aligned chunks via **`chunk_sanadi_kb_markdown`** in **`psychology/chunking.py`**). Missing file → manifest stubs only (warning in logs).
 
 ### 5.2 Retrieval Pipeline
 
@@ -194,10 +194,12 @@ Default weights (**`core/config`**): **`psychology_kb_rerank_vector_weight`** **
 
 Sanadi does not assemble prompts from raw pre-rerank ordering; hybrid **`relevance_score`** values feed **`_retrieval_quality`** (**`MIN_RETRIEVAL_SCORE`** **0.16**).
 
-### 5.2b PDF ingestion / reindex
+### 5.2b Markdown ingestion / reindex
 
 - Source tree: **`psychology/pdf_kb.resolve_psychology_data_dir()`** → env **`psychology_data_dir`** or repo **`psychology data/`**.
-- **`POST /psychology/knowledge/reindex?extractor=pypdf|chonkie`** (doctor role).
+- **`QdrantKnowledgeBase.reindex_sources()`** embeds **`sanadi_knowledge_base.md`** when present (UTF-8); read errors propagate. Absent file → upsert manifest stubs only + warning log.
+- Chunk payloads carry **`sanadi_topic`** (**`concept`**, **`assessment`**, **`intervention`**, **`referral`**, **`care_system`**, **`lifestyle_communication`**, **`disordered_eating`**, **`assistant_routing`**, **`meta`** for preamble) and **`section_index`** for optional Qdrant filters (payload indexes: **`sanadi_topic`**, **`content_kind`**). Oversized sections use **`pack_markdown_kb_body`** (markdown-native, not **`chunk_pdf_for_kb`**). Preamble chunks are **`content_kind=sanadi_preamble`** with a **`psychology_kb_preamble_rerank_multiplier`** blended-score demotion during hybrid rerank. Tunables: **`psychology_kb_sanadi_max_section_chars`**, **`psychology_kb_sanadi_markdown_pack_chars`** (**`core/config`**).
+- **`POST /psychology/knowledge/reindex`** (doctor role).
 
 ### 5.3 Retrieval Health & Ops Endpoints
 

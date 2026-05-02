@@ -12,17 +12,24 @@ from statistics import median
 from typing import Any, Iterable
 
 from core.config import settings
-from psychology.chunking import chunk_manifest_stub, chunk_pdf_for_kb
-from psychology.curated_kb import curated_chunks_for_pdf
+from psychology.chunking import chunk_manifest_stub, chunk_sanadi_kb_markdown
 from psychology.pdf_kb import (
-    discover_pdf_files,
-    extract_pdf_text,
-    pdf_document_meta,
+    SANADI_KB_MARKDOWN,
     resolve_psychology_data_dir,
+    resolve_sanadi_kb_markdown_path,
+    sanadi_kb_document_meta,
     stable_point_id,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_int(raw: Any, *, default: int = -1) -> int:
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.strip().lstrip("-").isdigit():
+        return int(raw.strip())
+    return default
 
 
 @dataclass(frozen=True)
@@ -103,16 +110,29 @@ def build_ingestion_manifest(sources: Iterable[KnowledgeSource] = SOURCES) -> li
         )
     root = resolve_psychology_data_dir()
     if root is not None:
-        for path in discover_pdf_files(root):
-            rel = path.relative_to(root).as_posix()
-            meta = pdf_document_meta(path, root)
+        sanadi_md = resolve_sanadi_kb_markdown_path()
+        if sanadi_md is not None:
+            rel = sanadi_md.relative_to(root).as_posix()
             manifest.append(
                 {
-                    "name": meta["source"],
-                    "category": meta["category"],
-                    "url": meta["url"],
-                    "language": meta["language"],
-                    "notes": f"Local PDF embedded to Qdrant on reindex. Path: {rel}",
+                    "name": "Sanadi Clinical Knowledge Base (markdown)",
+                    "category": "sanadi_clinical_kb",
+                    "url": f"local:{rel}",
+                    "language": "en",
+                    "notes": "Curated Sanadi RAG corpus: chunked and embedded from this file on reindex.",
+                }
+            )
+        else:
+            manifest.append(
+                {
+                    "name": "Sanadi Clinical Knowledge Base (markdown)",
+                    "category": "sanadi_clinical_kb",
+                    "url": "",
+                    "language": "en",
+                    "notes": (
+                        f"No document KB indexed until `{SANADI_KB_MARKDOWN}` exists under the "
+                        "configured psychology data directory."
+                    ),
                 }
             )
     return manifest
@@ -206,7 +226,11 @@ class QdrantKnowledgeBase:
             from qdrant_client.models import PayloadSchemaType  # type: ignore[import-untyped]
         except Exception:
             return
-        index_fields = [("source_version", PayloadSchemaType.KEYWORD)]
+        index_fields: list[tuple[str, Any]] = [
+            ("sanadi_topic", PayloadSchemaType.KEYWORD),
+            ("content_kind", PayloadSchemaType.KEYWORD),
+            ("source_version", PayloadSchemaType.KEYWORD),
+        ]
         if not settings.psychology_kb_english_only:
             index_fields.insert(0, ("language", PayloadSchemaType.KEYWORD))
         for field_name, schema in index_fields:
@@ -224,14 +248,21 @@ class QdrantKnowledgeBase:
                     exc_info=True,
                 )
 
-    def reindex_sources(self, extractor: str = "pypdf") -> dict[str, Any]:
-        """Upsert curated manifest stubs plus all PDFs under `psychology data/` (see `pdf_kb.py`)."""
+    def reindex_sources(self) -> dict[str, Any]:
+        """
+        Upsert manifest stubs plus chunks from `psychology data/sanadi_knowledge_base.md`.
+
+        Reads UTF-8 markdown and embeds section-aligned chunks. If the file is absent, only
+        manifest stubs are indexed (log warning). IO errors propagate.
+        """
         empty: dict[str, Any] = {
             "indexed_chunks": 0,
             "manifest_chunks": 0,
             "pdf_chunks": 0,
             "pdf_files_seen": 0,
             "pdf_files_indexed": 0,
+            "sanadi_md_chunks": 0,
+            "sanadi_kb_markdown_used": False,
         }
         if not self.enabled or self._client is None:
             return empty
@@ -266,62 +297,73 @@ class QdrantKnowledgeBase:
 
             pdf_points: list[PointStruct] = []
             pdf_files_indexed = 0
+            sanadi_md_chunks = 0
+            sanadi_kb_markdown_used = False
             data_root = resolve_psychology_data_dir()
-            pdf_paths = discover_pdf_files(data_root) if data_root is not None else []
-            for pdf_path in pdf_paths:
-                try:
-                    raw_text = extract_pdf_text(pdf_path, extractor=extractor)
-                except Exception as exc:
-                    logger.warning("Psychology PDF skipped (read error): %s — %s", pdf_path, exc)
-                    continue
-                if not raw_text.strip():
-                    logger.warning("Psychology PDF skipped (no extractable text): %s", pdf_path)
-                    continue
-                meta = pdf_document_meta(pdf_path, data_root)
-                file_chunks = 0
-                curated = curated_chunks_for_pdf(pdf_path.name, raw_text)
-                if curated:
-                    for item in curated:
+            sanadi_path = resolve_sanadi_kb_markdown_path()
+            if sanadi_path is not None and data_root is not None:
+                raw_md = sanadi_path.read_text(encoding="utf-8")
+                if raw_md.strip():
+                    sanadi_kb_markdown_used = True
+                    rel = sanadi_path.relative_to(data_root).as_posix()
+                    meta = sanadi_kb_document_meta(rel)
+                    for item in chunk_sanadi_kb_markdown(
+                        raw_md,
+                        max_piece_chars=settings.psychology_kb_sanadi_max_section_chars,
+                        markdown_pack_size=settings.psychology_kb_sanadi_markdown_pack_chars,
+                    ):
                         chunk = str(item.get("text", "")).strip()
                         if not chunk:
                             continue
-                        payload = {**meta, "text": chunk, "chunk_id": str(item.get("chunk_id", ""))}
-                        payload["language"] = str(payload.get("language") or "en")
-                        extra_meta = item.get("metadata")
-                        if isinstance(extra_meta, dict):
-                            payload.update({k: v for k, v in extra_meta.items() if isinstance(v, (str, int, float, bool))})
+                        cid = str(item.get("chunk_id", "") or "").strip()
+                        sec_idx = item.get("section_index")
+                        topic_raw = item.get("sanadi_topic")
+                        payload = {
+                            **meta,
+                            "text": chunk,
+                            "chunk_id": cid,
+                            "content_kind": "sanadi_preamble" if cid == "SANADI_PREAMBLE" else "sanadi_section",
+                            "sanadi_topic": str(topic_raw).strip()
+                            if topic_raw is not None and str(topic_raw).strip()
+                            else "general",
+                            "section_index": _coerce_int(sec_idx, default=-1),
+                        }
+                        st = item.get("section_title")
+                        if isinstance(st, str) and st.strip():
+                            payload["section_title"] = st.strip()
                         pdf_points.append(
                             PointStruct(
-                                id=stable_point_id("pdf_curated", meta["file_path"], payload["chunk_id"], chunk),
+                                id=stable_point_id("sanadi_md", rel, cid, chunk),
                                 vector=self._embed_text(chunk),
                                 payload={**payload, **_payload_freshness_fields()},
                             )
                         )
-                        file_chunks += 1
+                        sanadi_md_chunks += 1
+                    if sanadi_md_chunks:
+                        pdf_files_indexed = 1
                 else:
-                    for chunk in chunk_pdf_for_kb(raw_text):
-                        payload = {**meta, "text": chunk, "language": str(meta.get("language") or "en")}
-                        pdf_points.append(
-                            PointStruct(
-                                id=stable_point_id("pdf", meta["file_path"], chunk),
-                                vector=self._embed_text(chunk),
-                                payload={**payload, **_payload_freshness_fields()},
-                            )
-                        )
-                        file_chunks += 1
-                if file_chunks:
-                    pdf_files_indexed += 1
+                    logger.warning("Sanadi KB markdown is empty: %s", sanadi_path)
+            elif data_root is not None:
+                logger.warning(
+                    "Sanadi KB markdown not found under psychology data dir "
+                    "(expected `%s`): document KB not reindexed; manifest stubs only.",
+                    SANADI_KB_MARKDOWN,
+                )
 
             all_points = manifest_points + pdf_points
             if all_points:
                 self._client.upsert(collection_name=self.collection, points=all_points)
             _maybe_write_reindex_audit(len(all_points))
+
             return {
                 "indexed_chunks": len(all_points),
                 "manifest_chunks": len(manifest_points),
                 "pdf_chunks": len(pdf_points),
-                "pdf_files_seen": len(pdf_paths),
+                "pdf_files_seen": 1 if sanadi_kb_markdown_used else 0,
                 "pdf_files_indexed": pdf_files_indexed,
+                "sanadi_md_chunks": sanadi_md_chunks,
+                "sanadi_kb_markdown_used": sanadi_kb_markdown_used,
+                "sanadi_kb_file": SANADI_KB_MARKDOWN if sanadi_kb_markdown_used else None,
                 "source_version": settings.psychology_kb_source_version,
             }
         except Exception as exc:
@@ -341,7 +383,7 @@ class QdrantKnowledgeBase:
     @staticmethod
     def _category_priority(category: str) -> float:
         cat = category.lower()
-        if cat in {"ada_guidelines", "distress_scales"}:
+        if cat in {"ada_guidelines", "distress_scales", "sanadi_clinical_kb"}:
             return 0.08
         if cat in {"cbt_scripts", "french_clinical"}:
             return 0.05
@@ -386,6 +428,8 @@ class QdrantKnowledgeBase:
             # Normalize category bonus to [0, 1] so weighted blend remains interpretable.
             category_norm = min(1.0, max(0.0, category_raw / 0.08))
             score = (w_vec * vector_score) + (w_lex * lexical) + (w_cat * category_norm)
+            if str(payload.get("chunk_id")) == "SANADI_PREAMBLE" or str(payload.get("content_kind")) == "sanadi_preamble":
+                score *= settings.psychology_kb_preamble_rerank_multiplier
             ranked.append((score, payload))
         ranked.sort(key=lambda x: x[0], reverse=True)
         out: list[dict[str, Any]] = []
@@ -398,6 +442,9 @@ class QdrantKnowledgeBase:
                     "text": str(payload.get("text", "")),
                     "relevance_score": round(score, 6),
                     "chunk_id": str(payload.get("chunk_id", "")),
+                    "sanadi_topic": str(payload.get("sanadi_topic", "")),
+                    "section_index": _coerce_int(payload.get("section_index"), default=-1),
+                    "content_kind": str(payload.get("content_kind", "")),
                     "ingested_at": str(payload.get("ingested_at", "")),
                     "source_version": str(payload.get("source_version", "")),
                     "kb_freshness": self._kb_freshness_tag(payload),
@@ -539,6 +586,11 @@ class QdrantKnowledgeBase:
                 "final_cap": settings.psychology_kb_final_limit_cap,
                 "session_limit_min": settings.psychology_kb_limit_min,
                 "session_limit_max": settings.psychology_kb_limit_max,
+            },
+            "sanadi_chunking": {
+                "max_section_chars": settings.psychology_kb_sanadi_max_section_chars,
+                "markdown_pack_chars": settings.psychology_kb_sanadi_markdown_pack_chars,
+                "preamble_rerank_multiplier": settings.psychology_kb_preamble_rerank_multiplier,
             },
         }
 

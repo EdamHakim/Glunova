@@ -17,6 +17,9 @@ _MAX_PDF_PAGES = 320
 _MAX_PDF_CHARS = 900_000
 SUPPORTED_EXTRACTORS = {"pypdf", "chonkie"}
 
+# Curated RAG source: single markdown file (replaces PDF corpus when present under `psychology data/`).
+SANADI_KB_MARKDOWN = "sanadi_knowledge_base.md"
+
 
 def repo_root() -> Path:
     """`backend/fastapi_ai/psychology/pdf_kb.py` → Glunova repo root."""
@@ -30,6 +33,27 @@ def resolve_psychology_data_dir() -> Path | None:
         return p if p.is_dir() else None
     auto = repo_root() / "psychology data"
     return auto if auto.is_dir() else None
+
+
+def resolve_sanadi_kb_markdown_path() -> Path | None:
+    """Path to `sanadi_knowledge_base.md` when the psychology data directory is available."""
+    root = resolve_psychology_data_dir()
+    if root is None:
+        return None
+    path = root / SANADI_KB_MARKDOWN
+    return path if path.is_file() else None
+
+
+def sanadi_kb_document_meta(rel_path_posix: str) -> dict[str, Any]:
+    """Qdrant payload metadata for markdown KB chunks (parallel shape to `pdf_document_meta`)."""
+    return {
+        "source": "Sanadi Clinical Knowledge Base",
+        "category": "sanadi_clinical_kb",
+        "url": f"local:{rel_path_posix}",
+        "language": "en",
+        "file_path": rel_path_posix,
+        "content_kind": "sanadi_kb_md",
+    }
 
 
 def stable_point_id(*parts: str) -> int:

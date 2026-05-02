@@ -48,11 +48,16 @@ class Settings(BaseSettings):
     # Optional HF repo for speech emotion through Inference API (`audio_classification`). Empty keeps ModelScope `psychology_speech_emotion_model` for local inference.
     psychology_speech_emotion_hf_model: str = ""
 
-    # Absolute path to KB PDFs; empty = `<repo>/psychology data` (see `psychology/pdf_kb.py`).
+    # Absolute path to KB assets; empty = `<repo>/psychology data` (Sanadi markdown; see `psychology/pdf_kb.py`).
     psychology_data_dir: str = ""
 
-    # Psychology CBT KB (Qdrant): chunk versioning & hybrid rerank
-    psychology_kb_source_version: str = "1"
+    # Psychology CBT KB (Qdrant): chunk versioning & hybrid rerank (bump after switching corpus / reindex).
+    psychology_kb_source_version: str = "3"
+    # Sanadi markdown (`sanadi_knowledge_base.md`): section split + packing (tune with eval retrieval).
+    psychology_kb_sanadi_max_section_chars: int = 3400
+    psychology_kb_sanadi_markdown_pack_chars: int = 920
+    # Hybrid rerank: demote preamble so it steals fewer slots on concrete clinical queries (0–1).
+    psychology_kb_preamble_rerank_multiplier: float = 0.82
     psychology_kb_rerank_vector_weight: float = 0.75
     psychology_kb_rerank_lexical_weight: float = 0.15
     psychology_kb_rerank_category_weight: float = 0.10

@@ -1,0 +1,163 @@
+{
+  "generated_at": "2026-05-02T21:26:42.669137+00:00",
+  "validation": {
+    "ingest_mode": "sanadi_kb_markdown",
+    "files": [
+      {
+        "file": "sanadi_knowledge_base.md",
+        "ingest_mode": "sanadi_kb_markdown",
+        "section_chunks_found": 28,
+        "chunk_ids": [
+          "SANADI_PREAMBLE",
+          "SANADI_S01",
+          "SANADI_S02",
+          "SANADI_S03",
+          "SANADI_S04",
+          "SANADI_S05",
+          "SANADI_S06",
+          "SANADI_S07",
+          "SANADI_S08",
+          "SANADI_S09",
+          "SANADI_S10",
+          "SANADI_S11",
+          "SANADI_S12",
+          "SANADI_S13",
+          "SANADI_S14",
+          "SANADI_S15",
+          "SANADI_S16",
+          "SANADI_S17",
+          "SANADI_S18",
+          "SANADI_S19",
+          "SANADI_S20",
+          "SANADI_S21",
+          "SANADI_S22",
+          "SANADI_S23",
+          "SANADI_S24",
+          "SANADI_S25",
+          "SANADI_S26",
+          "SANADI_S27",
+          "SANADI_S28"
+        ],
+        "chunk_stats": {
+          "SANADI_PREAMBLE": {
+            "chars": 273,
+            "preview": "# Sanadi Clinical Knowledge Base # Psychosocial Care for People with Diabetes — RAG-Optimized Reference # Sources: DDS17, ADA Psychosocial Position Statement (2016), ADA Mental Health Toolkit, ADA Standards of Care 2026 "
+          },
+          "SANADI_S01": {
+            "chars": 1524,
+            "preview": "## SECTION 1 — What Is Diabetes Distress  Diabetes distress refers to the emotional burdens, worries, and hassles specifically caused by living with and managing diabetes. It is not the same as clinical depression or gen"
+          },
+          "SANADI_S02": {
+            "chars": 2009,
+            "preview": "## SECTION 2 — Diabetes Distress Scale DDS-17: Screening Questions  The DDS-17 is a validated 17-item questionnaire for adults with type 1 or type 2 diabetes. Each item is rated from 1 (not a problem) to 6 (a very seriou"
+          },
+          "SANADI_S03": {
+            "chars": 1907,
+            "preview": "## SECTION 3 — DDS-17 Scoring and Clinical Interpretation  To score the DDS-17, sum the responses for items in each subscale and divide by the number of items in that subscale to get a mean subscale score. For the total "
+          },
+          "SANADI_S04": {
+            "chars": 1727,
+            "preview": "## SECTION 4 — Problem Areas in Diabetes Scale PAID-20: Screening Questions  The PAID-20 is a validated 20-item questionnaire measuring diabetes-specific emotional distress. Each item is rated from 0 (not a problem) to 4"
+          },
+          "SANADI_S05": {
+            "chars": 671,
+            "preview": "## SECTION 5 — PAID-20 Scoring and Clinical Interpretation  To score the PAID-20, sum all item scores and multiply by 1.25 to produce a total score out of 100.  **Severity thresholds:** - Total score below 40: Below clin"
+          },
+          "SANADI_S06": {
+            "chars": 1317,
+            "preview": "## SECTION 6 — PHQ-9 Depression Screening for People with Diabetes  The PHQ-9 is a 9-item validated tool for screening depressive symptoms. Each item is rated from 0 (not at all) to 3 (nearly every day), reflecting sympt"
+          },
+          "SANADI_S07": {
+            "chars": 1513,
+            "preview": "## SECTION 7 — PHQ-9 Scoring and Clinical Response  **Scoring and severity:** - Total score 0 to 4: None to minimal depression — no action required, monitor at next visit. - Total score 5 to 9: Mild depression — watchful"
+          },
+          "SANADI_S08": {
+            "chars": 971,
+            "preview": "## SECTION 8 — GAD-7 Anxiety Screening for People with Diabetes  The GAD-7 is a 7-item validated tool for screening generalized anxiety disorder and related anxiety conditions. Each item is rated from 0 (not at all) to 3"
+          },
+          "SANADI_S09": {
+            "chars": 1331,
+            "preview": "## SECTION 9 — GAD-7 Scoring and Clinical Interpretation  **Scoring and severity:** - Total score 0 to 4: None to minimal anxiety. - Total score 5 to 9: Mild anxiety — monitor, discuss sources of worry. - Total score 10 "
+          },
+          "SANADI_S10": {
+            "chars": 1488,
+            "preview": "## SECTION 10 — Hypoglycemia Fear Survey HFS-II: Clinical Overview  The HFS-II is a 33-item questionnaire assessing fear of hypoglycemia over the past 6 months. It has two subscales: Behavior (items 1 to 15) and Worry (i"
+          },
+          "SANADI_S11": {
+            "chars": 1590,
+            "preview": "## SECTION 11 — Insulin Treatment Appraisal Scale ITAS: Clinical Overview  The ITAS is a 20-item questionnaire measuring a patient's perceptions of insulin use. Items are rated 1 (strongly disagree) to 5 (strongly agree)"
+          },
+          "SANADI_S12": {
+            "chars": 1140,
+            "preview": "## SECTION 12 — Type 1 Diabetes Distress Scale T1-DDS: Clinical Overview  The T1-DDS is a 28-item validated questionnaire designed specifically for adults with type 1 diabetes. It yields 7 subscale scores: powerlessness,"
+          },
+          "SANADI_S13": {
+            "chars": 2136,
+            "preview": "## SECTION 13 — CBT Techniques for Diabetes Distress: General Framework  Cognitive Behavioral Therapy (CBT) for diabetes distress works by identifying maladaptive thought patterns and behaviors that worsen distress and s"
+          },
+          "SANADI_S14": {
+            "chars": 1890,
+            "preview": "## SECTION 14 — CBT Responses to Emotional Burden (DDS-A High)  When a patient's Emotional Burden subscale (DDS-A) is 3 or higher, they are experiencing significant negative emotions — fear, anger, hopelessness, or feeli"
+          },
+          "SANADI_S15": {
+            "chars": 1827,
+            "preview": "## SECTION 15 — CBT Responses to Regimen-Related Distress (DDS-C High)  When a patient's Regimen-Related Distress subscale (DDS-C) is 3 or higher, they are struggling with self-care behaviors: glucose monitoring, meal pl"
+          },
+          "SANADI_S16": {
+            "chars": 1631,
+            "preview": "## SECTION 16 — CBT Responses to Interpersonal Distress (DDS-D High)  When a patient's Interpersonal Distress subscale (DDS-D) is 3 or higher, they feel alone with their diabetes, misunderstood by family, or frustrated b"
+          },
+          "SANADI_S17": {
+            "chars": 1272,
+            "preview": "## SECTION 17 — CBT Responses to Physician-Related Distress (DDS-B High)  When a patient's Physician-Related Distress subscale (DDS-B) is 3 or higher, they feel unsupported, unclear about their care, or unable to access "
+          },
+          "SANADI_S18": {
+            "chars": 1928,
+            "preview": "## SECTION 18 — CBT Techniques for Depression in Diabetes  When depression co-occurs with diabetes, both conditions worsen each other in a bidirectional cycle. Treating one supports improvement in the other. The followin"
+          },
+          "SANADI_S19": {
+            "chars": 1956,
+            "preview": "## SECTION 19 — CBT Techniques for Anxiety in Diabetes  Anxiety in diabetes commonly takes the form of fear of hypoglycemia, fear of complications, injection anxiety, and performance anxiety around blood glucose targets."
+          },
+          "SANADI_S20": {
+            "chars": 1898,
+            "preview": "## SECTION 20 — Motivational Interviewing Principles for Diabetes Self-Management  Motivational interviewing (MI) is an evidence-based counseling approach that helps patients resolve ambivalence about behavior change. It"
+          },
+          "SANADI_S21": {
+            "chars": 1318,
+            "preview": "## SECTION 21 — When to Refer to a Behavioral Health Professional  The following situations require referral of the person with diabetes to a qualified behavioral health professional for evaluation and treatment.  - Posi"
+          },
+          "SANADI_S22": {
+            "chars": 1442,
+            "preview": "## SECTION 22 — ADA Standards: Psychosocial Screening Recommendations  The American Diabetes Association recommends psychosocial screening as part of routine diabetes care. Psychosocial care should be integrated with col"
+          },
+          "SANADI_S23": {
+            "chars": 1443,
+            "preview": "## SECTION 23 — Diabetes Self-Management Education DSMES: Key Principles  Diabetes Self-Management Education and Support (DSMES) is an evidence-based intervention that teaches people with diabetes the knowledge and skill"
+          },
+          "SANADI_S24": {
+            "chars": 1577,
+            "preview": "## SECTION 24 — Physical Activity as a Psychosocial and Glycemic Intervention  Physical activity is both a glycemic intervention and a mood intervention. The following principles apply to using physical activity recommen"
+          },
+          "SANADI_S25": {
+            "chars": 1496,
+            "preview": "## SECTION 25 — Sleep and Its Impact on Diabetes and Mental Health  Sleep problems are extremely common in people with diabetes and significantly affect both glycemic control and mental health. Clinicians should screen f"
+          },
+          "SANADI_S26": {
+            "chars": 1545,
+            "preview": "## SECTION 26 — Language and Communication in Diabetes Psychosocial Care  The language used in diabetes care significantly affects patients' emotional responses, self-efficacy, and engagement in treatment. Judgmental wor"
+          },
+          "SANADI_S27": {
+            "chars": 1425,
+            "preview": "## SECTION 27 — Disordered Eating in Diabetes: Screening and Response  Disordered eating behaviors are more common in people with diabetes than in the general population. In type 1 diabetes, insulin omission for weight c"
+          },
+          "SANADI_S28": {
+            "chars": 1974,
+            "preview": "## SECTION 28 — Sanadi Distress State Mapping to Clinical Domains  This section maps Sanadi's internal mental state classifications to validated clinical domains for consistent response generation.  **Sanadi state: Neutr"
+          }
+        }
+      }
+    ],
+    "errors": []
+  }
+}
