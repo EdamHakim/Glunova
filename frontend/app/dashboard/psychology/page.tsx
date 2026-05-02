@@ -64,16 +64,26 @@ type LiveEmotion = {
   timestamp: string
 }
 
-/** Client-side snapshots sent with last therapy message + latest server fusion (for debugging perception). */
+function pct01(n: number | undefined): string {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
+  return `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`
+}
+
+/** Client-side snapshots sent with last therapy message (+ speech/STT/audio flags). */
 type RecognitionSentHints = {
   face: { label: string; confidence: number } | null
   speech: { label: string; confidence: number } | null
   text: { label: string; confidence: number } | null
+  transcriptSnippet: string | null
+  speechAudioIncluded: boolean
+  speechAudioBase64Chars: number | null
 }
 
-function pct01(n: number | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
-  return `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`
+function clipSnippet(s: string | null | undefined, max = 140): string | null {
+  const t = (s ?? '').trim()
+  if (!t) return null
+  if (t.length <= max) return t
+  return `${t.slice(0, Math.max(0, max - 1))}…`
 }
 
 type ChatEntry = {
@@ -231,6 +241,8 @@ export default function PsychologyPage() {
   }, [voiceModeActive, voiceRecording, avatarPhase])
 
   const recognitionDebugText = useMemo(() => {
+    const speechInFusion = !!latestResult?.fusion?.modalities_used?.includes('speech')
+
     const lines: string[] = []
     lines.push('━━ Face · live WS / periodic frame ━━')
     if (liveEmotion) {
@@ -238,24 +250,35 @@ export default function PsychologyPage() {
       lines.push(`confidence: ${pct01(liveEmotion.confidence)} (raw ${liveEmotion.confidence.toFixed(3)})`)
       lines.push(`distress_score: ${liveEmotion.distress_score?.toFixed(3) ?? '—'}`)
       lines.push(`timestamp: ${liveEmotion.timestamp}`)
-    } else lines.push('(none — open camera preview or rely on WS + frame inference)')
+    } else lines.push('(none — open camera preview or rely on WS + periodic frame inference)')
     lines.push('')
-    lines.push('━━ Hints sent with last message (client payloads) ━━')
-    if (lastRecognitionSentHints) {
+    lines.push('━━ Speech · last client/STT payload (voice + dictation) ━━')
+    if (!lastRecognitionSentHints) lines.push('(no message sent yet in this session)')
+    else {
       const h = lastRecognitionSentHints
       lines.push(
-        `face  → ${h.face ? `${h.face.label} · conf ${pct01(h.face.confidence)}` : '— (not sent)'}`,
+        `speech_transcript (STT excerpt): ${h.transcriptSnippet ?? '(not sent — typed-only turns omit transcript unless mic dictation added one)'}`,
       )
+      if (h.speechAudioIncluded) {
+        const ch = h.speechAudioBase64Chars
+        const approxBytes = typeof ch === 'number' && ch > 0 ? Math.floor((ch * 3) / 4) : null
+        lines.push(`speech_audio: yes${approxBytes != null ? ` (~${approxBytes} bytes from base64)` : ''}`)
+      } else lines.push(`speech_audio: no (Groq/STT transcript only)`)
+      lines.push(`emotion_hint from transcript heuristic: ${h.speech ? `${h.speech.label} · ${pct01(h.speech.confidence)}` : '(none — heuristic could not classify)'}`)
       lines.push(
-        `speech → ${h.speech ? `${h.speech.label} · conf ${pct01(h.speech.confidence)}` : '— (not sent)'}`,
+        `(Voice mode sends transcript + speech_audio_base64 so the server can run audio emotion then fuse; typed chat sends text hints only unless you dictated text.)`,
       )
+      lines.push('')
+      lines.push('━━ Other modality hints bundled on same request ━━')
+      lines.push(`face hint → ${h.face ? `${h.face.label} · conf ${pct01(h.face.confidence)}` : '— (no live face cached on payload)'}`)
       lines.push(
-        `text  → ${h.text ? `${h.text.label} · conf ${pct01(h.text.confidence)}` : '—'} (client heuristic; server uses its own text classifier)`,
+        `text (message body) heuristic → ${h.text ? `${h.text.label} · conf ${pct01(h.text.confidence)}` : '—'} (server still runs full text emotion model)`,
       )
-    } else lines.push('(no message sent yet in this session)')
+    }
     lines.push('')
     lines.push('━━ Server fusion · last therapy response ━━')
-    if (latestResult?.fusion) {
+    if (!latestResult?.fusion) lines.push('(no assistant reply yet — fusion appears after each exchange)')
+    else {
       const f = latestResult.fusion
       lines.push(`fusion.label: ${f.label}`)
       lines.push(`fusion.confidence: ${pct01(f.confidence)} (raw ${f.confidence.toFixed(3)})`)
@@ -263,8 +286,9 @@ export default function PsychologyPage() {
       lines.push(`stress_level: ${f.stress_level}`)
       lines.push(`sentiment_score (text-based on server): ${f.sentiment_score}`)
       lines.push(`modalities_used: ${f.modalities_used.join(', ')}`)
+      lines.push(`speech listed in modalities_used: ${speechInFusion ? 'yes' : 'no'} (needs STT transcript and/or speech audio)`)
       lines.push(`response.emotion (top-level): ${latestResult.emotion}`)
-    } else lines.push('(no assistant reply yet — fusion appears after each exchange)')
+    }
     return lines.join('\n')
   }, [liveEmotion, lastRecognitionSentHints, latestResult])
   const sessionDir = preferredSessionLang === 'ar' ? 'rtl' : 'ltr'
@@ -459,6 +483,7 @@ export default function PsychologyPage() {
             stress_level: f.stress_level,
             sentiment_score: f.sentiment_score,
             modalities_used: f.modalities_used,
+            speechModalityIncluded: !!(f.modalities_used?.includes && f.modalities_used.includes('speech')),
           }
         : null,
     })
@@ -719,6 +744,9 @@ export default function PsychologyPage() {
         textHeuristicEmotion && typeof textHeuristicEmotion.confidence === 'number'
           ? { label: textHeuristicEmotion.label, confidence: textHeuristicEmotion.confidence }
           : null,
+      transcriptSnippet: clipSnippet(transcript),
+      speechAudioIncluded: Boolean(args.speechAudioBase64),
+      speechAudioBase64Chars: args.speechAudioBase64?.length ?? null,
     })
     if (args.clearTypingDraft) {
       setInput('')
@@ -1179,9 +1207,9 @@ export default function PsychologyPage() {
                     </Button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="pb-1 pt-2 data-[state=closed]:animate-none">
-                    <p className="mb-2 text-[0.6rem] leading-snug text-muted-foreground">
-                      Also logged to the browser console. Per-modality labels are only fused on the server; the API returns the combined fusion plus modalities_used.
-                    </p>
+                  <p className="mb-2 text-[0.6rem] leading-snug text-muted-foreground">
+                    Console logs mirror this view. Speech appears when you use Voice/STT (`speech_transcript` + optional `speech_audio`); modalities_used lists which channels influenced the reply.
+                  </p>
                     <pre className="max-h-72 overflow-auto rounded-xl border border-border bg-background/90 p-2.5 font-mono text-[0.6rem] leading-relaxed text-foreground whitespace-pre-wrap wrap-break-word">
                       {recognitionDebugText}
                     </pre>
