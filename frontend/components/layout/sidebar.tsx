@@ -12,6 +12,7 @@ import {
   Users,
   Stethoscope as Clinic,
   Settings,
+  User,
 } from 'lucide-react'
 import { useAuth } from '@/components/auth-context'
 import { useTheme } from '@/app/providers'
@@ -114,10 +115,25 @@ export default function Sidebar() {
         </ul>
       </nav>
 
-      <div className="border-t border-sidebar-border px-3 py-4">
+      <div className="border-t border-sidebar-border px-3 py-4 space-y-1">
+        <Link
+          href="/dashboard/profile"
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            pathname === '/dashboard/profile'
+              ? 'bg-sidebar-accent text-sidebar-primary'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+          }`}
+        >
+          <User className="h-5 w-5" />
+          <span>Profile</span>
+        </Link>
         <Link
           href="/dashboard/settings"
-          className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            pathname === '/dashboard/settings'
+              ? 'bg-sidebar-accent text-sidebar-primary'
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+          }`}
         >
           <Settings className="h-5 w-5" />
           <span>Settings</span>

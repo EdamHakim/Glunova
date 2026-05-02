@@ -15,6 +15,13 @@ export type AuthUser = {
   medication?: string[] | null
   last_glucose?: string | null
   carb_limit_per_meal_g?: number | null
+  date_of_birth?: string | null
+  gender?: string | null
+  hypertension?: boolean | null
+  heart_disease?: boolean | null
+  smoking_status?: string | null
+  hba1c_level?: number | null
+  blood_glucose_level?: number | null
 }
 
 function resolveClientApiBaseUrl(envValue: string | undefined, port: number, fallback: string) {
@@ -72,9 +79,40 @@ export async function fetchCurrentSessionUser(): Promise<AuthUser | null> {
       medication: data.medication,
       last_glucose: data.last_glucose,
       carb_limit_per_meal_g: data.carb_limit_per_meal_g,
+      date_of_birth: data.date_of_birth,
+      gender: data.gender,
+      hypertension: data.hypertension,
+      heart_disease: data.heart_disease,
+      smoking_status: data.smoking_status,
+      hba1c_level: data.hba1c_level,
+      blood_glucose_level: data.blood_glucose_level,
     }
   } catch {
     return null
+  }
+}
+
+export async function updateUserProfile(data: Partial<AuthUser & { 
+  date_of_birth?: string, 
+  gender?: string, 
+  hypertension?: boolean, 
+  heart_disease?: boolean, 
+  smoking_status?: string,
+  hba1c_level?: number,
+  blood_glucose_level?: number
+}>) {
+  try {
+    const { django } = getApiUrls()
+    const r = await fetch(`${django}/api/v1/users/me`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include',
+    })
+    if (!r.ok) throw new Error(await r.text())
+    return await r.json()
+  } catch (err) {
+    throw err
   }
 }
 
