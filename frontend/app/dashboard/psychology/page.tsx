@@ -28,7 +28,12 @@ import {
   transcribePsychologyVoice,
   type PsychologyMessageResult,
 } from '@/lib/psychology-api'
-import { SanadiAvatar, type AvatarPhase } from '@/components/psychology/sanadi-avatar'
+import type { AvatarPhase } from '@/components/psychology/sanadi-avatar'
+import {
+  SanadiTalkingHead,
+  type SanadiTalkingHeadHandle,
+  type PsychologyTtsLang as SanadiPsychologyTtsLang,
+} from '@/components/psychology/sanadi-talkinghead'
 import { SanadiMoodRing } from '@/components/psychology/sanadi-mood-ring'
 import { SanadiVoiceWaveform, type WaveformSpeaker } from '@/components/psychology/sanadi-waveform'
 import { cn } from '@/lib/utils'
@@ -216,6 +221,7 @@ export default function PsychologyPage() {
   const voiceAnalyserRef = useRef<AnalyserNode | null>(null)
   const recordingAudioCtxRef = useRef<AudioContext | null>(null)
   const ttsAudioCtxRef = useRef<AudioContext | null>(null)
+  const talkingHeadRef = useRef<SanadiTalkingHeadHandle | null>(null)
 
   const [railCollapsed, setRailCollapsed] = useState(false)
   const [visitOrdinal, setVisitOrdinal] = useState(1)
@@ -518,7 +524,12 @@ export default function PsychologyPage() {
     setMicListening(true)
   }, [micListening, preferredSessionLang])
 
+  const onTalkingHeadAnalyserNode = useCallback((node: AnalyserNode | null) => {
+    voiceAnalyserRef.current = node
+  }, [])
+
   const stopAssistantTts = useCallback(() => {
+    talkingHeadRef.current?.interruptSpeech()
     const a = ttsAudioRef.current
     if (a) {
       a.pause()
@@ -567,6 +578,18 @@ export default function PsychologyPage() {
         recordingAudioCtxRef.current = null
         voiceAnalyserRef.current = null
         const blob = await synthesizePsychologyVoice({ text: reply, language: lang })
+
+        const th = talkingHeadRef.current
+        if (voiceModeActive && th?.isAvatarReady?.()) {
+          const played = await th.speakFromServiceTts(
+            blob,
+            reply,
+            lang as SanadiPsychologyTtsLang,
+            () => setAvatarPhase('idle'),
+          )
+          if (played) return
+        }
+
         const url = URL.createObjectURL(blob)
         ttsObjectUrlRef.current = url
         const audio = new Audio(url)
@@ -603,7 +626,7 @@ export default function PsychologyPage() {
         fallbackBrowserTts(reply, lang)
       }
     },
-    [stopAssistantTts, fallbackBrowserTts],
+    [stopAssistantTts, fallbackBrowserTts, voiceModeActive],
   )
 
   useEffect(() => {
@@ -1254,11 +1277,14 @@ export default function PsychologyPage() {
             >
               <div className="pointer-events-none absolute inset-0 bg-[color:var(--sanadi-overlay)] backdrop-blur-[3px]" />
               <div className="pointer-events-none relative flex min-h-[48vh] flex-col items-center justify-center px-4 pb-48 pt-10 md:min-h-[52vh]">
-                <SanadiAvatar
+                <SanadiTalkingHead
+                  ref={talkingHeadRef}
+                  active
                   variant="overlay"
                   phase={avatarPhase}
                   emotion={displayEmotion?.label ?? null}
                   distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                  onAssistantAnalyser={onTalkingHeadAnalyserNode}
                 />
                 <div className="mt-8 w-[min(28rem,92vw)]">
                   <SanadiVoiceWaveform analyserRef={voiceAnalyserRef} speaker={waveSpeaker} height={72} className="opacity-95" />
@@ -1323,16 +1349,14 @@ export default function PsychologyPage() {
             </div>
           ))}
           </div>
-          {voiceModeActive && (
-            <aside className="sticky top-2 z-20 hidden h-fit w-[min(17rem,calc((100vw-17rem)*0.22))] shrink-0 flex-col gap-3 rounded-[1.25rem] border border-border bg-card/60 p-3 shadow-sm md:flex">
-              <p className="text-xs font-medium text-muted-foreground">Companion</p>
-              <SanadiAvatar
-                phase={avatarPhase}
-                emotion={displayEmotion?.label ?? null}
-                distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-              />
+          {voiceModeActive ? (
+            <aside className="sticky top-2 z-20 hidden h-fit max-w-[16rem] shrink-0 flex-col gap-2 rounded-[1.25rem] border border-border bg-card/55 p-3 text-[0.72rem] leading-snug text-muted-foreground shadow-sm md:flex">
+              <p className="text-xs font-medium text-foreground">Voice companion</p>
+              <p>
+                Sanadi speaks as a calming, clearly digital presence (not a substitute for human care).
+              </p>
             </aside>
-          )}
+          ) : null}
         </div>
       </main>
 
