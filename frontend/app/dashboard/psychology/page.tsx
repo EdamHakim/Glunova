@@ -64,6 +64,28 @@ type LiveEmotion = {
   timestamp: string
 }
 
+function pct01(n: number | undefined): string {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
+  return `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`
+}
+
+/** Client-side snapshots sent with last therapy message (+ speech/STT/audio flags). */
+type RecognitionSentHints = {
+  face: { label: string; confidence: number } | null
+  speech: { label: string; confidence: number } | null
+  text: { label: string; confidence: number } | null
+  transcriptSnippet: string | null
+  speechAudioIncluded: boolean
+  speechAudioBase64Chars: number | null
+}
+
+function clipSnippet(s: string | null | undefined, max = 140): string | null {
+  const t = (s ?? '').trim()
+  if (!t) return null
+  if (t.length <= max) return t
+  return `${t.slice(0, Math.max(0, max - 1))}…`
+}
+
 type ChatEntry = {
   id: string
   role: 'patient' | 'assistant'
@@ -199,6 +221,8 @@ export default function PsychologyPage() {
   const [visitOrdinal, setVisitOrdinal] = useState(1)
   const [preferredSessionLang, setPreferredSessionLang] = useState<PreferredSessionLang>('mixed')
   const [cameraPanelOpen, setCameraPanelOpen] = useState(false)
+  const [recognitionDebugOpen, setRecognitionDebugOpen] = useState(false)
+  const [lastRecognitionSentHints, setLastRecognitionSentHints] = useState<RecognitionSentHints | null>(null)
 
   const role = user?.role
   const isPatient = role === 'patient'
@@ -215,6 +239,58 @@ export default function PsychologyPage() {
     if (avatarPhase === 'speaking') return 'assistant'
     return 'idle'
   }, [voiceModeActive, voiceRecording, avatarPhase])
+
+  const recognitionDebugText = useMemo(() => {
+    const speechInFusion = !!latestResult?.fusion?.modalities_used?.includes('speech')
+
+    const lines: string[] = []
+    lines.push('━━ Face · live WS / periodic frame ━━')
+    if (liveEmotion) {
+      lines.push(`label: ${liveEmotion.label}`)
+      lines.push(`confidence: ${pct01(liveEmotion.confidence)} (raw ${liveEmotion.confidence.toFixed(3)})`)
+      lines.push(`distress_score: ${liveEmotion.distress_score?.toFixed(3) ?? '—'}`)
+      lines.push(`timestamp: ${liveEmotion.timestamp}`)
+    } else lines.push('(none — open camera preview or rely on WS + periodic frame inference)')
+    lines.push('')
+    lines.push('━━ Speech · last client/STT payload (voice + dictation) ━━')
+    if (!lastRecognitionSentHints) lines.push('(no message sent yet in this session)')
+    else {
+      const h = lastRecognitionSentHints
+      lines.push(
+        `speech_transcript (STT excerpt): ${h.transcriptSnippet ?? '(not sent — typed-only turns omit transcript unless mic dictation added one)'}`,
+      )
+      if (h.speechAudioIncluded) {
+        const ch = h.speechAudioBase64Chars
+        const approxBytes = typeof ch === 'number' && ch > 0 ? Math.floor((ch * 3) / 4) : null
+        lines.push(`speech_audio: yes${approxBytes != null ? ` (~${approxBytes} bytes from base64)` : ''}`)
+      } else lines.push(`speech_audio: no (Groq/STT transcript only)`)
+      lines.push(`emotion_hint from transcript heuristic: ${h.speech ? `${h.speech.label} · ${pct01(h.speech.confidence)}` : '(none — heuristic could not classify)'}`)
+      lines.push(
+        `(Voice mode sends transcript + speech_audio_base64 so the server can run audio emotion then fuse; typed chat sends text hints only unless you dictated text.)`,
+      )
+      lines.push('')
+      lines.push('━━ Other modality hints bundled on same request ━━')
+      lines.push(`face hint → ${h.face ? `${h.face.label} · conf ${pct01(h.face.confidence)}` : '— (no live face cached on payload)'}`)
+      lines.push(
+        `text (message body) heuristic → ${h.text ? `${h.text.label} · conf ${pct01(h.text.confidence)}` : '—'} (server still runs full text emotion model)`,
+      )
+    }
+    lines.push('')
+    lines.push('━━ Server fusion · last therapy response ━━')
+    if (!latestResult?.fusion) lines.push('(no assistant reply yet — fusion appears after each exchange)')
+    else {
+      const f = latestResult.fusion
+      lines.push(`fusion.label: ${f.label}`)
+      lines.push(`fusion.confidence: ${pct01(f.confidence)} (raw ${f.confidence.toFixed(3)})`)
+      lines.push(`distress_score: ${f.distress_score}`)
+      lines.push(`stress_level: ${f.stress_level}`)
+      lines.push(`sentiment_score (text-based on server): ${f.sentiment_score}`)
+      lines.push(`modalities_used: ${f.modalities_used.join(', ')}`)
+      lines.push(`speech listed in modalities_used: ${speechInFusion ? 'yes' : 'no'} (needs STT transcript and/or speech audio)`)
+      lines.push(`response.emotion (top-level): ${latestResult.emotion}`)
+    }
+    return lines.join('\n')
+  }, [liveEmotion, lastRecognitionSentHints, latestResult])
   const sessionDir = preferredSessionLang === 'ar' ? 'rtl' : 'ltr'
   const sessionLangAttr =
     preferredSessionLang === 'fr' ? 'fr' : preferredSessionLang === 'ar' ? 'ar' : preferredSessionLang === 'en' ? 'en' : 'en'
@@ -379,6 +455,39 @@ export default function PsychologyPage() {
       /* ignore */
     }
   }, [preferredSessionLang])
+
+  useEffect(() => {
+    if (!liveEmotion) return
+    // eslint-disable-next-line no-console -- intentional debug for recognition QA
+    console.log('[Sanadi] live face emotion (WS / frame)', {
+      label: liveEmotion.label,
+      confidence: liveEmotion.confidence,
+      confidencePct: pct01(liveEmotion.confidence),
+      distress_score: liveEmotion.distress_score,
+      timestamp: liveEmotion.timestamp,
+    })
+  }, [liveEmotion])
+
+  useEffect(() => {
+    if (!latestResult) return
+    const f = latestResult.fusion
+    // eslint-disable-next-line no-console -- intentional debug for recognition QA
+    console.log('[Sanadi] last therapy fusion + modalities', {
+      topLevelEmotion: latestResult.emotion,
+      fusion: f
+        ? {
+            label: f.label,
+            confidence: f.confidence,
+            confidencePct: pct01(f.confidence),
+            distress_score: f.distress_score,
+            stress_level: f.stress_level,
+            sentiment_score: f.sentiment_score,
+            modalities_used: f.modalities_used,
+            speechModalityIncluded: !!(f.modalities_used?.includes && f.modalities_used.includes('speech')),
+          }
+        : null,
+    })
+  }, [latestResult])
 
   const toggleMic = useCallback(() => {
     const SR = typeof window !== 'undefined' && (window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition)
@@ -621,6 +730,24 @@ export default function PsychologyPage() {
       speech_confidence: speechEmotion?.confidence,
       ...(args.speechAudioBase64 ? { speech_audio_base64: args.speechAudioBase64 } : {}),
     }
+    const textHeuristicEmotion = inferSpeechEmotionFromText(patientText)
+    setLastRecognitionSentHints({
+      face:
+        typeof liveEmotion?.label === 'string' && typeof liveEmotion.confidence === 'number'
+          ? { label: liveEmotion.label, confidence: liveEmotion.confidence }
+          : null,
+      speech:
+        speechEmotion && typeof speechEmotion.confidence === 'number'
+          ? { label: speechEmotion.label, confidence: speechEmotion.confidence }
+          : null,
+      text:
+        textHeuristicEmotion && typeof textHeuristicEmotion.confidence === 'number'
+          ? { label: textHeuristicEmotion.label, confidence: textHeuristicEmotion.confidence }
+          : null,
+      transcriptSnippet: clipSnippet(transcript),
+      speechAudioIncluded: Boolean(args.speechAudioBase64),
+      speechAudioBase64Chars: args.speechAudioBase64?.length ?? null,
+    })
     if (args.clearTypingDraft) {
       setInput('')
       setLatestSpeechTranscript('')
@@ -860,6 +987,7 @@ export default function PsychologyPage() {
       setSessionStarted(false)
       setChat([])
       setLatestResult(null)
+      setLastRecognitionSentHints(null)
       setInput('')
       setLatestSpeechTranscript('')
     }
@@ -973,8 +1101,8 @@ export default function PsychologyPage() {
         </div>
       )}
 
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-orange-950/12 bg-[color:var(--sanadi-shell-bg)]/90 px-4 backdrop-blur-md dark:border-orange-50/10">
-        <span className="text-lg font-semibold tracking-tight text-teal-900 dark:text-amber-50">سنَدي Sanadi</span>
+      <header className="relative z-[70] flex h-14 shrink-0 items-center justify-between border-b border-border bg-[color:var(--sanadi-shell-bg)]/90 px-4 backdrop-blur-md">
+        <span className="text-lg font-semibold tracking-tight text-primary">سنَدي Sanadi</span>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <LanguagePicker value={preferredSessionLang} disabled onChange={() => {}} />
           <Button
@@ -989,83 +1117,111 @@ export default function PsychologyPage() {
             <Headphones className="h-4 w-4 shrink-0" />
             Voice
           </Button>
-          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-emerald-500/85" title="Live" aria-hidden />
+          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-health-success/90" title="Live" aria-hidden />
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-row">
         <aside
           className={cn(
-            'flex shrink-0 flex-col border-r border-orange-950/10 bg-orange-50/40 transition-[width] duration-300 dark:border-teal-800/40 dark:bg-teal-950/45',
-            railCollapsed ? 'w-[3.35rem] items-center px-1 py-3' : 'w-[17rem] p-4',
+            'flex min-h-0 shrink-0 flex-col border-r border-border bg-muted/45 transition-[width] duration-300',
+            voiceModeActive && 'relative z-[65]',
+            railCollapsed ? 'h-full w-[3.35rem] items-center px-1 py-3' : 'h-full min-h-0 w-[17rem] overflow-hidden p-4',
           )}
         >
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="mb-2 shrink-0 rounded-full"
+            className={cn('shrink-0 rounded-full', !railCollapsed && 'mb-2')}
             onClick={() => setRailCollapsed((c) => !c)}
             aria-label={railCollapsed ? 'Expand session panel' : 'Collapse session panel'}
           >
             {railCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
           </Button>
           {!railCollapsed ? (
-            <>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">{user?.username ?? 'You'}</p>
-                <p className="text-xs text-muted-foreground">Session {visitOrdinal}</p>
-                <p className="text-xs text-muted-foreground">
-                  {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
-                </p>
-              </div>
-              <div className="mx-auto my-5 flex flex-col items-center gap-2">
-                <SanadiMoodRing
-                  emotion={displayEmotion?.label ?? null}
-                  distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-                  className="h-16 w-16 rounded-full shadow-md ring-4 ring-white/70 dark:ring-white/10"
-                />
-              </div>
-              <Collapsible open={cameraPanelOpen} onOpenChange={setCameraPanelOpen} className="w-full shrink-0">
-                <CollapsibleTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="mb-1 flex h-11 w-full items-center justify-between gap-2 rounded-2xl px-4 text-left text-xs font-medium shadow-sm"
-                  >
-                    <span>Camera (optional)</span>
-                    <ChevronDown className={cn('h-4 w-4 shrink-0 opacity-70 transition-transform', cameraPanelOpen && 'rotate-180')} />
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-3 pb-4 data-[state=closed]:animate-none">
-                  <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
-                    Optional preview. You control when your camera runs; nothing is inferred from visuals here.
+            <div className="flex min-h-0 flex-1 flex-col gap-0">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1 [scrollbar-gutter:stable]">
+                <div className="space-y-1 pb-4">
+                  <p className="text-sm font-semibold text-foreground">{user?.username ?? 'You'}</p>
+                  <p className="text-xs text-muted-foreground">Session {visitOrdinal}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
                   </p>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="w-full rounded-2xl shadow-sm"
-                    onClick={() => (cameraOn ? stopCamera() : void startCamera())}
-                  >
-                    {cameraOn ? (
-                      <>
-                        <CameraOff className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview off
-                      </>
-                    ) : (
-                      <>
-                        <Video className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview on
-                      </>
-                    )}
-                  </Button>
-                  <video ref={videoRef} className="mx-auto h-40 w-full max-w-[240px] rounded-xl bg-black object-cover shadow-inner" playsInline muted />
-                </CollapsibleContent>
-              </Collapsible>
-              <div className="mt-auto pt-4">
+                </div>
+                <div className="mx-auto mb-5 flex flex-col items-center gap-2">
+                  <SanadiMoodRing
+                    emotion={displayEmotion?.label ?? null}
+                    distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                    className="h-16 w-16 rounded-full shadow-md ring-4 ring-white/70 dark:ring-white/10"
+                  />
+                </div>
+                <Collapsible open={cameraPanelOpen} onOpenChange={setCameraPanelOpen} className="w-full shrink-0">
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mb-1 flex h-11 w-full items-center justify-between gap-2 rounded-2xl px-4 text-left text-xs font-medium shadow-sm"
+                    >
+                      <span>Camera (optional)</span>
+                      <ChevronDown className={cn('h-4 w-4 shrink-0 opacity-70 transition-transform', cameraPanelOpen && 'rotate-180')} />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-3 pb-4 data-[state=closed]:animate-none">
+                    <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
+                      Optional preview. You control when your camera runs; nothing is inferred from visuals here.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full rounded-2xl shadow-sm"
+                      onClick={() => (cameraOn ? stopCamera() : void startCamera())}
+                    >
+                      {cameraOn ? (
+                        <>
+                          <CameraOff className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview off
+                        </>
+                      ) : (
+                        <>
+                          <Video className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview on
+                        </>
+                      )}
+                    </Button>
+                    <video ref={videoRef} className="mx-auto h-40 w-full max-w-[240px] rounded-xl bg-black object-cover shadow-inner" playsInline muted />
+                  </CollapsibleContent>
+                </Collapsible>
+                <Collapsible open={recognitionDebugOpen} onOpenChange={setRecognitionDebugOpen} className="w-full shrink-0 pb-6 pt-3">
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex h-10 w-full items-center justify-between gap-2 rounded-2xl px-3 text-left text-[0.65rem] font-medium text-muted-foreground shadow-sm"
+                    >
+                      <span>Recognition debug</span>
+                      <ChevronDown
+                        className={cn(
+                          'h-3.5 w-3.5 shrink-0 opacity-70 transition-transform',
+                          recognitionDebugOpen && 'rotate-180',
+                        )}
+                      />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pb-1 pt-2 data-[state=closed]:animate-none">
+                  <p className="mb-2 text-[0.6rem] leading-snug text-muted-foreground">
+                    Console logs mirror this view. Speech appears when you use Voice/STT (`speech_transcript` + optional `speech_audio`); modalities_used lists which channels influenced the reply.
+                  </p>
+                    <pre className="max-h-72 overflow-auto rounded-xl border border-border bg-background/90 p-2.5 font-mono text-[0.6rem] leading-relaxed text-foreground whitespace-pre-wrap wrap-break-word">
+                      {recognitionDebugText}
+                    </pre>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+              <div className="shrink-0 border-t border-border/60 bg-muted/35 pt-3 dark:bg-muted/20">
                 <Button type="button" variant="outline" className="w-full rounded-2xl shadow-sm" onClick={() => void closeSession()}>
                   End session
                 </Button>
               </div>
-            </>
+            </div>
           ) : (
             <div className="mt-2 flex flex-1 flex-col items-center gap-3">
               <SanadiMoodRing
@@ -1089,9 +1245,15 @@ export default function PsychologyPage() {
 
         <div className="relative flex min-w-0 flex-1 flex-col">
           {voiceModeActive && (
-            <div className="pointer-events-none fixed inset-0 z-[60] md:left-[17rem]" aria-hidden>
-              <div className="absolute inset-0 bg-[color:var(--sanadi-overlay)] backdrop-blur-[3px]" />
-              <div className="relative flex min-h-[48vh] flex-col items-center justify-center px-4 pb-48 pt-10 md:min-h-[52vh]">
+            <div
+              className={cn(
+                'pointer-events-none fixed inset-0 z-[60]',
+                railCollapsed ? 'md:left-[3.35rem]' : 'md:left-[17rem]',
+              )}
+              aria-hidden
+            >
+              <div className="pointer-events-none absolute inset-0 bg-[color:var(--sanadi-overlay)] backdrop-blur-[3px]" />
+              <div className="pointer-events-none relative flex min-h-[48vh] flex-col items-center justify-center px-4 pb-48 pt-10 md:min-h-[52vh]">
                 <SanadiAvatar
                   variant="overlay"
                   phase={avatarPhase}
@@ -1115,7 +1277,7 @@ export default function PsychologyPage() {
               className={`flex w-full ${entry.role === 'assistant' ? 'justify-start' : 'justify-end'}`}
             >
               {entry.kind === 'thought_record' ? (
-                <div className="w-[min(42rem,90vw)] rounded-[1.25rem] border border-orange-950/10 bg-card/80 p-4 shadow-sm dark:border-orange-50/10">
+                <div className="w-[min(42rem,90vw)] rounded-[1.25rem] border border-border bg-card/80 p-4 shadow-sm">
                   <p className="mb-3 text-sm font-medium">Thought record</p>
                   <div className="space-y-2">
                     <label className="block text-xs text-muted-foreground">What happened</label>
@@ -1146,15 +1308,15 @@ export default function PsychologyPage() {
                 </div>
               ) : entry.role === 'assistant' ? (
                 <div className="flex max-w-[90%] items-start gap-2.5">
-                  <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--sanadi-chat-assistant)] shadow-md ring-1 ring-orange-950/10 dark:ring-orange-50/10">
-                    <Sparkles className="h-4 w-4 text-teal-800/90 dark:text-amber-100/90" />
+                  <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--sanadi-chat-assistant)] shadow-md ring-1 ring-border">
+                    <Sparkles className="h-4 w-4 text-primary" />
                   </div>
-                  <div className="rounded-[1.65rem] border border-orange-950/10 bg-[color:var(--sanadi-chat-assistant)] px-5 py-3.5 text-left text-[1.02rem] leading-relaxed text-teal-950 shadow-md dark:border-orange-50/10 dark:text-amber-50/95">
+                  <div className="rounded-[1.65rem] border border-border bg-[color:var(--sanadi-chat-assistant)] px-5 py-3.5 text-left text-[1.02rem] leading-relaxed text-foreground shadow-md">
                     {entry.content}
                   </div>
                 </div>
               ) : (
-                <div className="max-w-[84%] rounded-[1.65rem] border border-orange-950/10 bg-[color:var(--sanadi-chat-patient)] px-4 py-3 text-left text-sm leading-relaxed text-foreground shadow-md dark:border-orange-50/10">
+                <div className="max-w-[84%] rounded-[1.65rem] border border-border bg-[color:var(--sanadi-chat-patient)] px-4 py-3 text-left text-sm leading-relaxed text-foreground shadow-md">
                   {entry.content}
                 </div>
               )}
@@ -1162,7 +1324,7 @@ export default function PsychologyPage() {
           ))}
           </div>
           {voiceModeActive && (
-            <aside className="sticky top-2 z-20 hidden h-fit w-[min(17rem,calc((100vw-17rem)*0.22))] shrink-0 flex-col gap-3 rounded-[1.25rem] border border-orange-950/10 bg-muted/25 p-3 shadow-sm dark:border-orange-50/10 md:flex">
+            <aside className="sticky top-2 z-20 hidden h-fit w-[min(17rem,calc((100vw-17rem)*0.22))] shrink-0 flex-col gap-3 rounded-[1.25rem] border border-border bg-card/60 p-3 shadow-sm md:flex">
               <p className="text-xs font-medium text-muted-foreground">Companion</p>
               <SanadiAvatar
                 phase={avatarPhase}
@@ -1174,7 +1336,7 @@ export default function PsychologyPage() {
         </div>
       </main>
 
-          <footer className="relative z-[80] border-t border-orange-950/10 bg-[color:var(--sanadi-shell-bg)]/95 px-3 py-3 backdrop-blur-md dark:border-orange-50/10">
+          <footer className="relative z-[80] border-t border-border bg-[color:var(--sanadi-shell-bg)]/95 px-3 py-3 backdrop-blur-md">
             {voiceModeActive && (
               <>
                 <div className="mx-auto mb-3 w-full max-w-2xl">
@@ -1182,7 +1344,7 @@ export default function PsychologyPage() {
                     analyserRef={voiceAnalyserRef}
                     speaker={waveSpeaker}
                     height={88}
-                    className="rounded-2xl bg-orange-100/35 px-2 py-2 shadow-inner dark:bg-teal-950/40"
+                    className="rounded-2xl bg-accent/55 px-2 py-2 shadow-inner dark:bg-card/55"
                   />
                 </div>
                 <div className="mx-auto mb-3 flex w-full max-w-2xl flex-col gap-2">
@@ -1211,7 +1373,7 @@ export default function PsychologyPage() {
                   value={input}
                   placeholder="Say anything..."
                   rows={1}
-                  className="max-h-40 min-h-12 flex-1 resize-y rounded-2xl border border-orange-950/12 bg-background px-3 py-3 text-sm shadow-sm outline-none dark:border-orange-50/10"
+                  className="max-h-40 min-h-12 flex-1 resize-y rounded-2xl border border-border bg-background px-3 py-3 text-sm shadow-sm outline-none"
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !event.shiftKey) {
@@ -1221,7 +1383,7 @@ export default function PsychologyPage() {
                   }}
                 />
               ) : (
-                <div className="flex min-h-12 flex-1 items-center justify-center rounded-2xl border border-dashed border-orange-950/15 bg-muted/30 px-3 py-3 text-center text-sm text-muted-foreground dark:border-orange-50/15">
+                <div className="flex min-h-12 flex-1 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30 px-3 py-3 text-center text-sm text-muted-foreground">
                   Voice mode — use Tap to speak or turn Voice off to type.
                 </div>
               )}

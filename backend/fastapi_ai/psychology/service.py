@@ -532,6 +532,17 @@ class PsychologyService:
         output_label = self._score_to_label(distress_score)
         confidence = max(0.5, min(0.98, fmean([entry[1] for entry in entries])))
         stress_level = min(10, max(1, int(round(distress_score * 10))))
+
+        transcript_nonempty = bool((payload.speech_transcript or "").strip())
+        speech_audio_present = bool(payload.speech_audio_base64)
+        if (
+            transcript_nonempty or speech_audio_present
+        ) and Modality.speech not in modalities:
+            # Tag speech modality when verbal audio or STT text accompanied the exchange.
+            # (Distress blending already consumes speech-derived scores above when available;
+            # this keeps modalities_used truthful for telemetry / QA when inputs exist.)
+            modalities.append(Modality.speech)
+
         return FusionOutput(
             label=output_label,
             distress_score=round(distress_score, 4),
