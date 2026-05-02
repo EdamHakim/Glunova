@@ -10,14 +10,15 @@
 **Sanadi (سنَدي)** is Glunova's multimodal psychology assistant for diabetic patients.  
 It runs as a FastAPI-based AI service with:
 
-- real-time emotion inference (face, speech, text),
+- real-time emotion inference (face, speech, text), with HF Inference API or local weights per settings,
 - deterministic distress fusion + mental-state classification,
-- CBT-oriented RAG + LLM response generation,
+- CBT-oriented RAG (dynamic top‑k, hybrid rerank) + Groq LLM response generation,
+- Qdrant episodic memory + optional session-end consolidation into **`semantic_profile_json`**,
 - crisis safety gating and physician-review control,
 - session, trend, and crisis observability endpoints,
 - offline evaluation harness (RAGAS + DeepEval, Gemini/OpenAI capable).
 
-This document reflects what is currently implemented in `backend/fastapi_ai/psychology/`.
+This document reflects what is currently implemented under `backend/fastapi_ai/psychology/` plus the Django ORM definitions in `backend/django_app/psychology/` (tables the FastAPI repositories write to).
 
 ---
 
@@ -27,10 +28,12 @@ This document reflects what is currently implemented in `backend/fastapi_ai/psyc
 |---|---|
 | Frontend | Psychology dashboard/chat UI (Next.js app) |
 | API Gateway | FastAPI routes in `psychology/router.py` |
-| Core Service | `PsychologyService` orchestration in `psychology/service.py` |
-| Knowledge/RAG | `QdrantKnowledgeBase` in `psychology/knowledge_ingestion.py` |
-| Persistence | PostgreSQL stores via `psychology/repositories.py` + in-memory fallback |
-| Safety | crisis probability + triggers + crisis event logging and gate clearing |
+| Core Service | `PsychologyService` in `psychology/service.py`; factory `create_psychology_service()` wires DB-backed or in-memory stores |
+| Knowledge/RAG | `QdrantKnowledgeBase` in `psychology/knowledge_ingestion.py`; dynamic `k` via `psychology/kb_retrieval.py` |
+| Episodic memory | Qdrant `patient_memory` collection + decay/clinical rerank (`psychology/patient_memory.py`); optional Mem0 spike (`mem0_enabled`, off by default) |
+| Session consolidation | End-of-session LLM distill + multi-chunk memory upserts (`psychology/memory_consolidation.py`); model `psychology_consolidation_model` (default `llama-3.1-8b-instant` on Groq) |
+| Persistence | PostgreSQL via `psychology/repositories.py` → Django tables (`psychology_*`); in-memory stores if `database_url`/pool unavailable |
+| Safety | Crisis probability + triggers + crisis logging + physician-review gate (`physician_review_required` on profile) |
 
 ### Request Path
 
@@ -55,10 +58,11 @@ The message pipeline accepts optional camera/audio signals and always processes 
 - `text` is logically required (or auto-filled from `speech_transcript`).
 - `face_frame_base64` is optional.
 - `speech_audio_base64` is optional.
-- fallback to cached face evidence if the latest frame fails.
-- if all optional modalities are absent, text-only still works.
+- Optional client-provided modality hints (skip server inference when set): `face_emotion` + `face_confidence`, `speech_emotion` + `speech_confidence`.
+- Fallback to cached face evidence (recent window, see `PsychologyService._fusion`) when the current frame fails or is omitted.
+- If optional modalities are absent, text-only still works.
 
-This is implemented in `_fusion()` and request validation in `psychology/schemas.py`.
+Implemented in `_fusion()` and `MessageRequest` validators in `psychology/schemas.py`.
 
 ### Voice mode endpoints (patient session UI)
 
@@ -67,7 +71,7 @@ Patient voice mode captures audio in the browser, then calls:
 - **`POST /psychology/voice/transcribe`** (`multipart/form-data`: field `audio`, optional form `language_hint`) — Groq Whisper (`psychology_voice_stt_model`, default `whisper-large-v3-turbo`); requires **`GROQ_API_KEY`**.
 - **`POST /psychology/voice/synthesize`** (JSON `{ "text", "language" }`) — OpenAI **`/v1/audio/speech`** (MP3), model/voice via **`psychology_openai_tts_model`** / **`psychology_openai_tts_voice`**; requires **`OPENAI_API_KEY`**. Use **`psychology_tts_provider=none`** if TTS must be skipped (clients may fall back to Web Speech API).
 
-RBAC matches **`POST /psychology/message`** (**patient**, **doctor**). Max upload: **`psychology_voice_max_upload_bytes`**.
+Voice routes use the same roles as **`POST /psychology/message`**: **patient**, **doctor** (caregiver cannot transcribe/synthesize via API). Max upload: **`psychology_voice_max_upload_bytes`** (default 10 MiB).
 
 ---
 
@@ -75,12 +79,18 @@ RBAC matches **`POST /psychology/message`** (**patient**, **doctor**). Max uploa
 
 ### 3.1 Emotion Inference
 
-| Face | `dima806/facial_emotions_image_detection` (HF Image Classifier) | Chosen for its small footprint (~86M params) and high accuracy on the 7 basic emotions, avoiding massive multi-GB downloads during development while providing reliable real-time inference. |
-| Speech | `iic/emotion2vec_plus_large` (ModelScope Pipeline) | A state-of-the-art self-supervised model for speech emotion recognition. It provides robust feature extraction regardless of the spoken language, essential for supporting Arabic/Darija alongside English/French. |
-| Text | `j-hartmann/emotion-english-distilroberta-base` (Optional HF) | A lightweight and high-performing model for English text emotion. However, the system defaults to keyword-based heuristics to ensure near-zero latency and avoid cold-start delays. |
-| Embedding | `all-MiniLM-L6-v2` (SentenceTransformers) | Chosen for its extreme efficiency (80MB) and high performance in semantic retrieval, powering the Qdrant knowledge base without significant compute overhead. |
+Settings live in `core/config.py`. Remote vs local routing is controlled by **`psychology_emotion_inference_mode`**: `auto` | `inference_api` | `local` (`auto` uses HF Inference API when `psychology_hf_api_token` or `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` is set, otherwise local checkpoints where implemented).
 
-### 3.2 Fusion Output Schema
+| Face | `psychology_face_emotion_model` (default **`mo-thecreator/vit-Facial-Expression-Recognition`**) | ViT image classification via HF Inference API when a token is available, else **`transformers`** local weights. Mapped into Sanadi’s five emotion labels in `PsychologyService._map_face_label_generic`. |
+| Speech | **`iic/emotion2vec_plus_large`** (ModelScope pipeline, local WAV) | Default path for speech emotion. Optional **`psychology_speech_emotion_hf_model`**: when set and API mode/token allow, **`audio_classification`** on HF Inference API. |
+| Text | **`j-hartmann/emotion-english-distilroberta-base`** (optional HF) | If **`psychology_text_emotion_use_hf`** is true, or Inference API token is present in non-`local` mode, HF path runs; otherwise fast keyword heuristics in `_text_emotion()`. |
+| Embedding | **`sentence-transformers/all-MiniLM-L6-v2`** (`qdrant_embedding_model`) | Powers Qdrant CBT retrieval and episodic memory vectors; **`qdrant_vector_size`** in settings must match the collection schema in use. |
+
+### 3.2 Multimodal fusion (distress blending)
+
+Server-side fusion is **deterministic**: each active modality contributes a distress proxy; **`PsychologyService._emotion_distribution`** + entropy yields a **`gate_weight`** per modality before averaging into **`distress_score`** (see `_fusion()` in `service.py`).
+
+### 3.3 Fusion Output Schema
 
 ```json
 {
@@ -93,13 +103,13 @@ RBAC matches **`POST /psychology/message`** (**patient**, **doctor**). Max uploa
 }
 ```
 
-### 3.3 Mental State Classification
+### 3.4 Mental State Classification
 
 Mental-state classification is deterministic (not a separately trained classifier):
 
-- crisis => `Crisis`,
-- else thresholds on distress score (+ trend slope adjustment):
-  - `>= 0.80`: `Depressed`
+- **`Crisis`** if **`crisis_detected`** (`_crisis_trigger`: single-turn probability **`>= CRISIS_THRESHOLD` (0.75)** OR last three probabilities average **`>= 0.65`** with current **`>= 0.60`**).
+- Else adjust distress: **`adjusted = distress + max(0, trend_slope) * 0.03`** (trend slope from last 7 **`PsychologyEmotionLog`** points), then:
+  - `adjusted >= 0.80`: `Depressed`
   - `>= 0.60`: `Distressed`
   - `>= 0.35`: `Anxious`
   - else `Neutral`
@@ -110,23 +120,22 @@ Mental-state classification is deterministic (not a separately trained classifie
 
 The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 
-1. Retrieve KB snippets from Qdrant (`limit=5`).
-2. Compute retrieval quality (`ok`, `low_score`, `empty`).
-3. Build contextual prompt: user text + language + fusion summary + memory + health context + KB snippets.
-4. Call `run_therapy_llm()` (Groq).
-5. Validate strict JSON response.
-6. If invalid/unavailable: deterministic fallback templates.
+1. Choose KB depth: **`resolve_kb_retrieval_limit()`** (`psychology/kb_retrieval.py`) from message length + **`MentalState`**, clamped **`psychology_kb_limit_min`** … **`psychology_kb_limit_max`** (defaults **2–8**, base **`psychology_kb_default_limit`** **5**).
+2. **`QdrantKnowledgeBase.search()`** pulls **`psychology_kb_recall_limit`** (default **16**) candidates, hybrid-reranks, returns top‑**k**.
+3. Retrieval quality **`_retrieval_quality`**: **`empty`** if no chunks; **`low_score`** if the best hybrid **`relevance_score`** is below **`MIN_RETRIEVAL_SCORE`** (**0.16** in `service.py`); otherwise **`ok`**.
+4. Build contextual prompt (`llm_therapy.py`): user text + language + fusion summary + **`semantic_profile_compact`** (from Django profile when present) + health JSON + up to **5** episodic memory lines + up to **4** KB snippets (truncated per line).
+5. Call **`run_therapy_llm()`** → Groq **`settings.groq_model`** (default **`llama-3.3-70b-versatile`**), **`response_format: json_object`**.
+6. Validate strict JSON; on failure use templates or **`llm_low_context_fallback`** when retrieval is weak.
 
 ### LLM Choice and Rationale
 
-- **Primary Model**: `llama-3.3-70b-versatile` (via Groq).
+- **Primary Model**: `llama-3.3-70b-versatile` (Groq **`groq_model`** in `core/config.py`).
 - **Why Llama vs. GPT-4/Claude Sonnet/Opus**:
     1. **Inference Latency (The "Groq Advantage")**: For a psychology assistant, real-time response is critical for maintaining patient rapport. Llama on Groq delivers sub-second Token-Per-Second (TPS) speeds that far exceed the latency of GPT-4 or Claude 3 Opus, which can have significant "thinking" delays.
     2. **Cost-Efficiency**: Llama 3.3 70B provides GPT-4 class reasoning at a fraction of the cost per million tokens, allowing the platform to scale to more patients without prohibitive API overhead.
     3. **Data Sovereignty & Future-Proofing**: Since Llama is an open-weights model, Glunova retains a clear path to **self-hosting (On-Premise)** for strict medical data privacy (HIPAA compliance) in the future. GPT and Claude are closed-source and lock the platform into a third-party vendor's infrastructure.
     4. **Empathetic Nuance**: In benchmarks and internal testing, Llama 3 exhibits a highly conversational and empathetic "personality" suitable for CBT-informed coaching, whereas some closed models can feel overly "robotic" or over-refusal prone in mental health contexts.
-- **Vision Model**: `llama-3.2-11b-vision-preview` (via Groq).
-- **Why**: Used for multimodal context where visual analysis of a patient's state or environment is required, providing a compact but capable vision-language bridge.
+- **Vision Model**: `llama-3.2-11b-vision-preview` (**`groq_vision_model`**). Used elsewhere in the platform for OCR/vision workloads; Sanadi chat turns use the text chat model above plus optional face-derived signals from **`/psychology/emotion/frame`** and **`_fusion`**, not this vision endpoint in **`llm_therapy.py`**.
 
 ### LLM Provider (current code)
 
@@ -171,24 +180,24 @@ The therapy turn is orchestrated in `_therapy_reply_multimodal()`:
 
 ### 5.1 Storage
 
-- Qdrant collection for CBT/psychology knowledge.
-- embeddings via a SentenceTransformers model from settings.
-- ingestion from manifest + local PDF sources.
+- Qdrant **`qdrant_collection_cbt`** (CBT/psych knowledge) and **`qdrant_collection_memory`** (episodic memory); URLs/keys **`qdrant_url`**, **`qdrant_api_key`**.
+- Embeddings via **`qdrant_embedding_model`** (Sentence Transformers naming).
+- Ingestion: curated/manifest stubs + **`psychology pdf_kb`** / **`psychology curated_kb`** pipelines into Qdrant.
 
 ### 5.2 Retrieval Pipeline
 
-- vector recall (`RECALL_LIMIT` candidates from Qdrant),
-- **mandatory hybrid rerank** (vector + lexical overlap + category priority boosts),
-- dedupe + final top-k,
-- retrieval quality gate used by response logic.
+- Vector recall (**`psychology_kb_recall_limit`**, default **16**) from Qdrant,
+- **Hybrid rerank** on every hit list: **`w_vec * vector_score + w_lex * lexical + w_cat * category_norm`**, where **`lexical`** is token‑set overlap (query ∩ doc / |query|), and **`category_norm`** normalizes **`_category_priority(category)`** to **[0, 1]** (see **`QdrantKnowledgeBase._rerank_hits`**),
+- Dedupe by stable chunk key + cap by requested **`limit`** (also bounded by **`psychology_kb_final_limit_cap`** in search),
 
-Current rerank scoring implementation (code-aligned):
+Default weights (**`core/config`**): **`psychology_kb_rerank_vector_weight`** **0.75**, **`psychology_kb_rerank_lexical_weight`** **0.15**, **`psychology_kb_rerank_category_weight`** **0.10**. Override at runtime via JSON file **`psychology_kb_rerank_config_path`** `{"vector", "lexical", "category"}`.
 
-- `0.72 * vector_score`
-- `0.22 * lexical_overlap(query_tokens, doc_tokens)`
-- `+ category_priority(category)`
+Sanadi does not assemble prompts from raw pre-rerank ordering; hybrid **`relevance_score`** values feed **`_retrieval_quality`** (**`MIN_RETRIEVAL_SCORE`** **0.16**).
 
-This means Sanadi never uses raw vector hits directly in final prompt assembly; results are always passed through hybrid reranking first.
+### 5.2b PDF ingestion / reindex
+
+- Source tree: **`psychology/pdf_kb.resolve_psychology_data_dir()`** → env **`psychology_data_dir`** or repo **`psychology data/`**.
+- **`POST /psychology/knowledge/reindex?extractor=pypdf|chonkie`** (doctor role).
 
 ### 5.3 Retrieval Health & Ops Endpoints
 
@@ -217,31 +226,43 @@ Current crisis logic is rule/probability-based within the service flow (not an e
 Sanadi returns anomaly telemetry on each `/psychology/message` response through:
 
 - `retrieval_quality`: `ok | low_score | empty`
-- `anomaly_flags`: list of runtime flags
+- `anomaly_flags`: list of runtime flags (the same `retrieval_*` key may appear twice when the LLM path re-appends it alongside other `llm_*` flags—see `handle_message` + `_therapy_reply_multimodal` in `service.py`.)
 
 Current anomaly families:
 
-- retrieval anomalies: `retrieval_low_score`, `retrieval_empty`
-- generation anomalies: `llm_parse_fallback`, `llm_missing_citations`, `llm_low_context_fallback`, `llm_elevated_guard_mode`, `llm_crisis_guard_mode`
-- safety trend anomalies: `safety_elevated`, `fusion_abrupt_jump`
-
-These flags are logged and returned to the caller so monitoring and doctor-facing layers can detect degraded retrieval or unstable generation behavior.
+- Retrieval: **`retrieval_low_score`**, **`retrieval_empty`**
+- Generation: **`llm_parse_fallback`**, **`llm_missing_citations`**, **`llm_low_context_fallback`**, **`llm_elevated_guard_mode`**, **`llm_crisis_guard_mode`**
+- Safety / fusion: **`safety_elevated`** (**crisis_probability** tier), **`fusion_abrupt_jump`** (patient turn distress delta **≥ 0.45** vs prior fused score)
 
 ---
 
-## 7) Session, Trends, and Storage
+## 7) Session, Trends, Memory, and Storage
 
-`PsychologyService` supports both:
+`create_psychology_service()` uses **`psychology/db.get_connection_pool()`**:
 
-- PostgreSQL-backed stores (if a DB pool exists),
-- in-memory fallback stores.
+- With pool: **`PsqlSessionStore`**, **`PsqlCrisisStore`**, **`PsqlTrendStore`**, Django-aligned tables (**`psychology_psychologysession`**, messages, **`psychology_psychologycrisisevent`**, **`psychology_psychologyemotionlog`**, **`psychology_psychologyprofile`**, …).
+- Without pool: in-memory **`SessionStore`** / **`CrisisStore`** / **`TrendStore`** (development only).
+
+**Episodic memory** is the Qdrant **`patient_memory`** collection via **`build_memory_store()`** (`patient_memory.py`), with decay/clinical reranking in **`MemoryStore.search_by_message`** implementations (tuned by **`psychology_memory_*`** in `core/config.py`). Session end runs **`run_session_consolidation()`** → optional multi-chunk upserts + **`semantic_profile_json`** on **`PsychologyProfile`**, and may set **`physician_review_required`** from consolidation signals.
 
 Primary runtime entities:
 
-- sessions + messages,
-- crisis events,
-- trend points (`distress_score` over time),
-- memory retrieval/injection.
+- Sessions + transcript messages (short window trimmed in-memory; persisted in Postgres),
+- Crisis events (+ physician gate),
+- Trend points (**`PsychologyEmotionLog`** distress / mental_state),
+- Qdrant memory vectors + distilled semantic JSON on profile,
+
+### RBAC snapshot (`router.py`)
+
+| Endpoint pattern | Roles |
+|---|---|
+| **`/session/start`**, **`GET /session/{id}`**, **`GET /trends/{patient_id}`** | **patient**, **doctor**, **caregiver** |
+| **`/message`**, **`/emotion/frame`**, **`/voice/*`**, **`/session/end`**, **`WS /ws/emotion/...`** | **patient**, **doctor** |
+| **`GET /crisis/events`**, **`POST /crisis/ack`** | **doctor**, **caregiver** (ack: caregiver must supply **`patient_id`**) |
+| **`/physician/clear-gate`** | **doctor** |
+| **`/knowledge/*`**, **`GET /rag/health`** | **doctor** |
+
+WebSocket **`/psychology/ws/emotion/{patient_id}`**: token via query **`token`** or cookie **`access_token`**; **patient** may only subscribe to their own **`patient_id`**. Inference runs off-thread with **~2.5 s** timeout; server sends at most **~4 fps** (loop sleep).
 
 Core endpoints:
 
@@ -278,10 +299,16 @@ Real-time camera stream:
   "patient_id": 123,
   "text": "I feel overwhelmed today",
   "face_frame_base64": null,
+  "face_emotion": null,
+  "face_confidence": null,
   "speech_audio_base64": null,
+  "speech_emotion": null,
+  "speech_confidence": null,
   "speech_transcript": null
 }
 ```
+
+`text` may be omitted if `speech_transcript` is set (merged in **`MessageRequest`**). Emotion enums: **`neutral` | `happy` | `anxious` | `distressed` | `depressed`**.
 
 ### 8.3 Emotion Frame
 
@@ -317,7 +344,8 @@ Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
 
 ## 10) Known Operational Notes
 
-- First-run model downloads may happen for HF models if cache is cold.
+- First-run downloads: local **`transformers`** / ModelScope checkpoints when Inference API or **`psychology_emotion_inference_mode=local`** is active; **`inference_api`** avoids local face/text weights when a valid HF token is configured.
+- Qdrant vector dimension (**`qdrant_vector_size`**) must match the embedding model and existing collection; mismatches surface as ingestion/search errors.
 - Gemini free-tier quotas can throttle evaluator LLM calls (429), which can degrade RAGAS score quality.
 - For stable eval baselines, use a quota-ready API key and run at low frequency/batch size.
 
@@ -327,16 +355,17 @@ Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
 
 | Area | Model / Implementation | Rationale |
 |---|---|---|
-| API server | FastAPI | High performance, async-first, and native JSON support. |
-| Orchestration | `PsychologyService` | Centralized logic for fusion, RAG, and safety gating. |
-| Therapy LLM | `llama-3.3-70b-versatile` (Groq) | Frontier reasoning + sub-second latency via Groq. |
-| Vision LLM | `llama-3.2-11b-vision-preview` (Groq) | Efficient visual understanding. |
-| Face emotion | `dima806/...facial_emotions...` | Lightweight (~86MB) but accurate real-time inference. |
-| Speech emotion | `emotion2vec_plus_large` | Robust, language-agnostic audio feature extraction. |
-| Text emotion | Heuristic + DistilRoBERTa | Optimized for latency (heuristics) with optional deep analysis. |
-| Embeddings | `all-MiniLM-L6-v2` | Fast, compact, and high-quality semantic vectors. |
-| Vector DB | Qdrant | Scalable, high-performance vector search with hybrid filtering. |
-| Evaluation | RAGAS + DeepEval | Rigorous multimodal/LLM-based quality metrics (using Gemini/OpenAI). |
+| API server | FastAPI | Async routes + WebSockets; JWT RBAC via **`core.security`** / **`core.rbac`**. |
+| Orchestration | `PsychologyService` | Fusion, crisis, dynamic RAG **k**, memory injection, consolidation hooks. |
+| Therapy LLM | **`groq_model`** default `llama-3.3-70b-versatile` | Primary Sanadi responder (`run_therapy_llm`). |
+| Consolidation LLM | **`psychology_consolidation_model`** default `llama-3.1-8b-instant` | Session-end distill / structured memory chunks. |
+| Vision LLM (platform) | **`groq_vision_model`** default `llama-3.2-11b-vision-preview` | Available for vision/OCR pipelines; Sanadi reply path is text+json. |
+| Face emotion | **`psychology_face_emotion_model`** default `mo-thecreator/vit-Facial-Expression-Recognition` | HF Inference API or local ViT per **`psychology_emotion_inference_mode`**. |
+| Speech emotion | **`iic/emotion2vec_plus_large`** + optional **`psychology_speech_emotion_hf_model`** | Local ModelScope pipeline and/or HF audio classification. |
+| Text emotion | Heuristics + optional **`psychology_text_emotion_model`** (DistilRoBERTa) | Low-latency default; HF local/API when configured. |
+| Embeddings | **`qdrant_embedding_model`** default `sentence-transformers/all-MiniLM-L6-v2` | KB + episodic memory vectors (dimension **`qdrant_vector_size`**). |
+| Vector DB | Qdrant (**`qdrant_collection_cbt`**, **`qdrant_collection_memory`**) | Vector recall + lexical/category rerank before prompt assembly. |
+| Evaluation | RAGAS + DeepEval (`psychology/evaluation/`) | Offline quality runs; Gemini/OpenAI keys per eval README. |
 
 ---
 
