@@ -21,6 +21,7 @@ class MedRow(BaseModel):
     frequency: str | None = None
     duration: str | None = None
     route: str | None = None
+    instructions: str | None = None
 
 
 class ExtractedPayload(BaseModel):
@@ -29,7 +30,6 @@ class ExtractedPayload(BaseModel):
     document_date: str | None = None
     patient_name: str | None = None
     provider_name: str | None = None
-    vitals: dict[str, Any] = Field(default_factory=dict)
     labs: list[LabRow] = Field(default_factory=list)
     medications: list[MedRow] = Field(default_factory=list)
 
@@ -68,7 +68,6 @@ def merge_and_validate(
     if isinstance(dt, str) and dt in (
         "prescription",
         "lab_report",
-        "medical_report",
         "unknown",
     ):
         if final.get("document_type") == "unknown" or _evidence_ok(fe.get("document_type"), raw):
@@ -161,7 +160,7 @@ def merge_and_validate(
                 if name_sim > 85 and (not dosage or not existing_dosage or dosage_clean == existing_dosage_clean):
                     is_duplicate = True
                     # Update existing with LLM info if missing (e.g. frequency normalization)
-                    for key in ["frequency", "duration", "route", "dosage"]:
+                    for key in ["frequency", "duration", "route", "dosage", "instructions"]:
                         if not existing.get(key) and row.get(key):
                             existing[key] = row.get(key)
                     break
@@ -173,6 +172,7 @@ def merge_and_validate(
                     "frequency": row.get("frequency"),
                     "duration": row.get("duration"),
                     "route": row.get("route"),
+                    "instructions": row.get("instructions"),
                 })
         
         final["medications"] = final_meds

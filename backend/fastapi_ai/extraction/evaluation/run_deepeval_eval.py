@@ -55,8 +55,6 @@ def _build_judge_model(provider: str, model_name: str | None):
     if provider == "auto":
         if os.getenv("GROQ_API_KEY"):
             provider = "groq"
-        elif os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
-            provider = "gemini"
         elif os.getenv("OPENAI_API_KEY"):
             provider = "openai"
         else:
@@ -100,15 +98,6 @@ def _build_judge_model(provider: str, model_name: str | None):
         model_name_to_use = model_name or os.getenv("DEEPEVAL_GROQ_MODEL") or "llama-3.3-70b-versatile"
         return GroqModel(model_name=model_name_to_use)
 
-    if provider == "gemini":
-        from deepeval.models import GeminiModel
-
-        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        return GeminiModel(
-            model=model_name or os.getenv("DEEPEVAL_GEMINI_MODEL") or "gemini-2.0-flash",
-            api_key=api_key,
-            temperature=0,
-        )
 
     if provider == "openai":
         from deepeval.models import GPTModel
@@ -129,7 +118,7 @@ def _build_judge_model(provider: str, model_name: str | None):
             temperature=0,
         )
 
-    raise ValueError("judge provider must be one of: auto, gemini, openai, litellm")
+    raise ValueError("judge provider must be one of: auto, groq, openai, litellm")
 
 
 def run_deepeval_eval(

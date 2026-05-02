@@ -27,6 +27,7 @@ export type PatientMedicationRow = {
   frequency: string | null
   duration: string | null
   route: string | null
+  instructions: string | null
   verification_status: MedicationVerificationStatus
   verification_detail: Record<string, unknown>
   created_at: string

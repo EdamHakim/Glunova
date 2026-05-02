@@ -231,6 +231,11 @@ export function MedicalDocumentsSection() {
                               .filter(Boolean)
                               .join(' · ') || JSON.stringify(m)}
                           </div>
+                          {m.instructions && (
+                            <div className="text-[11px] italic text-muted-foreground leading-tight">
+                              Dir: {m.instructions}
+                            </div>
+                          )}
                           {m.verification && (
                             <div className="flex flex-wrap items-center gap-2 text-xs">
                               <Badge variant="outline" className={getVerificationBadgeClass(m.verification.status)}>

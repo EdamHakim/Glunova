@@ -27,6 +27,7 @@ export type MedicationExtractionRow = Record<string, unknown> & {
   frequency?: string | null
   duration?: string | null
   route?: string | null
+  instructions?: string | null
   verification?: MedicationVerification
 }
 

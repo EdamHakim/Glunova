@@ -10,6 +10,9 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: 'Glunova AI Platform',
   description: 'AI-powered healthcare platform for screening, monitoring, and personalized care',
+  icons: {
+    icon: '/glunova_logo.png',
+  },
 }
 
 export default function RootLayout({

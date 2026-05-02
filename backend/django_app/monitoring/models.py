@@ -97,6 +97,7 @@ class PatientMedication(models.Model):
     frequency = models.CharField(max_length=255, null=True, blank=True)
     duration = models.CharField(max_length=255, null=True, blank=True)
     route = models.CharField(max_length=255, null=True, blank=True)
+    instructions = models.TextField(null=True, blank=True)
     verification_status = models.CharField(
         max_length=16,
         choices=VerificationStatus.choices,
@@ -126,6 +127,7 @@ class PatientLabResult(models.Model):
     numeric_value = models.FloatField(null=True, blank=True)
     unit = models.CharField(max_length=64, null=True, blank=True)
     reference_range = models.CharField(max_length=255, null=True, blank=True)
+    is_out_of_range = models.BooleanField(null=True, blank=True)
     observed_at = models.DateTimeField(null=True, blank=True)
     raw_payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

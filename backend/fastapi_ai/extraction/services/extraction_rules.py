@@ -7,44 +7,6 @@ from typing import Any
 from dateutil import parser as date_parser
 
 
-def _extract_vitals(text: str) -> dict[str, Any]:
-    vitals = {}
-    
-    # Blood Pressure: 120/80
-    m = re.search(r"\b(\d{2,3})\s*/\s*(\d{2,3})\b", text)
-    if m:
-        vitals["blood_pressure"] = f"{m.group(1)}/{m.group(2)}"
-        
-    # Heart Rate: 72 bpm
-    m = re.search(r"\b(?:HR|heart\s*rate|pulse)\s*[:\-]?\s*(\d{2,3})\s*(?:bpm)?\b", text, re.I)
-    if not m:
-        m = re.search(r"\b(\d{2,3})\s*bpm\b", text, re.I)
-    if m:
-        vitals["heart_rate"] = m.group(1)
-        
-    # SpO2: 98%
-    m = re.search(r"\b(?:SpO2|Oxygen\s*Saturation)\s*[:\-]?\s*(\d{2,3})\s*%\b", text, re.I)
-    if m:
-        vitals["spo2"] = m.group(1)
-        
-    # Weight: 70 kg, 154 lbs
-    m = re.search(r"\b(?:Weight|Wt)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(kg|lbs?)\b", text, re.I)
-    if m:
-        vitals["weight"] = {"value": m.group(1), "unit": m.group(2).lower()}
-        
-    # BMI: 24.5
-    m = re.search(r"\bBMI\s*[:\-]?\s*(\d+(?:\.\d+)?)\b", text, re.I)
-    if m:
-        vitals["bmi"] = m.group(1)
-        
-    # Temperature: 37.0 C, 98.6 F
-    m = re.search(r"\b(?:Temp|Temperature)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:°|deg)?\s*([CF])\b", text, re.I)
-    if m:
-        vitals["temperature"] = {"value": m.group(1), "unit": m.group(2).upper()}
-        
-    return vitals
-
-
 def _extract_dates(text: str) -> list[str]:
     """Extract dates in various formats and return as ISO strings."""
     out: list[str] = []
@@ -283,8 +245,6 @@ def _detect_doc_type(text: str) -> str:
         )
     ):
         return "lab_report"
-    if any(k in tl for k in ("progress note", "clinical summary", "assessment", "impression:", "diagnosis:", "history of")):
-        return "medical_report"
     return "unknown"
 
 
@@ -293,7 +253,6 @@ def empty_schema() -> dict[str, Any]:
         "document_type": "unknown",
         "date": None,
         "patient_name": None,
-        "vitals": {},
         "labs": [],
         "medications": [],
     }
@@ -305,7 +264,6 @@ def run_rule_validation(raw_text: str) -> dict[str, Any]:
     
     base["document_type"] = _detect_doc_type(text)
     base["date"] = (_extract_dates(text) or [None])[0]
-    base["vitals"] = _extract_vitals(text)
     base["labs"] = _extract_labs(text)
     base["medications"] = _extract_meds(text)
     

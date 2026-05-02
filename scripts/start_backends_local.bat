@@ -22,6 +22,7 @@ if errorlevel 1 goto :fail
 set "PY=%ROOT%\.venv\Scripts\python.exe"
 
 echo [2/3] Running Django migrations...
+"%PY%" backend\django_app\manage.py makemigrations
 "%PY%" backend\django_app\manage.py migrate
 if errorlevel 1 goto :fail
 

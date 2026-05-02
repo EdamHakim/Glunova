@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, CheckCircle2, Clock, FileText, Info, Pill } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import './monitoring.css'
+
 import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,7 +23,6 @@ import {
   type RiskStratification,
   type ScreeningModalitySummary,
 } from '@/lib/monitoring-api'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DiseaseProgressionTracker } from '@/components/monitoring/disease-progression-tracker'
 import { RiskStratificationCard } from '@/components/monitoring/risk-stratification-card'
 import { ScreeningHistoryTab } from '@/components/monitoring/screening-history-tab'
@@ -38,6 +39,13 @@ function getSeverityColor(severity: string) {
       return 'bg-health-success/10 text-health-success border-health-success/20'
   }
 }
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
 
 function getMedicationBadgeClass(status: string) {
   switch (status) {
@@ -70,6 +78,25 @@ export default function MonitoringPage() {
   const [screeningHistory, setScreeningHistory] = useState<ScreeningModalitySummary[]>([])
   const [screeningHistoryLoading, setScreeningHistoryLoading] = useState(false)
   const [screeningHistoryError, setScreeningHistoryError] = useState<string | null>(null)
+
+  // Group lab results by document (used in the Lab Results accordion below).
+  const labsByDocument = labResults.reduce((acc, lab) => {
+    const docId = lab.source_document_id || 'manual'
+    if (!acc[docId]) {
+      acc[docId] = {
+        id: docId,
+        filename: lab.source_document_filename || 'Other Results',
+        date: lab.source_document_created_at || lab.observed_at || lab.created_at,
+        results: [],
+      }
+    }
+    acc[docId].results.push(lab)
+    return acc
+  }, {} as Record<string, { id: string; filename: string; date: string; results: PatientLabResultRow[] }>)
+
+  const labDocuments = Object.values(labsByDocument).sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  )
   const role = user?.role
   const isCaregiver = role === 'caregiver'
   const isDoctor = role === 'doctor'
@@ -268,68 +295,78 @@ export default function MonitoringPage() {
           )}
 
           {medications.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Medication</TableHead>
-                  <TableHead>Dosage & Frequency</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {medications.map((medication) => (
-                  <TableRow key={medication.id}>
-                    <TableCell className="whitespace-normal">
-                      <div className="font-medium">{medication.name_display || medication.name_raw}</div>
+            <div className="monitoring-grid">
+              {medications.map((medication) => (
+                <div key={medication.id} className={`medication-card ${medication.verification_status}`}>
+                  <div className="medication-header">
+                    <div>
+                      <div className="medication-name">{medication.name_display || medication.name_raw}</div>
                       {medication.name_display && medication.name_display !== medication.name_raw && (
-                        <div className="text-xs text-muted-foreground">OCR: {medication.name_raw}</div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">OCR: {medication.name_raw}</div>
                       )}
-                      {medication.rxcui && (
-                        <div className="text-xs text-muted-foreground">RxCUI: {medication.rxcui}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
-                      {[medication.dosage, medication.frequency, medication.duration, medication.route]
-                        .filter(Boolean)
-                        .join(' · ') || 'Not available'}
-                    </TableCell>
-                    <TableCell className="whitespace-normal">
-                      <Badge variant="outline" className={getMedicationBadgeClass(medication.verification_status)}>
-                        {medication.verification_status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm">
-                      {medication.source_document_preview_url ? (
-                        <img
-                          src={medication.source_document_preview_url}
-                          alt={medication.source_document_filename}
-                          className="mb-2 h-16 w-16 rounded-md border border-border object-cover"
-                        />
-                      ) : null}
-                      <div>{medication.source_document_filename}</div>
-                      <div className="text-xs text-muted-foreground">
+                    </div>
+                    <Badge variant="outline" className={getMedicationBadgeClass(medication.verification_status)}>
+                      {medication.verification_status}
+                    </Badge>
+                  </div>
+
+                  <div className="medication-details">
+                    {medication.dosage && (
+                      <div className="detail-item">
+                        <Pill className="h-3 w-3 text-primary" />
+                        <span>{medication.dosage}</span>
+                      </div>
+                    )}
+                    {medication.frequency && (
+                      <div className="detail-item">
+                        <Clock className="h-3 w-3 text-primary" />
+                        <span>{medication.frequency}</span>
+                      </div>
+                    )}
+                    {medication.route && (
+                      <div className="detail-item">
+                        <ArrowUpRight className="h-3 w-3 text-primary" />
+                        <span>{medication.route}</span>
+                      </div>
+                    )}
+                    {medication.instructions && (
+                      <div className="detail-item col-span-2 mt-1 italic text-[11px] text-muted-foreground border-t border-border/50 pt-1">
+                        <span>Note: {medication.instructions}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="medication-source">
+                    {medication.source_document_preview_url ? (
+                      <img
+                        src={medication.source_document_preview_url}
+                        alt="Source"
+                        className="source-thumb"
+                      />
+                    ) : (
+                      <div className="source-thumb flex items-center justify-center bg-muted">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium truncate">{medication.source_document_filename}</div>
+                      <div className="text-[10px] text-muted-foreground">
                         {new Date(medication.source_document_created_at).toLocaleDateString()}
                       </div>
-                      {medication.source_document_count > 1 && (
-                        <div className="text-xs text-muted-foreground">
-                          Also seen in {medication.source_document_count - 1} other document{medication.source_document_count > 2 ? 's' : ''}
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Latest Lab Results</CardTitle>
+          <CardTitle>Lab Results</CardTitle>
           <CardDescription>
-            Structured values extracted from uploaded lab reports are available here for follow-up and monitoring.
+            Detailed findings grouped by document. Click a report to expand its extracted metrics.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -341,37 +378,84 @@ export default function MonitoringPage() {
             <p className="text-sm text-muted-foreground">No persisted lab results available for this patient yet.</p>
           )}
 
-          {labResults.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Test</TableHead>
-                  <TableHead>Result</TableHead>
-                  <TableHead>Observed</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {labResults.map((result) => (
-                  <TableRow key={result.id}>
-                    <TableCell className="whitespace-normal font-medium">{result.test_name}</TableCell>
-                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
-                      {result.value}
-                      {result.unit ? ` ${result.unit}` : ''}
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm text-muted-foreground">
-                      {new Date(result.observed_at || result.source_document_created_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className="whitespace-normal text-sm">
-                      <div>{result.source_document_filename}</div>
-                      <div className="text-xs text-muted-foreground">
-                        Uploaded {new Date(result.source_document_created_at).toLocaleDateString()}
+          {labDocuments.length > 0 && (
+            <Accordion type="single" collapsible className="w-full space-y-2 lab-results-accordion">
+              {labDocuments.map((doc) => (
+                <AccordionItem key={doc.id} value={doc.id} className="border rounded-lg px-4 bg-muted/30 lab-document-item">
+                  <AccordionTrigger className="hover:no-underline py-4">
+                    <div className="flex items-center gap-3 text-left w-full">
+                      <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5 text-primary" />
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{doc.filename}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(doc.date).toLocaleDateString()} • {doc.results.length} findings
+                        </div>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2 pb-6">
+                    <div className="grid gap-3">
+                      {doc.results.map((result) => {
+                        const rangeMatch = result.reference_range ? result.reference_range.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/) : null;
+                        const min = rangeMatch ? parseFloat(rangeMatch[1]) : null;
+                        const max = rangeMatch ? parseFloat(rangeMatch[2]) : null;
+                        const val = result.numeric_value;
+                        
+                        let position = 50;
+                        if (min !== null && max !== null && val !== null) {
+                          const padding = (max - min) * 0.2 || 1;
+                          const displayMin = min - padding;
+                          const displayMax = max + padding;
+                          position = ((val - displayMin) / (displayMax - displayMin)) * 100;
+                          position = Math.max(5, Math.min(95, position));
+                        }
+
+                        const isOutOfRange = result.is_out_of_range ?? (val !== null && min !== null && max !== null && (val < min || val > max));
+
+                        return (
+                          <div key={result.id} className={`lab-metric-card nested-lab-metric !bg-background border ${isOutOfRange ? 'out-of-range' : ''}`}>
+                            <div className="lab-info !flex-row !items-center !justify-between !mb-0">
+                              <span className="test-name">{result.test_name}</span>
+                              <div className="flex items-baseline gap-2">
+                                <span className={`lab-value-text ${isOutOfRange ? 'text-health-danger' : 'text-primary'}`}>
+                                  {result.value}
+                                </span>
+                                <span className="lab-value-unit uppercase">{result.unit}</span>
+                                {isOutOfRange && (
+                                  <Badge variant="outline" className="bg-health-danger/10 text-health-danger border-health-danger/20 h-4 px-1 text-[9px]">
+                                    HIGH/LOW
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {min !== null && max !== null && (
+                              <div className="mt-2">
+                                <div className="range-viz !h-1 !max-w-none">
+                                  <div className="range-normal" style={{ left: '20%', width: '60%' }} />
+                                  <div 
+                                    className="range-marker !w-1.5 !h-1.5" 
+                                    style={{ 
+                                      left: `${position}%`,
+                                      backgroundColor: isOutOfRange ? 'var(--health-danger)' : 'var(--primary)'
+                                    }} 
+                                  />
+                                </div>
+                                <div className="flex justify-between text-[9px] text-muted-foreground mt-1">
+                                  <span>Ref: {min} - {max}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
           )}
         </CardContent>
       </Card>
