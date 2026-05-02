@@ -9,7 +9,6 @@ import cv2
 from typing import List, Dict, Any, Optional
 from PIL import Image as PILImage
 from ultralytics import YOLOWorld
-from inference_sdk import InferenceHTTPClient
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -91,11 +90,6 @@ class PipelineNutrition:
         # YOLO-World stays on CPU for compatibility or as configured
         self.yolo_model.to("cpu")
         print("✅ YOLO-World chargé")
-
-        self.roboflow_client = InferenceHTTPClient(
-            api_url="https://serverless.roboflow.com",
-            api_key=self.roboflow_api_key
-        )
 
     def _charger_image_base64(self, image_path: str) -> tuple:
         if image_path.startswith("http"):
@@ -228,49 +222,88 @@ Instructions:
         return all_dets
 
     def segmenter_ingredients_sam(self, image_path: str, detections: list) -> list:
-        """Segments each ingredient using the Roboflow SAM API."""
+        """
+        Segments each ingredient using the Roboflow SAM API.
+        Step 1: embed the image once
+        Step 2: segment each ingredient using the center point of its YOLO bbox
+        """
+        import requests
+        ROBOFLOW_BASE_URL = "https://serverless.roboflow.com"
+
         with open(image_path, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
         img = PILImage.open(image_path)
         total_area = img.width * img.height
-        results = []
 
+        print("Step 3/4: Roboflow SAM API (Two-step)...")
+        # ── Step 1: embed the image once (reused for all ingredients) ──
+        try:
+            def embed_call():
+                resp = requests.post(
+                    f"{ROBOFLOW_BASE_URL}/sam/embed_image",
+                    params={"api_key": self.roboflow_api_key},
+                    json={
+                        "image": {"type": "base64", "value": image_b64},
+                        "image_id": "meal_image"
+                    },
+                    timeout=30
+                )
+                resp.raise_for_status()
+                return resp.json()
+            
+            call_with_retry(embed_call)
+        except Exception as e:
+            print(f"  ⚠️  Roboflow SAM Embedding failed: {e}")
+            return [{**det, "masque": None, "surface_px": 0, "surface_pct": 0.0} for det in detections]
+
+        results = []
         for det in detections:
-            # Skip fallback detections or invalid bboxes
+            # Skip fallback detections
             if det.get("detecte_par") == "groq_vision_only" or det["bbox"] == [0, 0, 0, 0]:
                 results.append({**det, "masque": None, "surface_px": 0, "surface_pct": 0.0})
                 continue
 
             x1, y1, x2, y2 = det["bbox"]
-            box_w, box_h = x2 - x1, y2 - y1
+            cx = (x1 + x2) / 2   # center x of YOLO bbox
+            cy = (y1 + y2) / 2   # center y of YOLO bbox
 
-            if box_w < 5 or box_h < 5:
-                results.append({**det, "masque": None, "surface_px": 0, "surface_pct": 0.0})
-                continue
-
-            def sam_call():
-                return self.roboflow_client.prompt_segment(
-                    inference_input=f"data:image/jpeg;base64,{image_b64}",
-                    prompts=[{
-                        "x": (x1 + x2) / 2,
-                        "y": (y1 + y2) / 2,
-                        "width": box_w,
-                        "height": box_h,
-                        "type": "box"
-                    }]
+            def segment_call():
+                resp = requests.post(
+                    f"{ROBOFLOW_BASE_URL}/sam/segment_image",
+                    params={"api_key": self.roboflow_api_key},
+                    json={
+                        "image_id": "meal_image",
+                        "point_coords": [[cx, cy]],
+                        "point_labels": [1]      # 1 = positive point (include this object)
+                    },
+                    timeout=30
                 )
+                resp.raise_for_status()
+                return resp.json()
 
             try:
-                response = call_with_retry(sam_call)
-                mask_area = response.get("mask_area_px", 0) if response else 0
+                data = call_with_retry(segment_call)
+                # Pick the highest-confidence mask
+                masks = data.get("masks", [])
+                if masks:
+                    best = max(masks, key=lambda m: m.get("predicted_iou", 0))
+                    # Calculate mask area from the polygon points
+                    pts = best.get("segmentation", [[]])
+                    if pts and len(pts[0]) > 2:
+                        poly = np.array(pts[0]).reshape(-1, 2)
+                        mask_area = int(cv2.contourArea(poly.astype(np.float32)))
+                    else:
+                        mask_area = 0
+                else:
+                    mask_area = 0
             except Exception as e:
                 print(f"  ⚠️  Roboflow SAM failed for '{det['ingredient']}': {e}")
                 mask_area = 0
 
             results.append({
                 **det,
-                "masque": None, # Mask is not serializable
+                "masque": None,
                 "surface_px": mask_area,
                 "surface_pct": round((mask_area / total_area) * 100, 2) if total_area else 0.0
             })
