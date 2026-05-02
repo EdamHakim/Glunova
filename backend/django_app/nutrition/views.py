@@ -119,6 +119,7 @@ class MealLogListView(APIView):
         patient_id = patient_ids[0]
         
         data = request.data
+        from django.utils import timezone
         try:
             meal = MealLog.objects.create(
                 patient_id=patient_id,
@@ -129,6 +130,7 @@ class MealLogListView(APIView):
                 sugar_g=float(data.get("sugar_g", 0)),
                 gi=float(data.get("gi", 0)),
                 gl=float(data.get("gl", 0)),
+                logged_at=data.get("logged_at") or timezone.now()
             )
             return Response({"id": meal.id, "status": "logged"}, status=status.HTTP_201_CREATED)
         except Exception as e:
