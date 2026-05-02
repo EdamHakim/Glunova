@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { AuthProvider } from '@/components/auth-context'
+import { Toaster } from 'sonner'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -65,6 +66,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     <ThemeContext.Provider value={{ theme, setTheme, isDark }}>
       <AuthProvider>
         {children}
+        <Toaster position="top-center" richColors />
       </AuthProvider>
     </ThemeContext.Provider>
   )

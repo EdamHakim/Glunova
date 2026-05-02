@@ -108,6 +108,32 @@ class MealLogListView(APIView):
         ]
         return Response({"items": payload, "total": len(payload)})
 
+    def post(self, request):
+        patient_ids, error = _resolve_patient_scope(request.user, request.data.get("patient_id"))
+        if error is not None:
+            return error
+        if not patient_ids:
+            return Response({"detail": "Patient context required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Take the first patient_id from the scope (usually the current patient)
+        patient_id = patient_ids[0]
+        
+        data = request.data
+        try:
+            meal = MealLog.objects.create(
+                patient_id=patient_id,
+                input_type=data.get("input_type", "photo"),
+                description=data.get("description", ""),
+                carbs_g=float(data.get("carbs_g", 0)),
+                calories_kcal=float(data.get("calories_kcal", 0)),
+                sugar_g=float(data.get("sugar_g", 0)),
+                gi=float(data.get("gi", 0)),
+                gl=float(data.get("gl", 0)),
+            )
+            return Response({"id": meal.id, "status": "logged"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class ExercisePlanListView(APIView):
     permission_classes = [IsAuthenticated]

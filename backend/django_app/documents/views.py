@@ -19,15 +19,27 @@ class MeView(APIView):
 
     def get(self, request):
         u = request.user
-        return Response(
-            {
-                "id": str(u.pk),
-                "username": u.username,
-                "email": u.email,
-                "role": getattr(u, "role", "patient"),
-                "full_name": u.get_full_name() or u.username,
-            }
-        )
+        data = {
+            "id": str(u.pk),
+            "username": u.username,
+            "email": u.email,
+            "role": getattr(u, "role", "patient"),
+            "full_name": u.get_full_name() or u.username,
+        }
+        
+        # Include health profile if user is a patient
+        if getattr(u, "role", "patient") == "patient":
+            data.update({
+                "age": u.age,
+                "weight_kg": float(u.weight_kg) if u.weight_kg else None,
+                "height_cm": float(u.height_cm) if u.height_cm else None,
+                "diabetes_type": "Type 2", # Defaulting as model doesn't have explicit type choice yet
+                "medication": ["Metformin"], # Placeholder
+                "last_glucose": f"{u.blood_glucose_level} mg/dL" if u.blood_glucose_level else None,
+                "carb_limit_per_meal_g": 60, # Default limit
+            })
+            
+        return Response(data)
 
 
 class DocumentListCreateView(APIView):

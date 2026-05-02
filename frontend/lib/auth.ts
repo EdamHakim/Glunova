@@ -7,6 +7,14 @@ export type AuthUser = {
   userId: number | null
   id: string // Add string ID for compatibility with documents-api
   full_name: string
+  // Health profile fields (available for patients)
+  age?: number | null
+  weight_kg?: number | null
+  height_cm?: number | null
+  diabetes_type?: string | null
+  medication?: string[] | null
+  last_glucose?: string | null
+  carb_limit_per_meal_g?: number | null
 }
 
 function resolveClientApiBaseUrl(envValue: string | undefined, port: number, fallback: string) {
@@ -57,6 +65,13 @@ export async function fetchCurrentSessionUser(): Promise<AuthUser | null> {
       username: data.username || '',
       role: data.role as UserRole,
       full_name: data.full_name || '',
+      age: data.age,
+      weight_kg: data.weight_kg,
+      height_cm: data.height_cm,
+      diabetes_type: data.diabetes_type,
+      medication: data.medication,
+      last_glucose: data.last_glucose,
+      carb_limit_per_meal_g: data.carb_limit_per_meal_g,
     }
   } catch {
     return null

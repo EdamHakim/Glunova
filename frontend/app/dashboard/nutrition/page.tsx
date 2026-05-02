@@ -10,6 +10,7 @@ import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getNutritionSummary, listExercisePlans, listNutritionMeals, type ExercisePlanRow, type MealLogRow } from '@/lib/nutrition-api'
+import { NutritionAnalysisModal } from '@/components/nutrition/nutrition-analysis-modal'
 
 export default function NutritionPage() {
   const { user } = useAuth()
@@ -40,6 +41,23 @@ export default function NutritionPage() {
     if (user?.role === 'patient') setPatientId(user.id)
   }, [user])
 
+  const loadData = (pid: string) => {
+    setLoading(true)
+    setError(null)
+    Promise.all([getNutritionSummary(pid), listNutritionMeals(pid), listExercisePlans(pid)])
+      .then(([summaryPayload, mealsPayload, exercisePayload]) => {
+        setSummary(summaryPayload)
+        setMeals(mealsPayload.items)
+        setExercisePlans(exercisePayload.items)
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'Failed to load nutrition data')
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }
+
   useEffect(() => {
     if (!patientId) {
       setSummary(null)
@@ -47,25 +65,7 @@ export default function NutritionPage() {
       setExercisePlans([])
       return
     }
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    void Promise.all([getNutritionSummary(patientId), listNutritionMeals(patientId), listExercisePlans(patientId)])
-      .then(([summaryPayload, mealsPayload, exercisePayload]) => {
-        if (cancelled) return
-        setSummary(summaryPayload)
-        setMeals(mealsPayload.items)
-        setExercisePlans(exercisePayload.items)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load nutrition data')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+    loadData(patientId)
   }, [patientId])
 
   return (
@@ -112,10 +112,10 @@ export default function NutritionPage() {
                   <Plus className="h-4 w-4 mr-2" />
                   Text Input
                 </Button>
-                <Button className="w-full justify-start" variant="outline" disabled={!isPatient && !canAssistLogging}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Photo Upload
-                </Button>
+                <NutritionAnalysisModal 
+                  disabled={!isPatient && !canAssistLogging} 
+                  onLogged={() => patientId && loadData(patientId)} 
+                />
                 <Button className="w-full justify-start" variant="outline" disabled={!isPatient && !canAssistLogging}>
                   <Plus className="h-4 w-4 mr-2" />
                   Voice Log
