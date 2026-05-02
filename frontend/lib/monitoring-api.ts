@@ -88,3 +88,86 @@ export async function listLabResults(patientId: string) {
   const q = new URLSearchParams({ patient_id: patientId })
   return getJson<{ items: PatientLabResultRow[]; total: number }>(`/lab-results?${q.toString()}`)
 }
+
+export type RiskStratification = {
+  current: {
+    id: number
+    patient_id: number
+    patient_username: string
+    tier: 'low' | 'moderate' | 'high' | 'critical'
+    score: number
+    confidence: number
+    recommendation: string
+    n_models_used: number
+    assessed_at: string
+    relative_time: string
+  } | null
+  previous: {
+    tier: string
+    score: number
+    assessed_at: string
+  } | null
+  trend: 'first' | 'worsening' | 'improving' | 'stable'
+  delta_score: number | null
+}
+
+export async function getRiskStratification(patientId?: string) {
+  const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
+  return getJson<RiskStratification>(`/monitoring/risk-stratification${query}`)
+}
+
+export type ScreeningScan = {
+  score: number
+  risk_label: string
+  model_version: string
+  metadata: Record<string, unknown>
+  captured_at: string
+  relative_time: string
+}
+
+export type ScreeningModalitySummary = {
+  modality: string
+  label: string
+  scans: ScreeningScan[]
+  latest: ScreeningScan
+  trend: 'first' | 'worsening' | 'improving' | 'stable'
+  delta_score: number | null
+  sparkline: number[]
+  scan_count: number
+}
+
+export async function getScreeningHistory(patientId?: string) {
+  const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
+  return getJson<{ modalities: ScreeningModalitySummary[]; total_scans: number }>(
+    `/monitoring/screening-history${query}`,
+  )
+}
+
+export type DiseaseProgressionAssessment = {
+  id: number
+  tier: 'low' | 'moderate' | 'high' | 'critical'
+  score: number
+  confidence: number
+  n_models_used: number
+  assessed_at: string
+  relative_time: string
+}
+
+export type DiseaseProgression = {
+  assessments: DiseaseProgressionAssessment[]
+  trend: 'first' | 'worsening' | 'stable' | 'improving'
+  delta_score?: number
+  delta_confidence?: number
+  tier_journey?: string[]
+  tier_escalations?: number
+  n_assessments?: number
+  period_days?: number
+  modalities_evolution?: { first: number; last: number }
+  confidence_evolution?: { first: number; last: number; delta: number }
+  active_alerts_count?: number
+}
+
+export async function getDiseaseProgression(patientId?: string) {
+  const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
+  return getJson<DiseaseProgression>(`/monitoring/disease-progression${query}`)
+}

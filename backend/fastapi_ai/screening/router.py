@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from core.rbac import require_roles
+from monitoring.services.triggers import record_screening_and_refresh
 from screening.schemas import TongueGradcamResponse, TongueInferenceResponse, TongueModelHealthResponse
 from screening.services.tongue_pt_service import TonguePtService
 
@@ -70,6 +71,19 @@ async def infer_tongue_diabetes(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Tongue inference failed unexpectedly.",
         ) from exc
+
+    record_screening_and_refresh(
+        user_id=patient_id,
+        modality="tongue",
+        score=float(prediction.probability),
+        risk_label=prediction.prediction_label,
+        model_version=f"{prediction.model_name}@{prediction.model_version}",
+        metadata={
+            "logit": float(prediction.logit),
+            "prediction_index": int(prediction.prediction_index),
+            "threshold_used": float(prediction.threshold_used),
+        },
+    )
 
     return TongueInferenceResponse(
         patient_id=patient_id,

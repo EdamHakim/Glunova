@@ -1,0 +1,102 @@
+{
+  "version": "v11",
+  "generated_at": "2026-05-01T12:57:27.759446+00:00",
+  "description": "Glunova Late Fusion v11 - 7 modeles + override clinique",
+  "clinical_weights": {
+    "p_tabular": 0.28,
+    "p_dr_v51": 0.21,
+    "p_thermal": 0.19,
+    "p_ulcer": 0.17,
+    "p_tongue": 0.09,
+    "p_cataract": 0.06
+  },
+  "confidence_factors": {
+    "7": 1.0,
+    "6": 0.97,
+    "5": 0.92,
+    "4": 0.83,
+    "3": 0.73,
+    "2": 0.62,
+    "1": 0.5,
+    "0": 0.0
+  },
+  "thresholds": {
+    "tier_critical": 0.95,
+    "tier_high": 0.45,
+    "override_confidence": 0.75,
+    "complication_asymmetry": 0.3,
+    "tabular_high": 0.8,
+    "dr_detected": 0.5
+  },
+  "model_paths": {
+    "tabular_model": "/content/drive/MyDrive/Glunova/monitoring/risk_v8/tabular_diabetes_lgb.joblib",
+    "tabular_features": "/content/drive/MyDrive/Glunova/monitoring/risk_v8/tabular_feature_columns.json",
+    "dr_v51": "/content/drive/MyDrive/Glunova/binary_phase_v5_1/best_v5_1.pt",
+    "dr_v8": "/content/drive/MyDrive/Glunova/final_v8/best_v8.pt",
+    "thermal": "/content/drive/MyDrive/Glunova/models/thermalFoot/best_model_resnet50.pt",
+    "dfu": "/content/drive/MyDrive/Glunova/models/DFUSegmentation/resnet34_unet_weights.pth",
+    "tongue": "/content/drive/MyDrive/Glunova/models/tongue/resnet50_best.pt",
+    "cataract": "/content/drive/MyDrive/Glunova/models/cataract/BEST_mobilenet_final.pth"
+  },
+  "metrics": {
+    "tabular": {
+      "auc": 0.9974,
+      "f1": 0.9784,
+      "overfit_gap": 0.0064,
+      "test_n": 33715
+    },
+    "dr_v51": {
+      "auc_internal": 0.9827,
+      "auc_idrid": 0.9907,
+      "auc_aptos": 0.9963
+    },
+    "dr_v8": {
+      "qwk_internal": 0.8635,
+      "f1_internal": 0.7961,
+      "qwk_idrid": 0.6886,
+      "qwk_aptos": 0.5511
+    },
+    "thermal": {
+      "auc_roc": 0.9895,
+      "auc_pr": 0.9902,
+      "f1": 0.945,
+      "acc": 0.9459
+    },
+    "dfu": {
+      "dice": 0.8706,
+      "iou": 0.7929,
+      "sens": 0.8969,
+      "spec": 0.999,
+      "note": "val set, test pas evalue"
+    },
+    "tongue": {
+      "note": "metriques inconnues - a documenter par Edam"
+    },
+    "cataract": {
+      "auc_macro": 0.9356,
+      "f1_macro": 0.5955,
+      "acc": 0.856,
+      "note": "F1 par classe instable (legere=0.32, severe=0.29)"
+    }
+  },
+  "validation_v11": {
+    "extended_test_patients": 20,
+    "extended_test_accuracy": 1.0,
+    "sensitivity_per_weight": 1.0,
+    "sensitivity_monte_carlo": 0.988
+  },
+  "rules": {
+    "cap_n1_tier_high": true,
+    "asymmetry_filter": [
+      "p_thermal",
+      "p_ulcer",
+      "p_cataract"
+    ],
+    "override_grades": [
+      3,
+      4
+    ],
+    "override_min_conf": 0.75,
+    "tabular_required": true
+  }
+}

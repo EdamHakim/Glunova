@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, Clock } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -10,16 +10,21 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { listMedications, type PatientMedicationRow } from '@/lib/medications-api'
 import {
-  getMonitoringProgression,
+  getDiseaseProgression,
+  getRiskStratification,
+  getScreeningHistory,
   listLabResults,
   listMonitoringAlerts,
-  listMonitoringTimeline,
+  type DiseaseProgression,
   type MonitoringAlert,
   type PatientLabResultRow,
-  type MonitoringTierSummary,
-  type MonitoringTimelineItem,
+  type RiskStratification,
+  type ScreeningModalitySummary,
 } from '@/lib/monitoring-api'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { DiseaseProgressionTracker } from '@/components/monitoring/disease-progression-tracker'
+import { RiskStratificationCard } from '@/components/monitoring/risk-stratification-card'
+import { ScreeningHistoryTab } from '@/components/monitoring/screening-history-tab'
 
 function getSeverityColor(severity: string) {
   switch (severity) {
@@ -53,13 +58,18 @@ export default function MonitoringPage() {
   const [medications, setMedications] = useState<PatientMedicationRow[]>([])
   const [alerts, setAlerts] = useState<MonitoringAlert[]>([])
   const [labResults, setLabResults] = useState<PatientLabResultRow[]>([])
-  const [timelineEvents, setTimelineEvents] = useState<MonitoringTimelineItem[]>([])
-  const [progression, setProgression] = useState<MonitoringTierSummary[]>([])
+  const [progression, setProgression] = useState<DiseaseProgression | null>(null)
   const [medicationError, setMedicationError] = useState<string | null>(null)
   const [monitoringError, setMonitoringError] = useState<string | null>(null)
   const [labLoading, setLabLoading] = useState(false)
   const [medicationLoading, setMedicationLoading] = useState(false)
   const [monitoringLoading, setMonitoringLoading] = useState(false)
+  const [riskStrat, setRiskStrat] = useState<RiskStratification | null>(null)
+  const [riskStratLoading, setRiskStratLoading] = useState(false)
+  const [riskStratError, setRiskStratError] = useState<string | null>(null)
+  const [screeningHistory, setScreeningHistory] = useState<ScreeningModalitySummary[]>([])
+  const [screeningHistoryLoading, setScreeningHistoryLoading] = useState(false)
+  const [screeningHistoryError, setScreeningHistoryError] = useState<string | null>(null)
   const role = user?.role
   const isCaregiver = role === 'caregiver'
   const isDoctor = role === 'doctor'
@@ -80,8 +90,7 @@ export default function MonitoringPage() {
       setMedications([])
       setAlerts([])
       setLabResults([])
-      setTimelineEvents([])
-      setProgression([])
+      setProgression(null)
       return
     }
 
@@ -125,14 +134,12 @@ export default function MonitoringPage() {
 
     void Promise.all([
       listMonitoringAlerts(patientId),
-      listMonitoringTimeline(patientId),
-      getMonitoringProgression(patientId),
+      getDiseaseProgression(patientId),
     ])
-      .then(([alertsPayload, timelinePayload, progressionPayload]) => {
+      .then(([alertsPayload, progressionPayload]) => {
         if (cancelled) return
         setAlerts(alertsPayload.items)
-        setTimelineEvents(timelinePayload.items)
-        setProgression(progressionPayload.tiers)
+        setProgression(progressionPayload)
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -140,6 +147,32 @@ export default function MonitoringPage() {
       })
       .finally(() => {
         if (!cancelled) setMonitoringLoading(false)
+      })
+
+    setRiskStratLoading(true)
+    setRiskStratError(null)
+    void getRiskStratification(patientId)
+      .then((payload) => {
+        if (!cancelled) setRiskStrat(payload)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setRiskStratError(error instanceof Error ? error.message : 'Failed to load risk assessment')
+      })
+      .finally(() => {
+        if (!cancelled) setRiskStratLoading(false)
+      })
+
+    setScreeningHistoryLoading(true)
+    setScreeningHistoryError(null)
+    void getScreeningHistory(patientId)
+      .then((payload) => {
+        if (!cancelled) setScreeningHistory(payload.modalities)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setScreeningHistoryError(error instanceof Error ? error.message : 'Failed to load screening history')
+      })
+      .finally(() => {
+        if (!cancelled) setScreeningHistoryLoading(false)
       })
 
     return () => {
@@ -154,6 +187,60 @@ export default function MonitoringPage() {
         <p className="text-muted-foreground mt-2">{intro}</p>
       </div>
 
+      {/* Patient context selector (doctor / caregiver only) — drives ALL fetches below. */}
+      {user?.role !== 'patient' && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Patient context</CardTitle>
+            <CardDescription>
+              {patientId
+                ? `Viewing patient #${patientId}. All sections below load this patient's data.`
+                : 'Enter a patient ID you have access to. All sections below will then load that patient’s data.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-2 sm:max-w-xs">
+                <Label htmlFor="monitoring-patient-id">Patient ID</Label>
+                <Input
+                  id="monitoring-patient-id"
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 14"
+                  value={patientId}
+                  onChange={(event) => setPatientId(event.target.value)}
+                />
+              </div>
+              {patientId ? (
+                <button
+                  type="button"
+                  className="rounded-md border px-3 py-2 text-sm hover:bg-muted transition-colors"
+                  onClick={() => setPatientId('')}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Empty-state hint when doctor/caregiver hasn't selected a patient yet. */}
+      {user?.role !== 'patient' && !patientId ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Select a patient above to view their risk assessment, screening history, alerts, and
+            disease progression.
+          </CardContent>
+        </Card>
+      ) : (
+        <RiskStratificationCard
+          data={riskStrat}
+          loading={riskStratLoading}
+          error={riskStratError}
+        />
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>My Medications</CardTitle>
@@ -162,17 +249,6 @@ export default function MonitoringPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {user?.role !== 'patient' && (
-            <div className="max-w-sm space-y-2">
-              <Label htmlFor="monitoring-patient-id">Patient ID</Label>
-              <Input
-                id="monitoring-patient-id"
-                placeholder="Enter accessible patient ID"
-                value={patientId}
-                onChange={(event) => setPatientId(event.target.value)}
-              />
-            </div>
-          )}
 
           {medicationError && <p className="text-sm text-destructive">{medicationError}</p>}
           {monitoringError && <p className="text-sm text-destructive">{monitoringError}</p>}
@@ -303,7 +379,7 @@ export default function MonitoringPage() {
       <Tabs defaultValue="alerts" className="w-full">
         <TabsList className="grid h-auto w-full grid-cols-1 gap-2 sm:h-10 sm:grid-cols-3 sm:gap-0">
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
-          <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="screening">Screening History</TabsTrigger>
           <TabsTrigger value="progression">Progression</TabsTrigger>
         </TabsList>
 
@@ -324,72 +400,58 @@ export default function MonitoringPage() {
               {!monitoringLoading && alerts.length === 0 && (
                 <p className="text-sm text-muted-foreground">No alerts for this patient scope.</p>
               )}
-              {alerts.map((alert) => (
-                <div key={alert.id} className="p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                    <div className="flex gap-4 flex-1">
-                      <AlertCircle
-                        className={`h-5 w-5 mt-0.5 shrink-0 ${
-                          alert.severity === 'critical'
-                            ? 'text-destructive'
-                            : alert.severity === 'warning'
-                              ? 'text-health-danger'
-                              : 'text-health-warning'
-                        }`}
-                      />
-                      <div>
-                        <p className="font-medium">{alert.title}</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {alert.patient_username} - {alert.message}
-                        </p>
+              {alerts.map((alert) => {
+                const titleLower = alert.title.toLowerCase()
+                const isImprovement = titleLower.includes('improved')
+                const tierEmoji = isImprovement
+                  ? '✅'
+                  : alert.severity === 'critical'
+                    ? '🚨'
+                    : alert.severity === 'warning'
+                      ? '⚠️'
+                      : '🔔'
+                return (
+                  <div
+                    key={alert.id}
+                    className={`p-4 border rounded-lg hover:bg-muted/50 transition-colors ${
+                      alert.severity === 'critical'
+                        ? 'border-destructive/30 bg-destructive/5'
+                        : alert.severity === 'warning'
+                          ? 'border-health-danger/30 bg-health-danger/5'
+                          : 'border-border'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <div className="flex gap-3 flex-1 min-w-0">
+                        <span className="text-xl shrink-0 leading-tight" aria-hidden>{tierEmoji}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold">{alert.title}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {alert.patient_username}
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap leading-relaxed">
+                            {alert.message}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end shrink-0">
+                        <Badge className={getSeverityColor(alert.severity)}>{alert.severity}</Badge>
+                        <span className="text-xs text-muted-foreground">{alert.relative_time}</span>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-                      <Badge className={getSeverityColor(alert.severity)}>{alert.severity}</Badge>
-                      <span className="text-xs text-muted-foreground">{alert.relative_time}</span>
-                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="timeline" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Patient Event Timeline</CardTitle>
-              <CardDescription>
-                {isCaregiver ? 'Recent shareable events and care activities' : 'Recent health events and assessments'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                {monitoringLoading && <p className="text-sm text-muted-foreground">Loading timeline...</p>}
-                {!monitoringLoading && timelineEvents.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No timeline events available.</p>
-                )}
-                {timelineEvents.map((event, idx) => (
-                  <div key={idx} className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
-                        <Clock className="h-5 w-5 text-primary" />
-                      </div>
-                      {idx < timelineEvents.length - 1 && <div className="w-0.5 h-12 bg-border mt-2" />}
-                    </div>
-                    <div className="pb-4">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{event.title}</p>
-                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{event.value}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-0.5">{event.patient_username}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{event.relative_time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="screening" className="space-y-4">
+          <ScreeningHistoryTab
+            modalities={screeningHistory}
+            loading={screeningHistoryLoading}
+            error={screeningHistoryError}
+          />
         </TabsContent>
 
         <TabsContent value="progression" className="space-y-4">
@@ -409,59 +471,11 @@ export default function MonitoringPage() {
               </CardContent>
             </Card>
           ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle>Disease Progression Charts</CardTitle>
-                <CardDescription>
-                  {isDoctor ? 'Long-term trends across assigned patient risk categories' : 'Long-term health trends by patient risk category'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {monitoringLoading && <p className="text-sm text-muted-foreground">Loading progression data...</p>}
-                {!monitoringLoading &&
-                  progression.map((tier) => (
-                    <div key={tier.tier}>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm font-medium capitalize">{tier.tier} Risk Patients</span>
-                        <Badge
-                          variant="outline"
-                          className={
-                            tier.tier === 'low'
-                              ? 'bg-health-success/10 text-health-success border-health-success/20'
-                              : tier.tier === 'moderate'
-                                ? 'bg-health-warning/10 text-health-warning border-health-warning/20'
-                                : tier.tier === 'high'
-                                  ? 'bg-health-danger/10 text-health-danger border-health-danger/20'
-                                  : 'bg-destructive/10 text-destructive border-destructive/20'
-                          }
-                        >
-                          {tier.count} patients
-                        </Badge>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Avg Risk Score</span>
-                          <span className="font-medium">{Math.round(tier.avg_score * 100)}</span>
-                        </div>
-                        <div className="w-full bg-muted rounded-full h-2">
-                          <div
-                            className={
-                              tier.tier === 'low'
-                                ? 'bg-health-success h-2 rounded-full'
-                                : tier.tier === 'moderate'
-                                  ? 'bg-health-warning h-2 rounded-full'
-                                  : tier.tier === 'high'
-                                    ? 'bg-health-danger h-2 rounded-full'
-                                    : 'bg-destructive h-2 rounded-full'
-                            }
-                            style={{ width: `${Math.min(100, Math.round(tier.avg_score * 100))}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-              </CardContent>
-            </Card>
+            <DiseaseProgressionTracker
+              data={progression}
+              loading={monitoringLoading}
+              error={monitoringError}
+            />
           )}
         </TabsContent>
       </Tabs>

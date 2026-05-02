@@ -373,3 +373,238 @@ class PatientLabResultsView(APIView):
             for row in items
         ]
         return Response({"items": payload, "total": len(payload)})
+
+
+_TIER_RANK = {"low": 0, "moderate": 1, "high": 2, "critical": 3}
+_MODALITY_LABELS = {
+    "retinopathy": "Diabetic Retinopathy",
+    "infrared": "Thermal Foot",
+    "tongue": "Tongue",
+    "foot_ulcer": "Foot Ulcer (DFU)",
+    "cataract": "Cataract",
+    "voice": "Voice",
+    "fusion": "Fusion",
+}
+
+
+def _trend_label(current_score: float, previous_score: float | None, threshold: float = 0.10) -> str:
+    """Symmetric numeric trend (used for Risk Stratification + most modalities)."""
+    if previous_score is None:
+        return "first"
+    delta = current_score - previous_score
+    if delta > threshold:
+        return "worsening"
+    if delta < -threshold:
+        return "improving"
+    return "stable"
+
+
+class MonitoringRiskStratificationView(APIView):
+    """Hero card data for the Monitoring page — current tier + trend vs previous."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
+        if error is not None:
+            return error
+        if not patient_ids:
+            return Response({"current": None, "previous": None})
+
+        # Patient role: their own latest. Doctor/caregiver with no patient_id: latest assessed across scope.
+        qs = (
+            RiskAssessment.objects
+            .filter(patient_id__in=patient_ids)
+            .select_related("patient")
+            .order_by("-assessed_at", "-created_at")
+        )
+        rows = list(qs[:2])
+        if not rows:
+            return Response({"current": None, "previous": None})
+
+        current = rows[0]
+        previous = rows[1] if len(rows) > 1 else None
+
+        drivers = current.drivers if isinstance(current.drivers, dict) else {}
+        recommendation = drivers.get("recommendation") or "No recommendation available."
+        n_models_used = drivers.get("n_models_used", 0)
+
+        trend = _trend_label(float(current.score), float(previous.score) if previous else None)
+        delta_score = float(current.score) - float(previous.score) if previous else None
+
+        return Response({
+            "current": {
+                "id": current.id,
+                "patient_id": int(current.patient_id),
+                "patient_username": current.patient.username,
+                "tier": current.tier,
+                "score": float(current.score),
+                "confidence": float(current.confidence),
+                "recommendation": recommendation,
+                "n_models_used": int(n_models_used) if isinstance(n_models_used, int) else 0,
+                "assessed_at": current.assessed_at.isoformat(),
+                "relative_time": _format_relative_time(current.assessed_at),
+            },
+            "previous": {
+                "tier": previous.tier,
+                "score": float(previous.score),
+                "assessed_at": previous.assessed_at.isoformat(),
+            } if previous else None,
+            "trend": trend,
+            "delta_score": delta_score,
+        })
+
+
+class MonitoringScreeningHistoryView(APIView):
+    """Longitudinal screening results grouped by modality, with AI-detected trend."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
+        if error is not None:
+            return error
+        if not patient_ids:
+            return Response({"modalities": [], "total_scans": 0})
+
+        # Pull the last N scans per modality. We collect all then group in Python
+        # to keep the SQL portable; bounded by limit so the payload stays small.
+        per_modality_limit = 5
+        rows = (
+            ScreeningResult.objects
+            .filter(patient_id__in=patient_ids)
+            .order_by("-captured_at", "-created_at")
+            .values("modality", "score", "risk_label", "model_version", "metadata", "captured_at")[:200]
+        )
+
+        grouped: dict[str, list[dict]] = {}
+        for r in rows:
+            modality = r["modality"]
+            if modality not in grouped:
+                grouped[modality] = []
+            if len(grouped[modality]) < per_modality_limit:
+                grouped[modality].append({
+                    "score": float(r["score"]),
+                    "risk_label": r["risk_label"],
+                    "model_version": r["model_version"],
+                    "metadata": r["metadata"] if isinstance(r["metadata"], dict) else {},
+                    "captured_at": r["captured_at"].isoformat(),
+                    "relative_time": _format_relative_time(r["captured_at"]),
+                })
+
+        modalities_payload = []
+        for modality, scans in grouped.items():
+            latest = scans[0]
+            previous_score = float(scans[1]["score"]) if len(scans) > 1 else None
+            trend = _trend_label(latest["score"], previous_score)
+            delta = latest["score"] - previous_score if previous_score is not None else None
+
+            # Sparkline = list of scores oldest→newest (reverse since we collected newest→oldest).
+            sparkline = [s["score"] for s in reversed(scans)]
+
+            modalities_payload.append({
+                "modality": modality,
+                "label": _MODALITY_LABELS.get(modality, modality.replace("_", " ").title()),
+                "scans": scans,                       # newest first
+                "latest": latest,
+                "trend": trend,
+                "delta_score": delta,
+                "sparkline": sparkline,               # oldest first
+                "scan_count": len(scans),
+            })
+
+        # Sort modalities by most recent activity.
+        modalities_payload.sort(key=lambda m: m["latest"]["captured_at"], reverse=True)
+
+        return Response({
+            "modalities": modalities_payload,
+            "total_scans": sum(m["scan_count"] for m in modalities_payload),
+        })
+
+
+class MonitoringDiseaseProgressionView(APIView):
+    """Patient-level disease progression — risk score over time + summary trend."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
+        if error is not None:
+            return error
+        if not patient_ids:
+            return Response({"assessments": [], "trend": "first"})
+
+        # Last N assessments, oldest -> newest for the chart.
+        rows = list(
+            RiskAssessment.objects
+            .filter(patient_id__in=patient_ids)
+            .order_by("-assessed_at", "-created_at")[:20]
+        )
+        rows.reverse()  # chronological order for the chart
+
+        if not rows:
+            return Response({"assessments": [], "trend": "first"})
+
+        assessments = []
+        for r in rows:
+            drivers = r.drivers if isinstance(r.drivers, dict) else {}
+            assessments.append({
+                "id": r.id,
+                "tier": r.tier,
+                "score": float(r.score),
+                "confidence": float(r.confidence),
+                "n_models_used": int(drivers.get("n_models_used", 0)),
+                "assessed_at": r.assessed_at.isoformat(),
+                "relative_time": _format_relative_time(r.assessed_at),
+            })
+
+        first = assessments[0]
+        last = assessments[-1]
+        delta_score = last["score"] - first["score"]
+        delta_confidence = last["confidence"] - first["confidence"]
+
+        if len(assessments) < 2:
+            trend = "first"
+        elif delta_score > 0.10:
+            trend = "worsening"
+        elif delta_score < -0.10:
+            trend = "improving"
+        else:
+            trend = "stable"
+
+        # Tier journey = unique tiers in chronological order (e.g. low -> high -> critical).
+        tier_journey: list[str] = []
+        for a in assessments:
+            if not tier_journey or tier_journey[-1] != a["tier"]:
+                tier_journey.append(a["tier"])
+
+        # Period in days (rough)
+        period_seconds = (rows[-1].assessed_at - rows[0].assessed_at).total_seconds()
+        period_days = max(1, int(period_seconds // 86400))
+
+        # Active alerts count for this patient scope
+        active_alerts = HealthAlert.objects.filter(
+            patient_id__in=patient_ids,
+            status=HealthAlert.Status.ACTIVE,
+        ).count()
+
+        return Response({
+            "assessments": assessments,
+            "trend": trend,
+            "delta_score": delta_score,
+            "delta_confidence": delta_confidence,
+            "tier_journey": tier_journey,
+            "tier_escalations": max(0, len(tier_journey) - 1),
+            "n_assessments": len(assessments),
+            "period_days": period_days,
+            "modalities_evolution": {
+                "first": first["n_models_used"],
+                "last": last["n_models_used"],
+            },
+            "confidence_evolution": {
+                "first": first["confidence"],
+                "last": last["confidence"],
+                "delta": delta_confidence,
+            },
+            "active_alerts_count": int(active_alerts),
+        })

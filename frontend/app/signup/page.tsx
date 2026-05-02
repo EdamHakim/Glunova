@@ -28,6 +28,16 @@ export default function SignupPage() {
     first_name: '',
     last_name: '',
     role: 'patient' as Role,
+    // Patient health profile (only sent when role === 'patient').
+    date_of_birth: '',
+    gender: '',
+    height_cm: '',
+    weight_kg: '',
+    hypertension: false,
+    heart_disease: false,
+    smoking_status: '',
+    hba1c_level: '',
+    blood_glucose_level: '',
   })
 
   function updateField<K extends keyof typeof form>(field: K, value: (typeof form)[K]) {
@@ -47,7 +57,26 @@ export default function SignupPage() {
     
     try {
       const { django } = getApiUrls()
-      const { confirmPassword, ...submitData } = form
+      const isPatient = form.role === 'patient'
+      const submitData = {
+        username: form.username,
+        email: form.email,
+        password: form.password,
+        first_name: form.first_name,
+        last_name: form.last_name,
+        role: form.role,
+        ...(isPatient && {
+          date_of_birth: form.date_of_birth || null,
+          gender: form.gender || null,
+          height_cm: form.height_cm ? parseFloat(form.height_cm) : null,
+          weight_kg: form.weight_kg ? parseFloat(form.weight_kg) : null,
+          hypertension: form.hypertension,
+          heart_disease: form.heart_disease,
+          smoking_status: form.smoking_status || null,
+          hba1c_level: form.hba1c_level ? parseFloat(form.hba1c_level) : null,
+          blood_glucose_level: form.blood_glucose_level ? parseInt(form.blood_glucose_level, 10) : null,
+        }),
+      }
       const response = await fetch(`${django}/api/auth/register/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -263,6 +292,146 @@ export default function SignupPage() {
                 </li>
               </ul>
             </div>
+
+            {/* Health profile — patient only */}
+            {form.role === 'patient' && (
+              <div className="space-y-4 rounded-xl border border-border/50 bg-muted/20 p-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Health profile</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Optional but recommended — needed for AI-powered risk assessment.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="dob" className="text-sm font-semibold ml-1 text-foreground">Date of birth</Label>
+                    <Input
+                      id="dob"
+                      type="date"
+                      className="h-11 bg-background/50 border-muted focus-visible:ring-primary/20"
+                      value={form.date_of_birth}
+                      onChange={(e) => updateField('date_of_birth', e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="gender" className="text-sm font-semibold ml-1 text-foreground">Gender</Label>
+                    <select
+                      id="gender"
+                      className="flex h-11 w-full rounded-md border border-muted bg-background/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                      value={form.gender}
+                      onChange={(e) => updateField('gender', e.target.value)}
+                    >
+                      <option value="">Select...</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="height" className="text-sm font-semibold ml-1 text-foreground">Height (cm)</Label>
+                    <Input
+                      id="height"
+                      type="number"
+                      step="0.1"
+                      min="50"
+                      max="250"
+                      placeholder="170"
+                      className="h-11 bg-background/50 border-muted focus-visible:ring-primary/20"
+                      value={form.height_cm}
+                      onChange={(e) => updateField('height_cm', e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="weight" className="text-sm font-semibold ml-1 text-foreground">Weight (kg)</Label>
+                    <Input
+                      id="weight"
+                      type="number"
+                      step="0.1"
+                      min="20"
+                      max="300"
+                      placeholder="70"
+                      className="h-11 bg-background/50 border-muted focus-visible:ring-primary/20"
+                      value={form.weight_kg}
+                      onChange={(e) => updateField('weight_kg', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="hba1c" className="text-sm font-semibold ml-1 text-foreground">HbA1c (%)</Label>
+                    <Input
+                      id="hba1c"
+                      type="number"
+                      step="0.1"
+                      min="3"
+                      max="15"
+                      placeholder="5.5"
+                      className="h-11 bg-background/50 border-muted focus-visible:ring-primary/20"
+                      value={form.hba1c_level}
+                      onChange={(e) => updateField('hba1c_level', e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="glucose" className="text-sm font-semibold ml-1 text-foreground">Blood glucose (mg/dL)</Label>
+                    <Input
+                      id="glucose"
+                      type="number"
+                      min="50"
+                      max="500"
+                      placeholder="100"
+                      className="h-11 bg-background/50 border-muted focus-visible:ring-primary/20"
+                      value={form.blood_glucose_level}
+                      onChange={(e) => updateField('blood_glucose_level', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="smoking" className="text-sm font-semibold ml-1 text-foreground">Smoking status</Label>
+                  <select
+                    id="smoking"
+                    className="flex h-11 w-full rounded-md border border-muted bg-background/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                    value={form.smoking_status}
+                    onChange={(e) => updateField('smoking_status', e.target.value)}
+                  >
+                    <option value="">Select...</option>
+                    <option value="never">Never smoked</option>
+                    <option value="former">Former smoker</option>
+                    <option value="current">Current smoker</option>
+                    <option value="ever">Ever smoked</option>
+                    <option value="not current">Not current</option>
+                    <option value="No Info">Prefer not to say</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="hypertension"
+                      checked={form.hypertension}
+                      onCheckedChange={(v) => updateField('hypertension', v as boolean)}
+                    />
+                    <Label htmlFor="hypertension" className="cursor-pointer text-sm font-medium">
+                      Hypertension
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="heart_disease"
+                      checked={form.heart_disease}
+                      onCheckedChange={(v) => updateField('heart_disease', v as boolean)}
+                    />
+                    <Label htmlFor="heart_disease" className="cursor-pointer text-sm font-medium">
+                      Heart disease
+                    </Label>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Terms Agreement */}
             <div className="flex items-start gap-3 pt-2">

@@ -1,0 +1,218 @@
+{
+  "version": "v11",
+  "endpoint": "POST /predict",
+  "description": "Predict diabetes risk tier from form + 0..5 medical images",
+  "request": {
+    "content_type": "multipart/form-data",
+    "fields": {
+      "patient_data": {
+        "type": "JSON object (sent as form field)",
+        "required_keys": [
+          "age",
+          "HbA1c_level",
+          "blood_glucose_level"
+        ],
+        "all_keys": {
+          "age": {
+            "type": "int",
+            "min": 2,
+            "max": 95,
+            "unit": "years"
+          },
+          "bmi": {
+            "type": "float",
+            "min": 15,
+            "max": 55,
+            "unit": "kg/m^2"
+          },
+          "HbA1c_level": {
+            "type": "float",
+            "min": 3.5,
+            "max": 9.0,
+            "unit": "%"
+          },
+          "blood_glucose_level": {
+            "type": "int",
+            "min": 80,
+            "max": 300,
+            "unit": "mg/dL"
+          },
+          "hypertension": {
+            "type": "int",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "heart_disease": {
+            "type": "int",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "gender_enc": {
+            "type": "int",
+            "enum": [
+              0,
+              1
+            ],
+            "meaning": "0=Male, 1=Female"
+          },
+          "smoking_enc": {
+            "type": "int",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        }
+      },
+      "fundus_image": {
+        "type": "file",
+        "required": false
+      },
+      "foot_image": {
+        "type": "file",
+        "required": false
+      },
+      "thermal_image": {
+        "type": "file",
+        "required": false
+      },
+      "tongue_image": {
+        "type": "file",
+        "required": false
+      },
+      "cataract_image": {
+        "type": "file",
+        "required": false
+      }
+    }
+  },
+  "response": {
+    "content_type": "application/json",
+    "fields": {
+      "tier": {
+        "type": "string",
+        "enum": [
+          "LOW",
+          "HIGH",
+          "CRITICAL"
+        ]
+      },
+      "p_finale": {
+        "type": "float",
+        "range": [
+          0,
+          1
+        ]
+      },
+      "confidence_factor": {
+        "type": "float",
+        "range": [
+          0.5,
+          1
+        ]
+      },
+      "n_models_used": {
+        "type": "int",
+        "range": [
+          1,
+          7
+        ]
+      },
+      "recommendation": {
+        "type": "string"
+      },
+      "reasons": {
+        "type": "list[string]"
+      },
+      "contributions": {
+        "type": "object"
+      },
+      "features": {
+        "type": "object"
+      },
+      "override_active": {
+        "type": "bool"
+      },
+      "override_reason": {
+        "type": "string|null"
+      },
+      "dr_grade": {
+        "type": "int",
+        "range": [
+          0,
+          4
+        ]
+      },
+      "dr_confidence": {
+        "type": "float"
+      },
+      "cataract_grade": {
+        "type": "int",
+        "range": [
+          0,
+          3
+        ]
+      },
+      "cataract_confidence": {
+        "type": "float"
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "Patient sain (formulaire seul)",
+      "request_form": {
+        "age": 35,
+        "bmi": 23.0,
+        "HbA1c_level": 5.2,
+        "blood_glucose_level": 95
+      },
+      "response_example": {
+        "tier": "LOW",
+        "p_finale": 0.05,
+        "confidence_factor": 0.5
+      }
+    },
+    {
+      "name": "Patient borderline + fundus",
+      "request_form": {
+        "age": 52,
+        "HbA1c_level": 7.2,
+        "blood_glucose_level": 165
+      },
+      "response_example": {
+        "tier": "HIGH",
+        "p_finale": 0.69,
+        "dr_grade": 1
+      }
+    },
+    {
+      "name": "Patient critique avec proliferative DR",
+      "request_form": {
+        "age": 70,
+        "HbA1c_level": 9.0,
+        "blood_glucose_level": 280
+      },
+      "response_example": {
+        "tier": "CRITICAL",
+        "override_active": true,
+        "override_reason": "Proliferative DR"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "TABULAR_REQUIRED",
+      "http_status": 400,
+      "message": "Donnees cliniques (HbA1c, glucose) obligatoires."
+    }
+  ]
+}

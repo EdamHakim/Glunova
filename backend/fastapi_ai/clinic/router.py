@@ -16,13 +16,14 @@ from clinic.schemas import (
     ThermalFootInferenceResponse,
     ThermalFootModelHealthResponse,
 )
-# from clinic.models.DFUSegmentation import DFUSegmenter  # TODO: re-enable when DFU implementation is pushed by owner
+from clinic.models.DFUSegmentation import DFUSegmenter
+from monitoring.services.triggers import record_screening_and_refresh
 from clinic.services.retinopathy_service import RetinopathyService
 from clinic.services.thermal_foot_pt_service import ThermalFootPtService
 
 router = APIRouter(prefix="/clinic", tags=["clinic"])
 _thermal_foot_service = ThermalFootPtService()
-# _dfu_segmentation_service = DFUSegmenter()  # TODO: re-enable when DFU implementation is pushed by owner
+_dfu_segmentation_service = DFUSegmenter()
 _retinopathy_service = RetinopathyService()
 
 
@@ -169,6 +170,30 @@ async def infer_dfu_segmentation(
             detail="DFU segmentation inference failed unexpectedly.",
         )
     metrics = _lesion_metrics(prediction, mm_per_pixel)
+
+    # Fusion-friendly score: mirrors glunova_predictor.DFUSegmentationPredictor.
+    # Any detected ulcer (>=0.1% area) starts at 0.5 and scales up with coverage.
+    # Sub-threshold detections fall to 0 so the asymmetric filter drops them.
+    ratio = float(prediction.ulcer_area_ratio)
+    if ratio >= 0.001:
+        fusion_score = min(0.5 + ratio * 20.0, 1.0)
+    else:
+        fusion_score = 0.0
+    record_screening_and_refresh(
+        user_id=patient_id,
+        modality="foot_ulcer",
+        score=fusion_score,
+        risk_label="Ulcer detected" if prediction.ulcer_detected else "No ulcer",
+        model_version="resnet34_unet_dfu@pth-v1",
+        metadata={
+            "threshold_used": float(prediction.threshold_used),
+            "ulcer_area_ratio": ratio,
+            "ulcer_area_px": int(prediction.ulcer_area_px),
+            "ulcer_area_mm2": float(metrics["ulcer_area_mm2"]),
+            "bbox_width_mm": float(metrics["bbox_width_mm"]),
+            "bbox_height_mm": float(metrics["bbox_height_mm"]),
+        },
+    )
 
     return DFUSegmentationInferenceResponse(
         patient_id=patient_id,
@@ -369,6 +394,19 @@ async def infer_thermal_foot_diabetes(
             detail="Thermal foot inference failed unexpectedly.",
         )
 
+    record_screening_and_refresh(
+        user_id=patient_id,
+        modality="infrared",
+        score=float(prediction.probability),
+        risk_label=prediction.prediction_label,
+        model_version=f"{prediction.model_name}@{prediction.model_version}",
+        metadata={
+            "logit": float(prediction.logit),
+            "prediction_index": int(prediction.prediction_index),
+            "threshold_used": float(prediction.threshold_used),
+        },
+    )
+
     return ThermalFootInferenceResponse(
         patient_id=patient_id,
         reviewed_by_user_id=doctor_id,
@@ -529,6 +567,22 @@ async def infer_retinopathy(
             "model_name": v8.model_name,
             "model_version": v8.model_version,
         }
+
+    record_screening_and_refresh(
+        user_id=patient_id,
+        modality="retinopathy",
+        score=float(v51.dr_probability),
+        risk_label=result.clinical_grade_label,
+        model_version=f"{v51.model_name}@{v51.model_version}+v8",
+        metadata={
+            "clinical_grade": int(result.clinical_grade),
+            "v51_threshold_used": float(v51.threshold_used),
+            "v51_dr_detected": bool(v51.dr_detected),
+            "dr_v8_grade": int(result.severity.grade_idx) if result.severity else 0,
+            "dr_v8_confidence": float(result.severity.confidence) if result.severity else 0.0,
+            "dr_v8_probabilities": result.severity.probabilities if result.severity else None,
+        },
+    )
 
     return RetinopathyInferenceResponse(
         patient_id=patient_id,

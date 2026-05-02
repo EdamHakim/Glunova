@@ -1,3 +1,7 @@
+import logging
+import os
+
+import httpx
 from django.contrib.auth import get_user_model
 from rest_framework import serializers, status
 from rest_framework.response import Response
@@ -5,7 +9,23 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
+
+
+def _trigger_fusion_refresh(patient_id: int) -> None:
+    """Best-effort call to FastAPI to refresh the patient's tier.
+
+    Failure is non-blocking: signup must succeed even if FastAPI is down or the
+    patient skipped required health fields (HbA1c/glucose) — the route returns
+    PATIENT_INCOMPLETE which we just log.
+    """
+    base = os.environ.get("FASTAPI_INTERNAL_URL", "http://127.0.0.1:8001")
+    url = f"{base.rstrip('/')}/monitoring/internal/refresh-tier/{patient_id}"
+    try:
+        httpx.post(url, timeout=20.0)
+    except Exception as exc:
+        logger.warning("Fusion refresh ping failed for patient %s: %s", patient_id, exc)
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -13,7 +33,24 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("username", "email", "password", "first_name", "last_name", "role")
+        fields = (
+            "username", "email", "password", "first_name", "last_name", "role",
+            # Patient health profile (optional; only meaningful when role="patient").
+            "date_of_birth", "gender", "height_cm", "weight_kg",
+            "hypertension", "heart_disease", "smoking_status",
+            "hba1c_level", "blood_glucose_level",
+        )
+        extra_kwargs = {
+            "date_of_birth": {"required": False, "allow_null": True},
+            "gender": {"required": False, "allow_null": True, "allow_blank": True},
+            "height_cm": {"required": False, "allow_null": True},
+            "weight_kg": {"required": False, "allow_null": True},
+            "hypertension": {"required": False, "allow_null": True},
+            "heart_disease": {"required": False, "allow_null": True},
+            "smoking_status": {"required": False, "allow_null": True, "allow_blank": True},
+            "hba1c_level": {"required": False, "allow_null": True},
+            "blood_glucose_level": {"required": False, "allow_null": True},
+        }
 
     def create(self, validated_data):
         password = validated_data.pop("password")
@@ -31,6 +68,11 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        # Trigger #1: kick off the v11 fusion to compute the patient's initial tier.
+        # Synchronous but with a short timeout — does not block signup if FastAPI
+        # is unavailable or the patient is missing required health fields.
+        if user.role == "patient":
+            _trigger_fusion_refresh(int(user.id))
         return Response(
             {
                 "id": user.id,
