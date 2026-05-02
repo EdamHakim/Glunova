@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from psychology.evaluation.dataset_schema import EvalSample
+from psychology.kb_retrieval import resolve_kb_retrieval_limit
 from psychology.knowledge_ingestion import get_knowledge_base
 from psychology.schemas import MessageRequest
 from psychology.service import PsychologyService
@@ -54,7 +55,8 @@ def run_samples(samples: list[EvalSample]) -> list[EvalRuntimeRow]:
             text=sample.question,
         )
         response = service.handle_message(message_payload)
-        kb_items = kb.search(sample.question, language=sample.preferred_language, limit=5)
+        kb_limit = resolve_kb_retrieval_limit(sample.question, response.mental_state)
+        kb_items = kb.search(sample.question, language=sample.preferred_language, limit=kb_limit)
         contexts = [str(item.get("text") or "") for item in kb_items]
         context_ids = [str(item.get("chunk_id") or item.get("source") or "unknown") for item in kb_items]
         rows.append(

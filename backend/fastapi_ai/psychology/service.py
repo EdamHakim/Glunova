@@ -34,6 +34,8 @@ from psychology.schemas import (
     TrendPoint,
     TrendResponse,
 )
+from psychology.hf_emotion_inference import classify_audio, classify_image, classify_text
+from psychology.kb_retrieval import resolve_kb_retrieval_limit
 from psychology.knowledge_ingestion import get_knowledge_base
 from psychology.storage import (
     CrisisStore,
@@ -160,7 +162,8 @@ class PsychologyService:
         fusion = self._fusion(payload)
         trend_slope = self._trend_slope(payload.patient_id)
         mental_state = self._classify_mental_state(fusion.distress_score, crisis_detected, trend_slope)
-        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=5)
+        kb_limit = resolve_kb_retrieval_limit(payload.text, mental_state)
+        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=kb_limit)
         anomaly_flags: list[str] = []
         retrieval_quality = self._retrieval_quality(kb_context)
         if retrieval_quality != "ok":
@@ -474,10 +477,17 @@ class PsychologyService:
             set_physician_review_required(self._pool, patient_id, True)
         logger.warning("psychology.crisis.trigger patient_id=%s session_id=%s prob=%.3f", patient_id, session_id, probability)
 
-    def _text_emotion(self, text: str) -> tuple[EmotionLabel, float, float]:
-        # Hugging Face text classifier can trigger multi‑GB downloads and block the HTTP request.
-        # Use PSYCHOLOGY_TEXT_EMOTION_USE_HF=true only after models are cached (or offline).
+    def _run_text_emotion_hf(self) -> bool:
+        """Use HF for text emotion if explicitly enabled, or when a remote inference token is configured (no local weights)."""
         if settings.psychology_text_emotion_use_hf:
+            return True
+        if self._emotion_inference_mode_norm() == "local":
+            return False
+        return bool((settings.psychology_hf_api_token or "").strip())
+
+    def _text_emotion(self, text: str) -> tuple[EmotionLabel, float, float]:
+        # Local transformers pipelines can multi‑GB download; Inference API path uses `PSYCHOLOGY_HF_API_TOKEN` / HF_TOKEN only.
+        if self._run_text_emotion_hf():
             hf_text = self._infer_text_emotion_hf(text)
             if hf_text is not None:
                 return hf_text
@@ -867,20 +877,39 @@ class PsychologyService:
     def _infer_face_emotion_from_frame(self, frame_base64: str) -> tuple[EmotionLabel, float] | None:
         return self._infer_face_emotion_vit(frame_base64)
 
-    def _infer_face_emotion_vit(self, frame_base64: str) -> tuple[EmotionLabel, float] | None:
+    @staticmethod
+    def _emotion_inference_mode_norm() -> str:
+        m = (settings.psychology_emotion_inference_mode or "auto").strip().lower()
+        return m if m in {"auto", "inference_api", "local"} else "auto"
+
+    @classmethod
+    def _allow_local_inference_fallback(cls) -> bool:
+        return cls._emotion_inference_mode_norm() == "auto"
+
+    def _infer_face_emotion_vit_hf_api(self, image_bytes: bytes) -> tuple[EmotionLabel, float] | None:
+        token = (settings.psychology_hf_api_token or "").strip()
+        model_id = (
+            settings.psychology_face_emotion_model.strip()
+            or "mo-thecreator/vit-Facial-Expression-Recognition"
+        )
+        out = classify_image(token, model_id, image_bytes, settings.psychology_hf_inference_timeout_s)
+        if out is None:
+            return None
+        raw_label, score = out
+        mapped = self._map_face_label_generic(raw_label)
+        return mapped, max(0.4, min(0.99, float(score)))
+
+    def _infer_face_emotion_vit_local(self, image_bytes: bytes) -> tuple[EmotionLabel, float] | None:
         try:
             from transformers import AutoImageProcessor, AutoModelForImageClassification
             import torch
         except Exception:
             return None
-        image_bytes = self._safe_b64decode(frame_base64)
-        if image_bytes is None:
-            return None
         try:
             if self._hf_face_bundle is None:
                 model_id = (
                     settings.psychology_face_emotion_model.strip()
-                    or "dima806/facial_emotions_image_detection"
+                    or "mo-thecreator/vit-Facial-Expression-Recognition"
                 )
                 processor = AutoImageProcessor.from_pretrained(model_id)
                 model = AutoModelForImageClassification.from_pretrained(model_id)
@@ -900,14 +929,42 @@ class PsychologyService:
         except Exception:
             return None
 
-    def _infer_speech_emotion_emotion2vec(self, audio_base64: str) -> tuple[EmotionLabel, float] | None:
+    def _infer_face_emotion_vit(self, frame_base64: str) -> tuple[EmotionLabel, float] | None:
+        image_bytes = self._safe_b64decode(frame_base64)
+        if image_bytes is None:
+            return None
+        mode = self._emotion_inference_mode_norm()
+        token = (settings.psychology_hf_api_token or "").strip()
+        if mode == "inference_api" and not token:
+            logger.warning("psychology face emotion: inference_api mode but HF token missing")
+            return None
+        if mode != "local" and token:
+            api_out = self._infer_face_emotion_vit_hf_api(image_bytes)
+            if api_out is not None:
+                return api_out
+            if mode == "inference_api":
+                return None
+        if mode == "local" or self._allow_local_inference_fallback():
+            return self._infer_face_emotion_vit_local(image_bytes)
+        return None
+
+    def _infer_speech_emotion_hf_api(self, wav_bytes: bytes) -> tuple[EmotionLabel, float] | None:
+        hf_audio_model = (settings.psychology_speech_emotion_hf_model or "").strip()
+        if not hf_audio_model:
+            return None
+        token = (settings.psychology_hf_api_token or "").strip()
+        out = classify_audio(token, hf_audio_model, wav_bytes, settings.psychology_hf_inference_timeout_s)
+        if out is None:
+            return None
+        raw_label, confidence = out
+        mapped = self._map_speech_label_generic(raw_label)
+        return mapped, max(0.35, min(0.99, float(confidence)))
+
+    def _infer_speech_emotion_emotion2vec_local(self, wav_bytes: bytes) -> tuple[EmotionLabel, float] | None:
         try:
             from modelscope.pipelines import pipeline as ms_pipeline
             from modelscope.utils.constant import Tasks
         except Exception:
-            return None
-        wav_bytes = self._safe_b64decode(audio_base64)
-        if wav_bytes is None:
             return None
         try:
             if self._emotion2vec_infer is None:
@@ -923,7 +980,59 @@ class PsychologyService:
         except Exception:
             return None
 
-    def _infer_text_emotion_hf(self, text: str) -> tuple[EmotionLabel, float, float] | None:
+    def _infer_speech_emotion_emotion2vec(self, audio_base64: str) -> tuple[EmotionLabel, float] | None:
+        wav_bytes = self._safe_b64decode(audio_base64)
+        if wav_bytes is None:
+            return None
+        mode = self._emotion_inference_mode_norm()
+        token = (settings.psychology_hf_api_token or "").strip()
+        hf_audio_model = (settings.psychology_speech_emotion_hf_model or "").strip()
+        if mode == "inference_api" and not token:
+            logger.warning("psychology speech emotion: inference_api mode but HF token missing")
+            return None
+        if mode == "inference_api" and not hf_audio_model:
+            logger.warning(
+                "psychology speech emotion: inference_api mode requires PSYCHOLOGY_SPEECH_EMOTION_HF_MODEL "
+                "(Inference API `audio_classification` repo id)"
+            )
+            return None
+        if (
+            mode != "local"
+            and token
+            and hf_audio_model
+        ):
+            api_out = self._infer_speech_emotion_hf_api(wav_bytes)
+            if api_out is not None:
+                return api_out
+            if mode == "inference_api":
+                return None
+        if mode == "local" or self._allow_local_inference_fallback():
+            local_out = self._infer_speech_emotion_emotion2vec_local(wav_bytes)
+            if local_out is not None:
+                return local_out
+        return None
+
+    def _infer_text_emotion_hf_api(self, text: str) -> tuple[EmotionLabel, float, float] | None:
+        token = (settings.psychology_hf_api_token or "").strip()
+        model_id = (
+            settings.psychology_text_emotion_model.strip()
+            or "j-hartmann/emotion-english-distilroberta-base"
+        )
+        out = classify_text(token, model_id, text, settings.psychology_hf_inference_timeout_s)
+        if out is None:
+            return None
+        raw_label, score = out
+        mapped = self._map_text_label_generic(raw_label)
+        sentiment = {
+            EmotionLabel.happy: 0.6,
+            EmotionLabel.neutral: 0.2,
+            EmotionLabel.anxious: -0.4,
+            EmotionLabel.distressed: -0.55,
+            EmotionLabel.depressed: -0.8,
+        }[mapped]
+        return mapped, max(0.35, min(0.99, float(score))), sentiment
+
+    def _infer_text_emotion_hf_local(self, text: str) -> tuple[EmotionLabel, float, float] | None:
         try:
             from transformers import pipeline
         except Exception:
@@ -960,6 +1069,22 @@ class PsychologyService:
             return mapped, max(0.35, min(0.99, score)), sentiment
         except Exception:
             return None
+
+    def _infer_text_emotion_hf(self, text: str) -> tuple[EmotionLabel, float, float] | None:
+        mode = self._emotion_inference_mode_norm()
+        token = (settings.psychology_hf_api_token or "").strip()
+        if mode == "inference_api" and not token:
+            logger.warning("psychology text emotion: inference_api mode but HF token missing")
+            return None
+        if mode != "local" and token:
+            api_out = self._infer_text_emotion_hf_api(text)
+            if api_out is not None:
+                return api_out
+            if mode == "inference_api":
+                return None
+        if mode == "local" or self._allow_local_inference_fallback():
+            return self._infer_text_emotion_hf_local(text)
+        return None
 
     @staticmethod
     def _safe_b64decode(raw: str) -> bytes | None:

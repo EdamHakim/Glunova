@@ -224,10 +224,24 @@ def physician_clear_gate(
 def knowledge_search(
     q: str = Query(min_length=2),
     language: str | None = Query(default=None),
-    limit: int = Query(default=3, ge=1, le=10),
+    limit: int = Query(default=3, ge=1, le=15),
+    source_version: str | None = Query(
+        default=None,
+        description="When set, only chunks with this payload `source_version` (requires Qdrant payload index).",
+    ),
+    min_ingested_at: str | None = Query(
+        default=None,
+        description="ISO-8601 lower bound on `ingested_at` (requires payload index on `ingested_at`).",
+    ),
     _claims: dict = Depends(require_roles("doctor")),
 ) -> dict:
-    items = knowledge_base.search(q, language=language, limit=limit)
+    items = knowledge_base.search(
+        q,
+        language=language,
+        limit=limit,
+        source_version=source_version,
+        min_ingested_at_iso=min_ingested_at,
+    )
     return {"items": items, "qdrant_enabled": knowledge_base.enabled}
 
 

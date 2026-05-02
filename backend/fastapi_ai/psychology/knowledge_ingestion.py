@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -22,8 +23,6 @@ from psychology.pdf_kb import (
 )
 
 logger = logging.getLogger(__name__)
-RECALL_LIMIT = 16
-FINAL_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -119,6 +118,32 @@ def build_ingestion_manifest(sources: Iterable[KnowledgeSource] = SOURCES) -> li
     return manifest
 
 
+def _payload_freshness_fields() -> dict[str, Any]:
+    return {
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+        "source_version": settings.psychology_kb_source_version,
+    }
+
+
+def _maybe_write_reindex_audit(indexed_chunks: int) -> None:
+    try:
+        audit_path = Path(__file__).resolve().parents[1] / "tmp" / "psychology_embed_audit.json"
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        audit_path.write_text(
+            json.dumps(
+                {
+                    "last_reindex_at": datetime.now(timezone.utc).isoformat(),
+                    "source_version": settings.psychology_kb_source_version,
+                    "indexed_chunks": indexed_chunks,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        logger.debug("psychology KB reindex audit write skipped", exc_info=True)
+
+
 class QdrantKnowledgeBase:
     def __init__(self) -> None:
         self.enabled = bool(settings.qdrant_url and settings.qdrant_api_key)
@@ -203,6 +228,7 @@ class QdrantKnowledgeBase:
                                 "language": source.language,
                                 "text": chunk,
                                 "content_kind": "manifest_stub",
+                                **_payload_freshness_fields(),
                             },
                         )
                     )
@@ -237,7 +263,7 @@ class QdrantKnowledgeBase:
                             PointStruct(
                                 id=stable_point_id("pdf_curated", meta["file_path"], payload["chunk_id"], chunk),
                                 vector=self._embed_text(chunk),
-                                payload=payload,
+                                payload={**payload, **_payload_freshness_fields()},
                             )
                         )
                         file_chunks += 1
@@ -248,7 +274,7 @@ class QdrantKnowledgeBase:
                             PointStruct(
                                 id=stable_point_id("pdf", meta["file_path"], chunk),
                                 vector=self._embed_text(chunk),
-                                payload=payload,
+                                payload={**payload, **_payload_freshness_fields()},
                             )
                         )
                         file_chunks += 1
@@ -258,12 +284,14 @@ class QdrantKnowledgeBase:
             all_points = manifest_points + pdf_points
             if all_points:
                 self._client.upsert(collection_name=self.collection, points=all_points)
+            _maybe_write_reindex_audit(len(all_points))
             return {
                 "indexed_chunks": len(all_points),
                 "manifest_chunks": len(manifest_points),
                 "pdf_chunks": len(pdf_points),
                 "pdf_files_seen": len(pdf_paths),
                 "pdf_files_indexed": pdf_files_indexed,
+                "source_version": settings.psychology_kb_source_version,
             }
         except Exception as exc:
             logger.exception("Qdrant reindex failed: %s", exc)
@@ -288,7 +316,22 @@ class QdrantKnowledgeBase:
             return 0.05
         return 0.0
 
+    @staticmethod
+    def _kb_freshness_tag(payload: dict[str, Any]) -> str:
+        expected = settings.psychology_kb_source_version.strip()
+        sv = str(payload.get("source_version") or "").strip()
+        if not sv:
+            return "unknown"
+        if expected and sv == expected:
+            return "current"
+        if expected:
+            return "stale"
+        return "unknown"
+
     def _rerank_hits(self, query: str, hits: list[Any], final_limit: int) -> list[dict[str, Any]]:
+        w_vec = settings.psychology_kb_rerank_vector_weight
+        w_lex = settings.psychology_kb_rerank_lexical_weight
+        w_cat = settings.psychology_kb_rerank_category_weight
         q_tokens = self._tokenize(query)
         ranked: list[tuple[float, dict[str, Any]]] = []
         seen: set[str] = set()
@@ -311,8 +354,7 @@ class QdrantKnowledgeBase:
             category_raw = self._category_priority(category)
             # Normalize category bonus to [0, 1] so weighted blend remains interpretable.
             category_norm = min(1.0, max(0.0, category_raw / 0.08))
-            # Suggested weighted blend: 0.75 neural + 0.15 lexical + 0.10 category.
-            score = (0.75 * vector_score) + (0.15 * lexical) + (0.10 * category_norm)
+            score = (w_vec * vector_score) + (w_lex * lexical) + (w_cat * category_norm)
             ranked.append((score, payload))
         ranked.sort(key=lambda x: x[0], reverse=True)
         out: list[dict[str, Any]] = []
@@ -325,26 +367,46 @@ class QdrantKnowledgeBase:
                     "text": str(payload.get("text", "")),
                     "relevance_score": round(score, 6),
                     "chunk_id": str(payload.get("chunk_id", "")),
+                    "ingested_at": str(payload.get("ingested_at", "")),
+                    "source_version": str(payload.get("source_version", "")),
+                    "kb_freshness": self._kb_freshness_tag(payload),
                 }
             )
         return out
 
-    def search(self, query: str, language: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        language: str | None = None,
+        limit: int = 3,
+        *,
+        source_version: str | None = None,
+        min_ingested_at_iso: str | None = None,
+    ) -> list[dict[str, Any]]:
         if not self.enabled or self._client is None or not query.strip():
             return []
         started = time.perf_counter()
         try:
-            query_filter = None
-            if language and language != "mixed":
-                from qdrant_client.models import FieldCondition, Filter, MatchValue  # type: ignore
+            from qdrant_client.models import FieldCondition, Filter, MatchValue, Range  # type: ignore
 
-                query_filter = Filter(
-                    should=[
-                        FieldCondition(key="language", match=MatchValue(value=language)),
-                        FieldCondition(key="language", match=MatchValue(value="en")),
-                    ]
+            must: list[Any] = []
+            if language and language != "mixed":
+                must.append(
+                    Filter(
+                        should=[
+                            FieldCondition(key="language", match=MatchValue(value=language)),
+                            FieldCondition(key="language", match=MatchValue(value="en")),
+                        ]
+                    )
                 )
-            recall = max(RECALL_LIMIT, limit * 4)
+            if source_version and source_version.strip():
+                must.append(FieldCondition(key="source_version", match=MatchValue(value=source_version.strip())))
+            if min_ingested_at_iso and min_ingested_at_iso.strip():
+                must.append(FieldCondition(key="ingested_at", range=Range(gte=min_ingested_at_iso.strip())))
+
+            query_filter: Any = Filter(must=must) if must else None
+
+            recall = max(settings.psychology_kb_recall_limit, limit * 4)
             query_vector = self._embed_text(query)
             target_dim = self._collection_vector_size() or len(query_vector)
             if target_dim > 0 and len(query_vector) != target_dim:
@@ -379,6 +441,10 @@ class QdrantKnowledgeBase:
                 # Some Qdrant clusters require a payload index for filtered search.
                 # If language index is missing, retry without filter instead of failing closed.
                 if query_filter is not None and "Index required but not found" in str(exc):
+                    logger.warning(
+                        "Qdrant filtered search unavailable (missing payload index); retrying without filters: %s",
+                        exc,
+                    )
                     if hasattr(self._client, "search"):
                         hits = list(
                             self._client.search(
@@ -400,7 +466,8 @@ class QdrantKnowledgeBase:
                             hits = points
                 else:
                     raise
-            final_limit = min(max(limit, 1), FINAL_LIMIT)
+            cap = settings.psychology_kb_final_limit_cap
+            final_limit = min(max(limit, 1), cap)
             return self._rerank_hits(query, hits, final_limit)
         except Exception:
             return []
@@ -430,6 +497,18 @@ class QdrantKnowledgeBase:
             "last_ingestion_timestamp": last_ingestion_at,
             "retrieval_latency_ms_p50": p50,
             "language_payload_available": True,
+            "configured_source_version": settings.psychology_kb_source_version,
+            "rerank_weights": {
+                "vector": settings.psychology_kb_rerank_vector_weight,
+                "lexical": settings.psychology_kb_rerank_lexical_weight,
+                "category": settings.psychology_kb_rerank_category_weight,
+            },
+            "retrieval_bounds": {
+                "recall_floor": settings.psychology_kb_recall_limit,
+                "final_cap": settings.psychology_kb_final_limit_cap,
+                "session_limit_min": settings.psychology_kb_limit_min,
+                "session_limit_max": settings.psychology_kb_limit_max,
+            },
         }
 
     def _embed_text(self, text: str) -> list[float]:
