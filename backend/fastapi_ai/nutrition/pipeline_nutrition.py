@@ -4,8 +4,6 @@ import json
 import base64
 import re
 import requests
-import numpy as np
-import cv2
 from typing import List, Dict, Any, Optional
 from PIL import Image as PILImage
 from ultralytics import YOLOWorld
@@ -75,15 +73,11 @@ SYNONYMES = {
 }
 
 class PipelineNutrition:
-    def __init__(self, groq_api_key: Optional[str] = None, roboflow_api_key: Optional[str] = None):
+    def __init__(self, groq_api_key: Optional[str] = None):
         self.groq_api_key = groq_api_key or os.environ.get("GROQ_API_KEY")
         if not self.groq_api_key:
             raise EnvironmentError("GROQ_API_KEY is not set. Add it to your .env file.")
         
-        self.roboflow_api_key = roboflow_api_key or os.environ.get("ROBOFLOW_API_KEY")
-        if not self.roboflow_api_key:
-            raise EnvironmentError("ROBOFLOW_API_KEY is not set. Add it to your .env file.")
-
         print("Chargement de YOLO-World...")
         yolo_model_path = os.environ.get("YOLO_MODEL", "yolov8s-worldv2.pt")
         self.yolo_model = YOLOWorld(yolo_model_path)
@@ -223,89 +217,54 @@ Instructions:
 
     def segmenter_ingredients_sam(self, image_path: str, detections: list) -> list:
         """
-        Segments each ingredient using the Roboflow SAM API.
-        Step 1: embed the image once
-        Step 2: segment each ingredient using the center point of its YOLO bbox
+        Improved portion size estimation from YOLO bounding boxes.
+        1. Uses elliptical approximation (pi/4) for realistic food shapes.
+        2. Calculates plate-relative surface percentage if a plate/bowl is detected.
         """
-        import requests
-        ROBOFLOW_BASE_URL = "https://serverless.roboflow.com"
-
-        with open(image_path, "rb") as f:
-            image_b64 = base64.b64encode(f.read()).decode("utf-8")
-
         img = PILImage.open(image_path)
         total_area = img.width * img.height
+        
+        # Elliptical factor (pi/4) - most food items aren't perfect rectangles
+        ELLIPSE_FACTOR = 0.785 
 
-        print("Step 3/4: Roboflow SAM API (Two-step)...")
-        # ── Step 1: embed the image once (reused for all ingredients) ──
-        try:
-            def embed_call():
-                resp = requests.post(
-                    f"{ROBOFLOW_BASE_URL}/sam/embed_image",
-                    params={"api_key": self.roboflow_api_key},
-                    json={
-                        "image": {"type": "base64", "value": image_b64},
-                        "image_id": "meal_image"
-                    },
-                    timeout=30
-                )
-                resp.raise_for_status()
-                return resp.json()
-            
-            call_with_retry(embed_call)
-        except Exception as e:
-            print(f"  ⚠️  Roboflow SAM Embedding failed: {e}")
-            return [{**det, "masque": None, "surface_px": 0, "surface_pct": 0.0} for det in detections]
+        # Find a reference container (plate, bowl, etc.)
+        container_keywords = ["plate", "bowl", "dish", "container", "assiette", "bol"]
+        reference_container = None
+        for det in detections:
+            if any(kw in det["ingredient"].lower() for kw in container_keywords) and det["bbox"] != [0, 0, 0, 0]:
+                if not reference_container or (det["bbox"][2]-det["bbox"][0]) * (det["bbox"][3]-det["bbox"][1]) > \
+                   (reference_container["bbox"][2]-reference_container["bbox"][0]) * (reference_container["bbox"][3]-reference_container["bbox"][1]):
+                    reference_container = det
 
         results = []
         for det in detections:
-            # Skip fallback detections
             if det.get("detecte_par") == "groq_vision_only" or det["bbox"] == [0, 0, 0, 0]:
-                results.append({**det, "masque": None, "surface_px": 0, "surface_pct": 0.0})
+                results.append({**det, "masque": None, "surface_px": 0, "surface_pct": 0.0, "plate_coverage_pct": 0.0})
                 continue
 
             x1, y1, x2, y2 = det["bbox"]
-            cx = (x1 + x2) / 2   # center x of YOLO bbox
-            cy = (y1 + y2) / 2   # center y of YOLO bbox
-
-            def segment_call():
-                resp = requests.post(
-                    f"{ROBOFLOW_BASE_URL}/sam/segment_image",
-                    params={"api_key": self.roboflow_api_key},
-                    json={
-                        "image_id": "meal_image",
-                        "point_coords": [[cx, cy]],
-                        "point_labels": [1]      # 1 = positive point (include this object)
-                    },
-                    timeout=30
-                )
-                resp.raise_for_status()
-                return resp.json()
-
-            try:
-                data = call_with_retry(segment_call)
-                # Pick the highest-confidence mask
-                masks = data.get("masks", [])
-                if masks:
-                    best = max(masks, key=lambda m: m.get("predicted_iou", 0))
-                    # Calculate mask area from the polygon points
-                    pts = best.get("segmentation", [[]])
-                    if pts and len(pts[0]) > 2:
-                        poly = np.array(pts[0]).reshape(-1, 2)
-                        mask_area = int(cv2.contourArea(poly.astype(np.float32)))
-                    else:
-                        mask_area = 0
-                else:
-                    mask_area = 0
-            except Exception as e:
-                print(f"  ⚠️  Roboflow SAM failed for '{det['ingredient']}': {e}")
-                mask_area = 0
+            width = x2 - x1
+            height = y2 - y1
+            
+            # Use elliptical approximation for area
+            estimated_area = width * height * ELLIPSE_FACTOR
+            
+            surface_pct = round((estimated_area / total_area) * 100, 2) if total_area else 0.0
+            
+            # Calculate plate-relative coverage
+            plate_coverage_pct = 0.0
+            if reference_container and det != reference_container:
+                rx1, ry1, rx2, ry2 = reference_container["bbox"]
+                ref_area = (rx2 - rx1) * (ry2 - ry1) * ELLIPSE_FACTOR
+                if ref_area > 0:
+                    plate_coverage_pct = round((estimated_area / ref_area) * 100, 2)
 
             results.append({
                 **det,
                 "masque": None,
-                "surface_px": mask_area,
-                "surface_pct": round((mask_area / total_area) * 100, 2) if total_area else 0.0
+                "surface_px": int(estimated_area),
+                "surface_pct": surface_pct,
+                "plate_coverage_pct": plate_coverage_pct
             })
 
         return results
@@ -318,7 +277,7 @@ Analyze this meal for a patient with the following profile:
 
 Meal identified: {dish_name}
 Ingredients detected (with visual surface coverage):
-{json.dumps([{ 'ing': d['ingredient'], 'surf': d['surface_pct'] } for d in ingredients_data], indent=2)}
+{json.dumps([{ 'ing': d['ingredient'], 'surf_image_pct': d['surface_pct'], 'surf_plate_pct': d.get('plate_coverage_pct', 0) } for d in ingredients_data], indent=2)}
 
 Return a valid JSON object (NO text before/after, NO markdown) with this structure:
 {{
@@ -386,7 +345,8 @@ Return a valid JSON object (NO text before/after, NO markdown) with this structu
             clean_ingredients.append({
                 "ingredient": d["ingredient"],
                 "confiance_visuelle": d["confiance"],
-                "surface_pct": d["surface_pct"]
+                "surface_pct": d["surface_pct"],
+                "plate_coverage_pct": d.get("plate_coverage_pct", 0)
             })
 
         rapport = {
