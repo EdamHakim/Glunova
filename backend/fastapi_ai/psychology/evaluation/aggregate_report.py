@@ -20,6 +20,7 @@ def _build_markdown_summary(report: dict[str, Any]) -> str:
     deepeval = deepeval_raw.get("aggregate") or {}
     deepeval_engine = deepeval_raw.get("engine", "?")
     deepeval_note = deepeval_raw.get("fallback_reason")
+    ar_engine = (ragas_raw.get("answer_relevancy_engine") or "").strip()
     lines = [
             "# Sanadi Evaluation Report",
             "",
@@ -30,6 +31,8 @@ def _build_markdown_summary(report: dict[str, Any]) -> str:
             "## RAGAS",
             f"- Engine: `{ragas_engine}`",
     ]
+    if ar_engine:
+        lines.append(f"- Answer relevancy scorer: `{ar_engine}`")
     if ragas_note:
         lines.append(f"- Note: {ragas_note}")
     lines.extend(

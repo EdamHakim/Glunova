@@ -56,7 +56,12 @@ def run_samples(samples: list[EvalSample]) -> list[EvalRuntimeRow]:
         )
         response = service.handle_message(message_payload)
         kb_limit = resolve_kb_retrieval_limit(sample.question, response.mental_state)
-        kb_items = kb.search(sample.question, language=sample.preferred_language, limit=kb_limit)
+        kb_items = kb.search(
+            sample.question,
+            language=sample.preferred_language,
+            limit=kb_limit,
+            mental_state=response.mental_state,
+        )
         contexts = [str(item.get("text") or "") for item in kb_items]
         context_ids = [str(item.get("chunk_id") or item.get("source") or "unknown") for item in kb_items]
         rows.append(

@@ -2,8 +2,41 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.config import settings
 from psychology.schemas import MentalState
+
+# Soft topic preferences for reranking (sanadi_topic from `chunking.sanadi_section_topic`).
+_MENTAL_STATE_PREFERRED_TOPICS: dict[MentalState, frozenset[str]] = {
+    MentalState.neutral: frozenset(),
+    MentalState.anxious: frozenset({"intervention", "lifestyle_communication", "concept"}),
+    MentalState.distressed: frozenset({"intervention", "assessment", "referral"}),
+    MentalState.depressed: frozenset({"intervention", "lifestyle_communication", "referral"}),
+    MentalState.crisis: frozenset({"referral", "assistant_routing", "intervention"}),
+}
+
+
+def coerce_mental_state_for_kb(value: Any) -> MentalState | None:
+    """Normalize router/service inputs for KB reranking."""
+    if value is None:
+        return None
+    if isinstance(value, MentalState):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        for member in MentalState:
+            if member.value == raw or member.name.lower() == raw.lower():
+                return member
+    return None
+
+
+def preferred_sanadi_topics_for_mental_state(state: MentalState | None) -> frozenset[str]:
+    if state is None:
+        return frozenset()
+    return _MENTAL_STATE_PREFERRED_TOPICS.get(state, frozenset())
 
 
 def resolve_kb_retrieval_limit(text: str, mental_state: MentalState) -> int:

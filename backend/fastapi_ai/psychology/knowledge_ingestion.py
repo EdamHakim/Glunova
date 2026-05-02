@@ -13,6 +13,8 @@ from typing import Any, Iterable
 
 from core.config import settings
 from psychology.chunking import chunk_manifest_stub, chunk_sanadi_kb_markdown
+from psychology.kb_retrieval import coerce_mental_state_for_kb, preferred_sanadi_topics_for_mental_state
+from psychology.schemas import MentalState
 from psychology.pdf_kb import (
     SANADI_KB_MARKDOWN,
     resolve_psychology_data_dir,
@@ -403,11 +405,20 @@ class QdrantKnowledgeBase:
             return "stale"
         return "unknown"
 
-    def _rerank_hits(self, query: str, hits: list[Any], final_limit: int) -> list[dict[str, Any]]:
+    def _rerank_hits(
+        self,
+        query: str,
+        hits: list[Any],
+        final_limit: int,
+        *,
+        mental_state_normalized: MentalState | None = None,
+    ) -> list[dict[str, Any]]:
         w_vec = settings.psychology_kb_rerank_vector_weight
         w_lex = settings.psychology_kb_rerank_lexical_weight
         w_cat = settings.psychology_kb_rerank_category_weight
         q_tokens = self._tokenize(query)
+        preferred_topics = preferred_sanadi_topics_for_mental_state(mental_state_normalized)
+        topic_boost = settings.psychology_kb_mental_state_topic_boost
         ranked: list[tuple[float, dict[str, Any]]] = []
         seen: set[str] = set()
         for hit in hits:
@@ -430,7 +441,14 @@ class QdrantKnowledgeBase:
             # Normalize category bonus to [0, 1] so weighted blend remains interpretable.
             category_norm = min(1.0, max(0.0, category_raw / 0.08))
             score = (w_vec * vector_score) + (w_lex * lexical) + (w_cat * category_norm)
-            if str(payload.get("chunk_id")) == "SANADI_PREAMBLE" or str(payload.get("content_kind")) == "sanadi_preamble":
+            ck = str(payload.get("content_kind") or "").strip()
+            if ck == "manifest_stub":
+                score *= settings.psychology_kb_manifest_stub_rerank_multiplier
+            if preferred_topics:
+                sanadi_topic = str(payload.get("sanadi_topic") or "").strip()
+                if sanadi_topic and sanadi_topic in preferred_topics:
+                    score *= topic_boost
+            if str(payload.get("chunk_id")) == "SANADI_PREAMBLE" or ck == "sanadi_preamble":
                 score *= settings.psychology_kb_preamble_rerank_multiplier
             ranked.append((score, payload))
         ranked.sort(key=lambda x: x[0], reverse=True)
@@ -462,6 +480,7 @@ class QdrantKnowledgeBase:
         *,
         source_version: str | None = None,
         min_ingested_at_iso: str | None = None,
+        mental_state: MentalState | str | None = None,
     ) -> list[dict[str, Any]]:
         if not self.enabled or self._client is None or not query.strip():
             return []
@@ -548,7 +567,8 @@ class QdrantKnowledgeBase:
                     raise
             cap = settings.psychology_kb_final_limit_cap
             final_limit = min(max(limit, 1), cap)
-            return self._rerank_hits(query, hits, final_limit)
+            ms_norm = coerce_mental_state_for_kb(mental_state)
+            return self._rerank_hits(query, hits, final_limit, mental_state_normalized=ms_norm)
         except Exception:
             return []
         finally:
@@ -582,6 +602,8 @@ class QdrantKnowledgeBase:
                 "vector": settings.psychology_kb_rerank_vector_weight,
                 "lexical": settings.psychology_kb_rerank_lexical_weight,
                 "category": settings.psychology_kb_rerank_category_weight,
+                "manifest_stub_multiplier": settings.psychology_kb_manifest_stub_rerank_multiplier,
+                "mental_state_topic_boost": settings.psychology_kb_mental_state_topic_boost,
             },
             "retrieval_bounds": {
                 "recall_floor": settings.psychology_kb_recall_limit,

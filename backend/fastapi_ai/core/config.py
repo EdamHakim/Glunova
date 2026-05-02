@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     psychology_kb_sanadi_markdown_pack_chars: int = 920
     # Hybrid rerank: demote preamble so it steals fewer slots on concrete clinical queries (0–1).
     psychology_kb_preamble_rerank_multiplier: float = 0.82
+    # Multiply score for Qdrant points with content_kind manifest_stub so Sanadi chunks win over source stubs.
+    psychology_kb_manifest_stub_rerank_multiplier: float = 0.38
+    # Multiply score when chunk sanadi_topic matches mental-state–preferred buckets (Phase 1 soft routing).
+    psychology_kb_mental_state_topic_boost: float = 1.25
     psychology_kb_rerank_vector_weight: float = 0.75
     psychology_kb_rerank_lexical_weight: float = 0.15
     psychology_kb_rerank_category_weight: float = 0.10

@@ -163,7 +163,12 @@ class PsychologyService:
         trend_slope = self._trend_slope(payload.patient_id)
         mental_state = self._classify_mental_state(fusion.distress_score, crisis_detected, trend_slope)
         kb_limit = resolve_kb_retrieval_limit(payload.text, mental_state)
-        kb_context = self._knowledge_base.search(payload.text, language=language_detected, limit=kb_limit)
+        kb_context = self._knowledge_base.search(
+            payload.text,
+            language=language_detected,
+            limit=kb_limit,
+            mental_state=mental_state,
+        )
         anomaly_flags: list[str] = []
         retrieval_quality = self._retrieval_quality(kb_context)
         if retrieval_quality != "ok":

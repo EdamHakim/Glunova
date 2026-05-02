@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+import logging
 import math
 from statistics import fmean
 from typing import Any
 
 from psychology.evaluation.llm_keys import groq_api_key, groq_eval_model_name
 from psychology.evaluation.runner import EvalRuntimeRow
+
+logger = logging.getLogger(__name__)
 
 
 def _word_overlap(a: str, b: str) -> float:
@@ -26,6 +30,68 @@ def _safe_float(value: Any) -> float:
     return out
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+def _answer_relevancy_supplement(rows: list[EvalRuntimeRow]) -> tuple[list[float], str]:
+    """
+    RAGAS 0.4+ AnswerRelevancy needs a separate embedding stack; we score relevancy with the same
+    Groq judge as the other RAGAS LLM metrics (or lexical overlap when no key).
+    """
+    key = groq_api_key()
+    if not key:
+        return (
+            [_word_overlap(r.answer, r.question) for r in rows],
+            "lexical_overlap",
+        )
+    model_name = groq_eval_model_name()
+    try:
+        from groq import Groq
+    except Exception as exc:
+        logger.warning("groq import failed for answer relevancy: %s", exc)
+        return (
+            [_word_overlap(r.answer, r.question) for r in rows],
+            "lexical_overlap",
+        )
+
+    client = Groq(api_key=key)
+    system = (
+        "You score how relevant the assistant reply is to the patient question for a "
+        "diabetes mental-health coach. Ignore JSON formatting in the reply. "
+        'Return only a JSON object: {"score": <number between 0 and 1>} where 1 means fully on-topic.'
+    )
+    scores: list[float] = []
+    for row in rows:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system},
+                    {
+                        "role": "user",
+                        "content": f"Question:\n{row.question[:2400]}\n\nAnswer:\n{row.answer[:2400]}",
+                    },
+                ],
+            )
+            raw = (response.choices[0].message.content or "{}").strip()
+            if "```" in raw:
+                raw = (
+                    raw.split("```json", 1)[-1].split("```", 1)[0].strip()
+                    if "```json" in raw
+                    else raw.split("```", 1)[1].split("```", 1)[0].strip()
+                )
+            payload = json.loads(raw)
+            sc = payload.get("score")
+            scores.append(_clamp01(_safe_float(sc)))
+        except Exception as exc:
+            logger.debug("answer relevancy groq row failed: %s", exc, exc_info=True)
+            scores.append(_word_overlap(row.answer, row.question))
+    return scores, "groq_json"
+
+
 def _lexical_fallback(rows: list[EvalRuntimeRow], reason: str) -> dict[str, Any]:
     fallback_cases = []
     for row in rows:
@@ -42,6 +108,7 @@ def _lexical_fallback(rows: list[EvalRuntimeRow], reason: str) -> dict[str, Any]
     return {
         "engine": "fallback",
         "fallback_reason": reason,
+        "answer_relevancy_engine": "lexical_overlap",
         "cases": fallback_cases,
         "aggregate": {
             "context_precision": fmean([c["context_precision"] for c in fallback_cases]) if fallback_cases else 0.0,
@@ -52,28 +119,44 @@ def _lexical_fallback(rows: list[EvalRuntimeRow], reason: str) -> dict[str, Any]
     }
 
 
-def _cases_from_result(ragas_result: Any, rows: list[EvalRuntimeRow]) -> list[dict[str, Any]]:
+def _cases_from_result(
+    ragas_result: Any,
+    rows: list[EvalRuntimeRow],
+    answer_relevancy_scores: list[float],
+) -> list[dict[str, Any]]:
     table = ragas_result.to_pandas().to_dict(orient="records")
     cases = []
     for idx, row in enumerate(rows):
         item = table[idx] if idx < len(table) else {}
+        ar = (
+            answer_relevancy_scores[idx]
+            if idx < len(answer_relevancy_scores)
+            else _word_overlap(row.answer, row.question)
+        )
         cases.append(
             {
                 "sample_id": row.sample_id,
                 "context_precision": _safe_float(item.get("context_precision", 0.0)),
                 "context_recall": _safe_float(item.get("context_recall", 0.0)),
                 "faithfulness": _safe_float(item.get("faithfulness", 0.0)),
-                "answer_relevancy": _safe_float(item.get("answer_relevancy", 0.0)),
+                "answer_relevancy": _clamp01(_safe_float(ar)),
             }
         )
     return cases
 
 
-def _success_payload(engine: str, ragas_result: Any, rows: list[EvalRuntimeRow]) -> dict[str, Any]:
-    cases = _cases_from_result(ragas_result, rows)
+def _success_payload(
+    engine: str,
+    ragas_result: Any,
+    rows: list[EvalRuntimeRow],
+    answer_relevancy_scores: list[float],
+    answer_relevancy_engine: str,
+) -> dict[str, Any]:
+    cases = _cases_from_result(ragas_result, rows, answer_relevancy_scores)
     return {
         "engine": engine,
         "fallback_reason": None,
+        "answer_relevancy_engine": answer_relevancy_engine,
         "cases": cases,
         "aggregate": {
             "context_precision": fmean([c["context_precision"] for c in cases]) if cases else 0.0,
@@ -137,8 +220,9 @@ def run_ragas_eval(rows: list[EvalRuntimeRow]) -> dict[str, Any]:
             rows,
             "GROQ_API_KEY not set. Set GROQ_API_KEY in backend/.env for RAGAS Groq judging.",
         )
+    ar_scores, ar_engine = _answer_relevancy_supplement(rows)
     try:
         rag = _evaluate_ragas_groq(dataset)
-        return _success_payload("ragas_groq", rag, rows)
+        return _success_payload("ragas_groq", rag, rows, ar_scores, ar_engine)
     except Exception as exc:
         return _lexical_fallback(rows, f"ragas groq evaluate failed: {exc!s}")

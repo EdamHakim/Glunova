@@ -100,7 +100,7 @@ Return JSON following the schema exactly."""
     try:
         response = client.chat.completions.create(
             model=settings.groq_model,
-            temperature=0.35,
+            temperature=0.2,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": THERAPY_SYSTEM},
