@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.log
 **/models/
 /psychology data
 psychology_todo.md

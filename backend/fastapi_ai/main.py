@@ -66,7 +66,8 @@ from extraction.router import router as extraction_router
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    await asyncio.to_thread(_warm_psychology_caches_sync)
+    if os.getenv("FASTAPI_SKIP_STARTUP_WARMUP", "").lower() not in {"1", "true", "yes"}:
+        await asyncio.to_thread(_warm_psychology_caches_sync)
     yield
     from psychology.db import close_pool as close_psychology_pool
     from core.db import close_pool as close_shared_pool

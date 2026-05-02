@@ -16,15 +16,30 @@ from clinic.schemas import (
     ThermalFootInferenceResponse,
     ThermalFootModelHealthResponse,
 )
-from clinic.models.DFUSegmentation import DFUSegmenter
 from monitoring.services.triggers import record_screening_and_refresh
 from clinic.services.retinopathy_service import RetinopathyService
 from clinic.services.thermal_foot_pt_service import ThermalFootPtService
 
+try:
+    from clinic.models.DFUSegmentation import DFUSegmenter
+    _dfu_import_error: str | None = None
+except (ModuleNotFoundError, ImportError) as exc:
+    DFUSegmenter = None  # type: ignore[assignment]
+    _dfu_import_error = str(exc)
+
 router = APIRouter(prefix="/clinic", tags=["clinic"])
 _thermal_foot_service = ThermalFootPtService()
-_dfu_segmentation_service = DFUSegmenter()
+_dfu_segmentation_service = DFUSegmenter() if DFUSegmenter is not None else None
 _retinopathy_service = RetinopathyService()
+
+
+def _require_dfu_service():
+    if _dfu_segmentation_service is None:
+        detail = "DFU segmentation service is unavailable on this setup."
+        if _dfu_import_error:
+            detail = f"{detail} Import error: {_dfu_import_error}"
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
+    return _dfu_segmentation_service
 
 
 def _lesion_metrics(prediction, mm_per_pixel: float) -> dict:
@@ -128,6 +143,7 @@ async def infer_dfu_segmentation(
     mm_per_pixel: float = Form(0.5, description="Physical scaling factor in millimeters per pixel"),
     claims: dict = Depends(require_roles("doctor")),
 ) -> DFUSegmentationInferenceResponse:
+    dfu_service = _require_dfu_service()
     doctor_id = _user_id_from_claims(claims)
     if patient_id <= 0:
         raise HTTPException(
@@ -148,7 +164,7 @@ async def infer_dfu_segmentation(
         )
 
     try:
-        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=threshold)
+        prediction = dfu_service.predict(raw_bytes, threshold=threshold)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -221,6 +237,15 @@ async def infer_dfu_segmentation(
 def dfu_segmentation_model_health(
     _claims: dict = Depends(require_roles("doctor")),
 ) -> DFUSegmentationModelHealthResponse:
+    if _dfu_segmentation_service is None:
+        return DFUSegmentationModelHealthResponse(
+            status="missing_model",
+            model_file_exists=False,
+            model_loaded=False,
+            model_path="",
+            detail=f"DFU segmentation service unavailable. {_dfu_import_error}",
+        )
+
     path = _dfu_segmentation_service.checkpoint_path
     model_exists = path.exists()
     detail: str | None = None
@@ -256,6 +281,7 @@ async def dfu_segmentation_xai(
     threshold: float = Form(0.5, description="Mask threshold in [0, 1]"),
     claims: dict = Depends(require_roles("doctor")),
 ) -> DFUSegmentationXAIResponse:
+    dfu_service = _require_dfu_service()
     doctor_id = _user_id_from_claims(claims)
     if patient_id <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="patient_id must be positive.")
@@ -266,7 +292,7 @@ async def dfu_segmentation_xai(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
 
     try:
-        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=threshold)
+        prediction = dfu_service.predict(raw_bytes, threshold=threshold)
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except Exception:
@@ -295,6 +321,7 @@ async def dfu_segmentation_report_pdf(
     mm_per_pixel: float = Form(0.5, description="Physical scaling factor in millimeters per pixel"),
     claims: dict = Depends(require_roles("doctor")),
 ) -> Response:
+    dfu_service = _require_dfu_service()
     doctor_id = _user_id_from_claims(claims)
     if patient_id <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="patient_id must be positive.")
@@ -305,7 +332,7 @@ async def dfu_segmentation_report_pdf(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
 
     try:
-        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=threshold)
+        prediction = dfu_service.predict(raw_bytes, threshold=threshold)
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except Exception:
