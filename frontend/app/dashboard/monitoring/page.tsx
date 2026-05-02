@@ -116,11 +116,6 @@ export default function MonitoringPage() {
   )
 
   const isImage = (mime: string | null) => mime?.toLowerCase().startsWith('image/')
-  const getCrossOrigin = (url: string | null) => {
-    if (!url) return undefined
-    if (url.includes('supabase.co')) return undefined
-    return 'use-credentials'
-  }
   const role = user?.role
   const isCaregiver = role === 'caregiver'
   const isDoctor = role === 'doctor'
@@ -381,7 +376,6 @@ export default function MonitoringPage() {
                         src={medication.source_document_preview_url}
                         alt="Source"
                         className="source-thumb"
-                        crossOrigin={getCrossOrigin(medication.source_document_preview_url)}
                       />
                     ) : (
                       <div className="source-thumb flex items-center justify-center bg-muted">
@@ -431,7 +425,6 @@ export default function MonitoringPage() {
                             src={doc.preview_url}
                             alt=""
                             className="h-full w-full object-cover"
-                            crossOrigin={getCrossOrigin(doc.preview_url)}
                           />
                         ) : (
                           <FileText className="h-5 w-5 text-primary" />
@@ -650,17 +643,23 @@ export default function MonitoringPage() {
           <div className="flex-1 bg-muted/10 relative overflow-auto p-4 flex items-center justify-center">
             {selectedDoc?.url && (
               previewError ? (
-                <iframe
-                  src={selectedDoc.url}
-                  className="w-full h-full border-0 bg-white shadow-inner"
-                  title={selectedDoc.filename}
-                />
+                <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-sm border border-border bg-background p-6 text-center text-sm text-muted-foreground">
+                  <Info className="h-6 w-6 text-muted-foreground" />
+                  <p>Unable to preview this image directly. You can open it in a new tab to view the file.</p>
+                  <a
+                    href={selectedDoc.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary underline"
+                  >
+                    Open in new tab
+                  </a>
+                </div>
               ) : (
                 <img
                   src={selectedDoc.url}
                   alt={selectedDoc.filename}
                   className="max-w-full max-h-full object-contain shadow-lg rounded-sm"
-                  crossOrigin={getCrossOrigin(selectedDoc.url)}
                   onError={() => setPreviewError(true)}
                 />
               )

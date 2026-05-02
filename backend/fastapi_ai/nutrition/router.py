@@ -1,21 +1,62 @@
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
-
-from core.rbac import require_roles
+import json
+import os
+import shutil
+from typing import Optional
+from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException
+from .pipeline_nutrition import PipelineNutrition
+from .profil_schema import ProfilUtilisateur
 
 router = APIRouter(prefix="/nutrition", tags=["nutrition"])
 
+# Pipeline instance to be initialized at startup
+pipeline: Optional[PipelineNutrition] = None
 
-class MealLogRequest(BaseModel):
-    patient_id: int = Field(gt=0)
-    description: str = Field(min_length=2)
-    estimated_carbs_g: float = Field(ge=0)
+def get_pipeline():
+    global pipeline
+    if pipeline is None:
+        # Fallback if lifespan didn't run (e.g. testing)
+        pipeline = PipelineNutrition()
+    return pipeline
 
+@router.post("/analyse")
+async def analyse_meal(
+    image: UploadFile = File(...),
+    profil: str = Form(...),
+    _pipeline: PipelineNutrition = Depends(get_pipeline)
+):
+    """
+    Analyzes a food photo and returns a personalized diabetes nutrition report.
+    """
+    # 1. Validate Profile
+    try:
+        profil_dict = json.loads(profil)
+        profil_obj = ProfilUtilisateur(**profil_dict)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid profile data: {str(e)}")
 
-@router.post("/analyze-meal")
-def analyze_meal(
-    payload: MealLogRequest,
-    _claims: dict = Depends(require_roles("patient")),
-) -> dict:
-    gi_band = "high" if payload.estimated_carbs_g > 75 else "moderate"
-    return {"patient_id": payload.patient_id, "gi_band": gi_band}
+    # 2. Save temporary image
+    temp_dir = "tmp"
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, image.filename)
+    
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(image.file, buffer)
+
+    try:
+        # 3. Run Pipeline
+        rapport = _pipeline.analyser(temp_path, profil_obj.model_dump())
+        return rapport
+    except Exception as e:
+        print(f"Pipeline error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Pipeline failure: {str(e)}")
+    finally:
+        # 4. Cleanup
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+@router.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "pipeline_ready": pipeline is not None
+    }
