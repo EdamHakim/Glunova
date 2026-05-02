@@ -360,7 +360,8 @@ class PsychologyService:
         session.ended_at = datetime.utcnow()
         summary_dict = self._build_summary_dict(session)
         session.session_summary_json = summary_dict
-        self._memories.append(patient_id, json.dumps(summary_dict, ensure_ascii=False))
+        memory_blob = self._json_for_longterm_memory(session, summary_dict)
+        self._memories.append(patient_id, memory_blob)
         self._sessions.put_session(session)
         logger.info("psychology.session.end session_id=%s patient_id=%s", session_id, patient_id)
         return SessionEndResponse(
@@ -645,6 +646,31 @@ class PsychologyService:
                 f"for the next 10 minutes, like drinking water or opening a window.{kb_hint}"
             )
         return SAFE_CRISIS_REPLY
+
+    def _memory_translation_hint(self, patient_blob: str, preferred_language: str) -> str | None:
+        det = self._detect_language((patient_blob or "").strip())
+        pref = (preferred_language or "en").strip().lower()
+        for tag in ("fr", "ar", "darija", "mixed"):
+            if tag in {pref, det}:
+                return tag
+        return None
+
+    def _json_for_longterm_memory(self, session: SessionData | SessionRecord, summary_dict: dict[str, Any]) -> str:
+        """Serialize session summary for embedding; translates patient text when session is FR/ar/darija/mixed."""
+        preferred = getattr(session, "preferred_language", "en") or "en"
+        patient_blob = " ".join(str(m.content) for m in session.messages if m.role == "patient")
+        out_dict = summary_dict
+        if settings.psychology_memory_translate_to_english:
+            hint = self._memory_translation_hint(patient_blob, preferred)
+            if hint:
+                try:
+                    from psychology.memory_translate import translate_summary_strings_for_embedding
+
+                    out_dict = translate_summary_strings_for_embedding(summary_dict, hint=hint)
+                except Exception:
+                    logger.debug("memory translation failed; storing canonical summary blob", exc_info=True)
+                    out_dict = summary_dict
+        return json.dumps(out_dict, ensure_ascii=False)
 
     def _build_summary_dict(self, session: SessionData | SessionRecord) -> dict[str, Any]:
         patient_msgs = [msg.content for msg in session.messages if msg.role == "patient"]
@@ -1041,7 +1067,7 @@ class PsychologyService:
             if self._hf_text_classifier is None:
                 model_id = (
                     settings.psychology_text_emotion_model.strip()
-                    or "tabularisai/multilingual-emotion-classification"
+                    or "j-hartmann/emotion-english-distilroberta-base"
                 )
                 self._hf_text_classifier = pipeline(
                     "text-classification",
@@ -1163,6 +1189,21 @@ class PsychologyService:
         if "anger" in lower or "angry" in lower or "stress" in lower or "distress" in lower:
             return EmotionLabel.distressed
         return EmotionLabel.neutral
+
+    def warm_heavy_psychology_caches(self) -> None:
+        """Load local text-emotion transformers before the first chat when that path may run."""
+        mode = self._emotion_inference_mode_norm()
+        token = bool((settings.psychology_hf_api_token or "").strip())
+        if mode == "inference_api":
+            return
+        if mode == "auto" and not token and not settings.psychology_text_emotion_use_hf:
+            return
+        if mode == "local" and not settings.psychology_text_emotion_use_hf:
+            return
+        try:
+            self._infer_text_emotion_hf_local("warmup.")
+        except Exception:
+            logger.debug("psychology local text classifier warm skipped", exc_info=True)
 
 
 def create_psychology_service() -> PsychologyService:

@@ -193,6 +193,37 @@ class QdrantKnowledgeBase:
         except Exception:
             return False
 
+    def ensure_payload_indexes(self) -> None:
+        """Ensure payload indexes exist for filtered KB search (avoids slow unfiltered retries)."""
+        if not self.enabled or self._client is None:
+            return
+        try:
+            if not self._client.collection_exists(collection_name=self.collection):
+                return
+        except Exception:
+            return
+        try:
+            from qdrant_client.models import PayloadSchemaType  # type: ignore[import-untyped]
+        except Exception:
+            return
+        index_fields = [("source_version", PayloadSchemaType.KEYWORD)]
+        if not settings.psychology_kb_english_only:
+            index_fields.insert(0, ("language", PayloadSchemaType.KEYWORD))
+        for field_name, schema in index_fields:
+            try:
+                self._client.create_payload_index(
+                    collection_name=self.collection,
+                    field_name=field_name,
+                    field_schema=schema,
+                )
+            except Exception:
+                logger.debug(
+                    "KB payload index not created (%s.%s); may already exist",
+                    self.collection,
+                    field_name,
+                    exc_info=True,
+                )
+
     def reindex_sources(self, extractor: str = "pypdf") -> dict[str, Any]:
         """Upsert curated manifest stubs plus all PDFs under `psychology data/` (see `pdf_kb.py`)."""
         empty: dict[str, Any] = {
@@ -390,7 +421,7 @@ class QdrantKnowledgeBase:
             from qdrant_client.models import FieldCondition, Filter, MatchValue, Range  # type: ignore
 
             must: list[Any] = []
-            if language and language != "mixed":
+            if not settings.psychology_kb_english_only and language and language != "mixed":
                 must.append(
                     Filter(
                         should=[
@@ -496,7 +527,7 @@ class QdrantKnowledgeBase:
             "collection_points": vector_count,
             "last_ingestion_timestamp": last_ingestion_at,
             "retrieval_latency_ms_p50": p50,
-            "language_payload_available": True,
+            "language_qdrant_filter_enabled": not settings.psychology_kb_english_only,
             "configured_source_version": settings.psychology_kb_source_version,
             "rerank_weights": {
                 "vector": settings.psychology_kb_rerank_vector_weight,

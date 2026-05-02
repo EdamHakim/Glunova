@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+import asyncio
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,6 +12,47 @@ load_dotenv(_backend_root / ".env", override=True)
 import os
 
 from fastapi import FastAPI
+
+_startup_log = logging.getLogger("fastapi_ai.startup")
+
+
+def _warm_psychology_caches_sync() -> None:
+    """Preload embeddings + indexes + local text pipelines so Sanadi's first message is responsive."""
+    try:
+        from psychology.knowledge_ingestion import get_knowledge_base
+
+        kb = get_knowledge_base()
+        if kb.enabled and kb._client is not None:
+            try:
+                if kb._client.collection_exists(collection_name=kb.collection):
+                    kb.ensure_payload_indexes()
+            except Exception:
+                _startup_log.debug("psychology KB index ensure skipped", exc_info=True)
+            try:
+                kb.search("__warmup__", language=None, limit=1)
+            except Exception:
+                _startup_log.debug("psychology KB embed warm skipped", exc_info=True)
+
+        try:
+            from psychology.patient_memory import QdrantPatientMemoryStore
+
+            mem = QdrantPatientMemoryStore()
+            if mem.enabled and mem._client is not None:
+                try:
+                    if mem._client.collection_exists(collection_name=mem.collection):
+                        mem.ensure_payload_indexes()
+                except Exception:
+                    _startup_log.debug("psychology patient memory index ensure skipped", exc_info=True)
+        except Exception:
+            _startup_log.debug("psychology patient memory warm skipped", exc_info=True)
+
+        from psychology.router import service as psychology_service_instance
+
+        psychology_service_instance.warm_heavy_psychology_caches()
+    except Exception:
+        _startup_log.debug("psychology cold-start warm aborted", exc_info=True)
+
+
 from fastapi.middleware.cors import CORSMiddleware
 
 from clinic.router import router as clinic_router
@@ -23,6 +66,7 @@ from extraction.router import router as extraction_router
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    await asyncio.to_thread(_warm_psychology_caches_sync)
     yield
     from psychology.db import close_pool as close_psychology_pool
     from core.db import close_pool as close_shared_pool

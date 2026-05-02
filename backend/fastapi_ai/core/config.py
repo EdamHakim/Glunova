@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     psychology_kb_limit_min: int = 2
     psychology_kb_limit_max: int = 8
     psychology_kb_default_limit: int = 5
+    # When true, Qdrant RAG skips `language` payload filters (English-only corpus; no keyword index needed).
+    psychology_kb_english_only: bool = False
+    # Before Qdrant memory upsert, translate patient-visible strings (FR/ar/darija/mixed sessions) via Groq.
+    psychology_memory_translate_to_english: bool = True
 
     # Sanadi voice (Groq Whisper STT + OpenAI Speech TTS proxy)
     psychology_voice_stt_model: str = "whisper-large-v3-turbo"

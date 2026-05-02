@@ -55,6 +55,27 @@ class QdrantPatientMemoryStore(MemoryStore):
             logger.warning("Patient memory collection ensure failed: %s", exc)
             return False
 
+    def ensure_payload_indexes(self) -> None:
+        if not self.enabled or self._client is None:
+            return
+        try:
+            if not self._client.collection_exists(collection_name=self.collection):
+                return
+        except Exception:
+            return
+        try:
+            from qdrant_client.models import PayloadSchemaType  # type: ignore[import-untyped]
+        except Exception:
+            return
+        try:
+            self._client.create_payload_index(
+                collection_name=self.collection,
+                field_name="patient_id",
+                field_schema=PayloadSchemaType.INTEGER,
+            )
+        except Exception:
+            logger.debug("Patient memory payload index skipped", exc_info=True)
+
     def _vector(self, text: str) -> list[float]:
         if self._kb_embed is None:
             self._attach_embedder()
