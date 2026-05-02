@@ -1,3 +1,5 @@
+import { getApiUrls } from './auth'
+
 const base = () => {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '')
   if (configured) return configured
@@ -12,6 +14,29 @@ const apiPrefix = () => process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1'
 async function getJson<T>(path: string) {
   const response = await fetch(`${base()}${apiPrefix()}${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error(await response.text())
+  return response.json() as Promise<T>
+}
+
+async function postMultipart<T>(path: string, formData: FormData) {
+  const { fastapi } = getApiUrls()
+  // FastAPI endpoints are not prefixed with /api/v1 by default in this project
+  const response = await fetch(`${fastapi}${path}`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error(await response.text())
+  return response.json() as Promise<T>
+}
+
+async function postJson<T>(path: string, body: any) {
+  const response = await fetch(`${base()}${apiPrefix()}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
     credentials: 'include',
   })
   if (!response.ok) throw new Error(await response.text())
@@ -65,6 +90,39 @@ export type ExercisePlanRow = {
   } | null
 }
 
+export type NutritionAnalysisReport = {
+  plat_identifie: string
+  confiance_identification: string
+  ingredients_detectes: {
+    ingredient: string
+    confiance_visuelle: number
+    surface_pct: number
+  }[]
+  analyse_nutritionnelle: {
+    summary: string
+    dish_type: string
+    ingredients_analysis: {
+      ingredient: string
+      gi: string
+      benefit: string
+      risk_for_diabetic: string
+    }[]
+    global_assessment: {
+      total_calories: string
+      total_glycemic_load: string
+      risk_level: 'green' | 'orange' | 'red'
+      explanation: string
+    }
+    recommendations: string[]
+    healthy_alternatives: {
+      replace: string
+      with: string
+      benefit: string
+    }[]
+  }
+  temps_traitement_sec: number
+}
+
 export async function getNutritionSummary(patientId?: string) {
   const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
   return getJson<NutritionSummary>(`/nutrition/summary${query}`)
@@ -80,4 +138,24 @@ export async function listExercisePlans(patientId?: string, limit = 20) {
   const query = new URLSearchParams({ limit: String(limit) })
   if (patientId) query.set('patient_id', patientId)
   return getJson<{ items: ExercisePlanRow[]; total: number }>(`/nutrition/exercise?${query.toString()}`)
+}
+
+export async function analyseNutritionPhoto(image: File, profile: any) {
+  const formData = new FormData()
+  formData.append('image', image)
+  formData.append('profil', JSON.stringify(profile))
+  return postMultipart<NutritionAnalysisReport>('/nutrition/analyse', formData)
+}
+
+export async function logMeal(data: {
+  patient_id?: string
+  input_type: string
+  description: string
+  calories_kcal: number
+  carbs_g: number
+  sugar_g: number
+  gi: number
+  gl: number
+}) {
+  return postJson<{ id: number; status: string }>('/nutrition/meals', data)
 }
