@@ -8,6 +8,9 @@ export const runtime = 'nodejs'
 /** Cache this file locally with `pnpm fetch-sanadi-avatar` when `models.readyplayer.me` is unreachable from Node */
 const LOCAL_GL = join(process.cwd(), 'public', 'sanadi-local-avatar.glb')
 
+/** Bundled mesh when RPM is blocked and no cache; lip sync is weaker than Oculus-ready RPM exports. */
+const FALLBACK_MPFB = join(process.cwd(), 'public', 'mpfb.glb')
+
 const READY_PLAYER_ME_DEFAULT_GL =
   'https://models.readyplayer.me/64bfa15f0e72c63d7c3934a6.glb?' +
   'morphTargets=ARKit,Oculus+Visemes,mouthOpen,mouthSmile,eyesClosed,eyesLookUp,eyesLookDown' +
@@ -29,6 +32,22 @@ async function serveLocalCached(): Promise<NextResponse | null> {
   }
 }
 
+async function serveBundledMpfbFallback(): Promise<NextResponse | null> {
+  try {
+    const buf = await readFile(FALLBACK_MPFB)
+    return new NextResponse(buf, {
+      status: 200,
+      headers: {
+        'Content-Type': 'model/gltf-binary',
+        'Cache-Control': 'private, max-age=3600',
+        'X-Sanadi-Avatar-Source': 'public/mpfb.glb (fallback — RPM unreachable, weaker lip sync)',
+      },
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function GET() {
   const local = await serveLocalCached()
   if (local) return local
@@ -43,6 +62,13 @@ export async function GET() {
     })
 
     if (!upstream.ok) {
+      const mpfb = await serveBundledMpfbFallback()
+      if (mpfb) {
+        console.warn(
+          `[api/sanadi-talkinghead-default] Ready Player Me HTTP ${upstream.status}; serving public/mpfb.glb fallback`,
+        )
+        return mpfb
+      }
       const detail = `(Ready Player Me returned ${upstream.status})`
       return NextResponse.json(
         {
@@ -66,6 +92,11 @@ export async function GET() {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     console.error('[api/sanadi-talkinghead-default]', message)
+    const mpfb = await serveBundledMpfbFallback()
+    if (mpfb) {
+      console.warn('[api/sanadi-talkinghead-default] RPM fetch failed; serving public/mpfb.glb fallback')
+      return mpfb
+    }
     const dnsBroken = message.includes('ENOTFOUND') || message.includes('getaddrinfo')
     return NextResponse.json(
       {

@@ -66,6 +66,9 @@ function printENOTFOUNDHelp() {
   console.error('       pnpm fetch-sanadi-avatar -- ".\\path\\to\\saved-file.glb"')
   console.error('  3) Put any TalkingHead-ready .glb under public/ and set NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB=/filename.glb')
   console.error('  4) Set SANADI_AVATAR_FETCH_URL to a reachable mirror (HTTPS), then run pnpm fetch-sanadi-avatar again.')
+  console.error(
+    '  5) Without any GLB download: the dev server can still serve `public/mpfb.glb` as a last resort via `/api/sanadi-talkinghead-default`, or set NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB=/mpfb.glb (lip sync is limited on that mesh).',
+  )
   console.error('')
 }
 

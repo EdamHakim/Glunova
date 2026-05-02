@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     psychology_tts_provider: str = "openai"  # openai | none
     openai_api_key: str = ""
     psychology_openai_tts_model: str = "tts-1"
-    psychology_openai_tts_voice: str = "nova"
+    psychology_openai_tts_voice: str = "shimmer"  # female-presenting; matches Sanadi avatar
 
     # Azure Document Intelligence (OCR)
     azure_document_intelligence_endpoint: str = ""

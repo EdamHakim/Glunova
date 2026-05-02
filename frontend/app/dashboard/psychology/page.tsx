@@ -49,6 +49,36 @@ type PreferredSessionLang = 'mixed' | 'en' | 'fr' | 'ar'
 
 const SANADI_PREF_LANG_KEY = 'sanadi_pref_lang'
 
+/** Prefer a female-presenting system voice for Sanadi when service TTS is unavailable (vendor names vary by OS). */
+function pickFemaleBrowserVoice(langTag: string): SpeechSynthesisVoice | null {
+  if (typeof window === 'undefined' || typeof speechSynthesis === 'undefined') return null
+  const voices = speechSynthesis.getVoices()
+  if (!voices.length) return null
+  const short = (langTag.split('-')[0] || 'en').toLowerCase()
+  const langMatch = (v: SpeechSynthesisVoice) => {
+    const l = v.lang.toLowerCase()
+    return l === langTag.toLowerCase() || l.startsWith(`${short}-`) || l === short
+  }
+  const pool = voices.filter(langMatch)
+  const usePool = pool.length > 0 ? pool : voices
+  const femaleRe =
+    /\b(female|woman)\b|zira|samantha|tessa|karen|victoria|fiona|martha|serena|veena|google\s+[\w\s-]*female|microsoft\s+[\w\s-]*\s-\s*female|aria\s*neural|sara/i
+  const maleRe = /\b(male|man)\b|\bfred\b|\bdavid\b|\bdaniel\b|\bjames\b|google\s+[\w\s-]*male|microsoft\s+[\w\s-]*\s-\s*male|\bguy\b/i
+  const scored = [...usePool].sort((a, b) => {
+    const af = femaleRe.test(a.name) ? 1 : 0
+    const bf = femaleRe.test(b.name) ? 1 : 0
+    return bf - af
+  })
+  for (const v of scored) {
+    if (maleRe.test(v.name)) continue
+    if (femaleRe.test(v.name)) return v
+  }
+  for (const v of scored) {
+    if (!maleRe.test(v.name)) return v
+  }
+  return scored[0] ?? null
+}
+
 function browserSpeechRecognitionLang(pref: PreferredSessionLang): string {
   if (typeof navigator === 'undefined') return 'en-US'
   if (pref === 'ar') return 'ar-SA'
@@ -223,7 +253,7 @@ export default function PsychologyPage() {
   const ttsAudioCtxRef = useRef<AudioContext | null>(null)
   const talkingHeadRef = useRef<SanadiTalkingHeadHandle | null>(null)
 
-  const [railCollapsed, setRailCollapsed] = useState(false)
+  const [railCollapsed, setRailCollapsed] = useState(true)
   const [visitOrdinal, setVisitOrdinal] = useState(1)
   const [preferredSessionLang, setPreferredSessionLang] = useState<PreferredSessionLang>('mixed')
   const [cameraPanelOpen, setCameraPanelOpen] = useState(false)
@@ -245,6 +275,13 @@ export default function PsychologyPage() {
     if (avatarPhase === 'speaking') return 'assistant'
     return 'idle'
   }, [voiceModeActive, voiceRecording, avatarPhase])
+
+  const voicePhaseLine = useMemo(() => {
+    if (avatarPhase === 'listening') return 'Sanadi is listening'
+    if (avatarPhase === 'thinking') return 'Sanadi is thinking'
+    if (avatarPhase === 'speaking') return 'Sanadi is speaking'
+    return 'Ready when you are'
+  }, [avatarPhase])
 
   const recognitionDebugText = useMemo(() => {
     const speechInFusion = !!latestResult?.fusion?.modalities_used?.includes('speech')
@@ -561,6 +598,18 @@ export default function PsychologyPage() {
       mixed: typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US',
     }
     u.lang = map[lang] ?? 'en-US'
+    const applyVoice = () => {
+      const v = pickFemaleBrowserVoice(u.lang)
+      if (v) u.voice = v
+    }
+    applyVoice()
+    if (!speechSynthesis.getVoices().length) {
+      const onVoices = () => {
+        applyVoice()
+        speechSynthesis.removeEventListener('voiceschanged', onVoices)
+      }
+      speechSynthesis.addEventListener('voiceschanged', onVoices)
+    }
     u.onend = () => setAvatarPhase('idle')
     u.onerror = () => setAvatarPhase('idle')
     speechSynthesis.speak(u)
@@ -578,6 +627,13 @@ export default function PsychologyPage() {
         recordingAudioCtxRef.current = null
         voiceAnalyserRef.current = null
         const blob = await synthesizePsychologyVoice({ text: reply, language: lang })
+
+        if (voiceModeActive) {
+          const deadline = Date.now() + 4000
+          while (Date.now() < deadline && !talkingHeadRef.current?.isAvatarReady?.()) {
+            await new Promise((r) => setTimeout(r, 90))
+          }
+        }
 
         const th = talkingHeadRef.current
         if (voiceModeActive && th?.isAvatarReady?.()) {
@@ -1094,7 +1150,6 @@ export default function PsychologyPage() {
             Begin session
           </Button>
           <div className="flex items-center justify-center gap-3 text-sm text-muted-foreground">
-            <Switch checked={cameraOptIn} onCheckedChange={(checked) => setCameraOptIn(Boolean(checked))} />
             <span>Sanadi understands you better with camera on — always optional</span>
           </div>
           {chatError && <p className="text-sm text-destructive">{chatError}</p>}
@@ -1108,48 +1163,51 @@ export default function PsychologyPage() {
       lang={sessionLangAttr}
       dir={sessionDir}
       className={cn(
-        'fixed inset-0 z-50 flex h-screen flex-col bg-[color:var(--sanadi-shell-bg)] text-foreground',
+        'fixed inset-0 z-50 flex h-[100dvh] min-h-0 flex-col bg-[color:var(--sanadi-shell-bg)] text-foreground',
         preferredSessionLang === 'ar' && notoSansArabic.className,
       )}
     >
       {(voiceRecording || micListening) && (
         <div
-          className="pointer-events-none fixed left-4 top-16 z-[120] flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur-sm dark:bg-black/65"
+          className={cn(
+            'pointer-events-none fixed left-3 z-[120] flex items-center gap-2 rounded-full bg-black/50 px-2.5 py-1 text-[0.65rem] font-medium text-white md:left-4',
+            voiceModeActive ? 'top-[3.75rem]' : 'top-16',
+          )}
           role="status"
           aria-live="polite"
         >
-          <span aria-hidden>🔴</span>
+          <span aria-hidden>●</span>
           <span>Recording</span>
           <span className="sr-only">Microphone is active</span>
         </div>
       )}
 
-      <header className="relative z-[70] flex h-14 shrink-0 items-center justify-between border-b border-border bg-[color:var(--sanadi-shell-bg)]/90 px-4 backdrop-blur-md">
-        <span className="text-lg font-semibold tracking-tight text-primary">سنَدي Sanadi</span>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+      <header className="relative z-[70] flex h-14 max-h-14 shrink-0 items-center justify-between border-b border-border/30 bg-[color:var(--sanadi-shell-bg)] px-3 md:px-4">
+        <span className="text-base font-semibold tracking-tight text-primary md:text-lg">سنَدي Sanadi</span>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 md:gap-2">
           <LanguagePicker value={preferredSessionLang} disabled onChange={() => {}} />
           <Button
             type="button"
             size="sm"
             variant={voiceModeActive ? 'secondary' : 'outline'}
-            className="h-9 rounded-full gap-1.5 whitespace-nowrap shadow-sm"
+            className="h-8 gap-1 rounded-full px-3 text-xs md:h-9 md:text-sm"
             aria-label="Voice mode"
             aria-pressed={voiceModeActive}
             onClick={() => setVoiceModeActive((v) => !v)}
           >
-            <Headphones className="h-4 w-4 shrink-0" />
+            <Headphones className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
             Voice
           </Button>
-          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-health-success/90" title="Live" aria-hidden />
+          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-health-success/80" title="Live" aria-hidden />
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-row">
         <aside
           className={cn(
-            'flex min-h-0 shrink-0 flex-col border-r border-border bg-muted/45 transition-[width] duration-300',
+            'hidden min-h-0 shrink-0 flex-col border-r border-border/30 bg-muted/30 transition-[width] duration-200 ease-out md:flex',
             voiceModeActive && 'relative z-[65]',
-            railCollapsed ? 'h-full w-[3.35rem] items-center px-1 py-3' : 'h-full min-h-0 w-[17rem] overflow-hidden p-4',
+            railCollapsed ? 'h-full w-[60px] items-center px-0 py-3' : 'h-full min-h-0 w-64 overflow-hidden p-3',
           )}
         >
           <Button
@@ -1239,11 +1297,13 @@ export default function PsychologyPage() {
                   </CollapsibleContent>
                 </Collapsible>
               </div>
-              <div className="shrink-0 border-t border-border/60 bg-muted/35 pt-3 dark:bg-muted/20">
-                <Button type="button" variant="outline" className="w-full rounded-2xl shadow-sm" onClick={() => void closeSession()}>
-                  End session
-                </Button>
-              </div>
+              {!voiceModeActive && (
+                <div className="shrink-0 border-t border-border/40 bg-muted/25 pt-3 dark:bg-muted/15">
+                  <Button type="button" variant="outline" className="w-full rounded-2xl" onClick={() => void closeSession()}>
+                    End session
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="mt-2 flex flex-1 flex-col items-center gap-3">
@@ -1252,47 +1312,95 @@ export default function PsychologyPage() {
                 distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
                 className="h-9 w-9 rounded-full shadow ring-2 ring-white/50 dark:ring-white/10"
               />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-auto rounded-full px-2 text-[0.65rem]"
-                onClick={() => void closeSession()}
-                aria-label="End session"
-              >
-                End
-              </Button>
+              {!voiceModeActive && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-auto rounded-full px-2 text-[0.65rem]"
+                  onClick={() => void closeSession()}
+                  aria-label="End session"
+                >
+                  End
+                </Button>
+              )}
             </div>
           )}
         </aside>
 
-        <div className="relative flex min-w-0 flex-1 flex-col">
-          {voiceModeActive && (
-            <div
-              className={cn(
-                'pointer-events-none fixed inset-0 z-[60]',
-                railCollapsed ? 'md:left-[3.35rem]' : 'md:left-[17rem]',
-              )}
-              aria-hidden
-            >
-              <div className="pointer-events-none absolute inset-0 bg-[color:var(--sanadi-overlay)] backdrop-blur-[3px]" />
-              <div className="pointer-events-none relative flex min-h-[48vh] flex-col items-center justify-center px-4 pb-48 pt-10 md:min-h-[52vh]">
-                <SanadiTalkingHead
-                  ref={talkingHeadRef}
-                  active
-                  variant="overlay"
-                  phase={avatarPhase}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {voiceModeActive ? (
+            <>
+              <div className="flex shrink-0 items-center gap-3 border-b border-border/20 px-4 py-2 text-xs text-muted-foreground md:hidden">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-foreground">{user?.username ?? 'You'}</p>
+                  <p className="truncate text-[0.65rem]">
+                    Session {visitOrdinal} ·{' '}
+                    {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+                <SanadiMoodRing
                   emotion={displayEmotion?.label ?? null}
                   distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-                  onAssistantAnalyser={onTalkingHeadAnalyserNode}
+                  className="h-10 w-10 shrink-0 rounded-full ring-2 ring-border/40"
                 />
-                <div className="mt-8 w-[min(28rem,92vw)]">
-                  <SanadiVoiceWaveform analyserRef={voiceAnalyserRef} speaker={waveSpeaker} height={72} className="opacity-95" />
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-3">
+                  <div className="flex w-full max-w-lg flex-col items-center justify-center gap-0">
+                    <div className="flex min-h-[min(52svh,480px)] max-h-[60svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
+                      <SanadiTalkingHead
+                        ref={talkingHeadRef}
+                        active
+                        variant="voiceHero"
+                        phase={avatarPhase}
+                        emotion={displayEmotion?.label ?? null}
+                        distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                        onAssistantAnalyser={onTalkingHeadAnalyserNode}
+                      />
+                    </div>
+                    <p className="mt-2 text-center text-sm font-medium text-muted-foreground">{voicePhaseLine}</p>
+
+                    <div className="mt-2 w-full max-w-[480px] shrink-0 overflow-hidden rounded-3xl border border-border/50 bg-background/90">
+                      <div className="px-3 pt-3 pb-1">
+                        <SanadiVoiceWaveform
+                          analyserRef={voiceAnalyserRef}
+                          speaker={waveSpeaker}
+                          height={80}
+                          className="opacity-95"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        className="h-auto w-full rounded-none border-0 border-t border-border/40 py-6 text-base font-semibold shadow-none"
+                        disabled={loading || startingSession}
+                        onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
+                      >
+                        {voiceRecording ? 'Done speaking' : 'Tap to speak'}
+                      </Button>
+                    </div>
+                    <p className="mt-2 max-w-[480px] text-center text-[0.65rem] leading-snug text-muted-foreground">
+                      Groq transcribes your clip. Replies use calm voice when server TTS is on — turn Voice off to type in chat.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
 
+              <footer className="shrink-0 border-t border-border/30 bg-[color:var(--sanadi-shell-bg)] px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full rounded-2xl py-6"
+                  onClick={() => void closeSession()}
+                >
+                  End session
+                </Button>
+                {chatError && <p className="mt-2 text-center text-xs text-muted-foreground">{chatError}</p>}
+              </footer>
+            </>
+          ) : (
+            <>
           <main ref={chatScrollRef} className="relative z-10 flex-1 overflow-y-auto px-3 py-4 md:px-5">
             <div className="mx-auto flex w-full max-w-5xl gap-4">
               <div className="mx-auto flex min-w-0 max-w-2xl flex-1 flex-col gap-3.5">
@@ -1348,83 +1456,48 @@ export default function PsychologyPage() {
               )}
             </div>
           ))}
-          </div>
-          {voiceModeActive ? (
-            <aside className="sticky top-2 z-20 hidden h-fit max-w-[16rem] shrink-0 flex-col gap-2 rounded-[1.25rem] border border-border bg-card/55 p-3 text-[0.72rem] leading-snug text-muted-foreground shadow-sm md:flex">
-              <p className="text-xs font-medium text-foreground">Voice companion</p>
-              <p>
-                Sanadi speaks as a calming, clearly digital presence (not a substitute for human care).
-              </p>
-            </aside>
-          ) : null}
-        </div>
-      </main>
+              </div>
+            </div>
+          </main>
 
-          <footer className="relative z-[80] border-t border-border bg-[color:var(--sanadi-shell-bg)]/95 px-3 py-3 backdrop-blur-md">
-            {voiceModeActive && (
-              <>
-                <div className="mx-auto mb-3 w-full max-w-2xl">
-                  <SanadiVoiceWaveform
-                    analyserRef={voiceAnalyserRef}
-                    speaker={waveSpeaker}
-                    height={88}
-                    className="rounded-2xl bg-accent/55 px-2 py-2 shadow-inner dark:bg-card/55"
-                  />
-                </div>
-                <div className="mx-auto mb-3 flex w-full max-w-2xl flex-col gap-2">
-                  <Button
-                    type="button"
-                    className="w-full rounded-2xl py-6 text-base shadow-md"
-                    disabled={loading || startingSession}
-                    onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
-                  >
-                    {voiceRecording ? 'Done speaking' : 'Tap to speak'}
-                  </Button>
-                  <p className="text-center text-[0.7rem] text-muted-foreground">
-                    Groq transcribes your clip; Sanadi replies with voice when TTS is configured.
-                  </p>
-                </div>
-              </>
-            )}
+          <footer className="relative z-[80] shrink-0 border-t border-border/30 bg-[color:var(--sanadi-shell-bg)] px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
-              {!voiceModeActive && (
-                <Button type="button" size="icon" variant={micListening ? 'secondary' : 'outline'} className="h-12 w-12 rounded-2xl shadow-sm" onClick={() => toggleMic()}>
-                  <Mic className="h-5 w-5" />
-                </Button>
-              )}
-              {!voiceModeActive ? (
-                <textarea
-                  value={input}
-                  placeholder="Say anything..."
-                  rows={1}
-                  className="max-h-40 min-h-12 flex-1 resize-y rounded-2xl border border-border bg-background px-3 py-3 text-sm shadow-sm outline-none"
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault()
-                      void submitMessage()
-                    }
-                  }}
-                />
-              ) : (
-                <div className="flex min-h-12 flex-1 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30 px-3 py-3 text-center text-sm text-muted-foreground">
-                  Voice mode — use Tap to speak or turn Voice off to type.
-                </div>
-              )}
-              {!voiceModeActive && (
-                <Button
-                  type="button"
-                  size="icon"
-                  className="h-12 w-12 rounded-2xl shadow-md"
-                  onClick={() => void submitMessage()}
-                  disabled={loading || startingSession || !input.trim() || voiceRecording}
-                >
-                  <SendHorizonal className="h-5 w-5" />
-                </Button>
-              )}
+              <Button
+                type="button"
+                size="icon"
+                variant={micListening ? 'secondary' : 'outline'}
+                className="h-12 w-12 shrink-0 rounded-2xl"
+                onClick={() => toggleMic()}
+              >
+                <Mic className="h-5 w-5" />
+              </Button>
+              <textarea
+                value={input}
+                placeholder="Say anything..."
+                rows={1}
+                className="max-h-40 min-h-12 flex-1 resize-y rounded-2xl border border-border bg-background px-3 py-3 text-sm outline-none"
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    void submitMessage()
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                size="icon"
+                className="h-12 w-12 shrink-0 rounded-2xl"
+                onClick={() => void submitMessage()}
+                disabled={loading || startingSession || !input.trim() || voiceRecording}
+              >
+                <SendHorizonal className="h-5 w-5" />
+              </Button>
             </div>
             {chatError && <p className="mx-auto mt-2 w-full max-w-2xl text-xs text-muted-foreground">{chatError}</p>}
           </footer>
+            </>
+          )}
         </div>
       </div>
     </div>

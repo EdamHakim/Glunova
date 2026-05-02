@@ -3,8 +3,9 @@
 /**
  * TalkingHead — https://github.com/met4citizen/talkinghead — for Voice mode lipsync + service TTS.
  *
- * Default avatar: `public/mpfb.glb` → `/mpfb.glb`.
- * Override with `NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB` for another HTTPS or `/…` URL under `public/`.
+ * Default avatar: `public/mpfb.glb` (Avaturn export with Oculus `viseme_*` blendshapes on Head/Teeth/Tongue).
+ * Override with `NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB` (e.g. `/api/sanadi-talkinghead-default` for RPM, or another `/…` / HTTPS GLB).
+ * Bare `models.readyplayer.me/…glb` URLs get `morphTargets=ARKit,Oculus+Visemes,…` if missing (TalkingHead README).
  */
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
@@ -25,10 +26,70 @@ type TalkingHeadInstance = {
   setMixerGain?: (speech: number | null, bg: number | null, fadeSecs: number) => void
   setMood?: (mood: string) => void
   lookAtCamera?: (ms: number) => void
+  /** Optional arm gestures while speaking (upstream uses prob 0.5 by default). */
+  speakWithHands?: (delay?: number, prob?: number) => void
+  /** Drive morphs directly (ARKit `jawOpen`, mixed `mouthOpen`, etc.); no-op if name missing. */
+  setValue?: (mt: string, val: number, ms?: number | null) => void
+  getMorphTargetNames?: () => string[]
   speakAudio: (payload: Record<string, unknown>, opt?: Record<string, unknown>) => void
   stopSpeaking: () => void
   start: () => void
   dispose: () => void
+}
+
+/** Fallback names when discovery finds nothing (ARKit / Oculus). */
+const JAW_MORPH_CANDIDATES = ['jawOpen', 'mouthOpen', 'mouthFunnel', 'jawForward'] as const
+
+/** When the GLB has `viseme_*` morphs, only nudge these with RMS — never `mouthOpen` / full mouth regex (fights `speakAudio`). */
+const JAW_SUPPLEMENT_WHEN_VISEMES = ['jawOpen', 'jawForward'] as const
+
+const MOUTH_NAME_RE = /jaw|mouth|lip|teeth|viseme|cheek|smile|frown|pucker|funnel|dimple|baa|oh|roll/i
+
+/**
+ * RMS-driven morphs for extra “life” when the model has no Oculus visemes; otherwise a tiny jaw supplement only.
+ * Driving `viseme_*` (or all `mouth*`) from the analyser overwrites TalkingHead’s `speakAudio` viseme timeline.
+ */
+function discoverMouthMorphs(head: TalkingHeadInstance): string[] {
+  const names = head.getMorphTargetNames?.() ?? []
+  const set = new Set(names)
+  const hasOculusVisemeMorphs = names.some((n) => /^viseme_/i.test(n))
+
+  if (hasOculusVisemeMorphs) {
+    const out: string[] = []
+    for (const m of JAW_SUPPLEMENT_WHEN_VISEMES) {
+      if (set.has(m)) out.push(m)
+    }
+    return out
+  }
+
+  const out: string[] = []
+  for (const n of names) {
+    if (MOUTH_NAME_RE.test(n)) out.push(n)
+  }
+  return [...new Set(out)]
+}
+
+async function decodeAudioBuffer(ctx: AudioContext, ab: ArrayBuffer): Promise<AudioBuffer> {
+  const copy = ab.slice(0)
+  try {
+    return await ctx.decodeAudioData(copy)
+  } catch (first) {
+    try {
+      return await new Promise<AudioBuffer>((resolve, reject) => {
+        ctx.decodeAudioData(ab.slice(0), resolve, reject)
+      })
+    } catch {
+      throw first
+    }
+  }
+}
+
+function runSpeakWithHands(head: TalkingHeadInstance, delay = 0, prob = 1) {
+  try {
+    head.speakWithHands?.(delay, prob)
+  } catch {
+    /* optional */
+  }
 }
 
 export type PsychologyTtsLang = 'en' | 'fr' | 'ar' | 'darija' | 'mixed'
@@ -49,13 +110,40 @@ type Props = {
   phase: AvatarPhase
   emotion: AvatarEmotion | null | undefined
   distressScore?: number | null
-  variant?: 'inline' | 'overlay'
+  variant?: 'inline' | 'overlay' | 'voiceHero'
   className?: string
   onAssistantAnalyser?: (node: AnalyserNode | null) => void
 }
 
-/** MPFB/MakeHuman companion mesh in `frontend/public/mpfb.glb`. */
+/** Bundled avatar (`public/mpfb.glb`) — works offline; has `viseme_*` targets for TalkingHead `speakAudio`. */
 const DEFAULT_AVATAR_SAME_ORIGIN_GLB = '/mpfb.glb'
+
+/**
+ * Ready Player Me must request ARKit + Oculus viseme morphs or TalkingHead cannot drive the mouth
+ * (see https://github.com/met4citizen/TalkingHead examples/minimal.html `showAvatar.url`).
+ */
+function ensureReadyPlayerMeLipSyncMorphs(url: string): string {
+  const s = url.trim()
+  if (!s) return s
+  try {
+    const base =
+      typeof window !== 'undefined' && window.location?.href ? window.location.href : 'http://localhost/'
+    const u = new URL(s, base)
+    const host = u.hostname.toLowerCase()
+    if (!host.includes('readyplayer.me')) return s
+    const morphTargets = u.searchParams.get('morphTargets') || ''
+    if (/oculus/i.test(morphTargets) && /arkit/i.test(morphTargets)) return u.toString()
+    u.searchParams.set(
+      'morphTargets',
+      'ARKit,Oculus+Visemes,mouthOpen,mouthSmile,eyesClosed,eyesLookUp,eyesLookDown',
+    )
+    if (!u.searchParams.has('textureSizeLimit')) u.searchParams.set('textureSizeLimit', '1024')
+    if (!u.searchParams.has('textureFormat')) u.searchParams.set('textureFormat', 'png')
+    return u.toString()
+  } catch {
+    return s
+  }
+}
 
 function moodFromClinicalEmotion(
   emotion: AvatarEmotion | undefined | null,
@@ -82,28 +170,24 @@ function estimateWordTimeline(
 ): { words: string[]; wtimes: number[]; wdurations: number[] } {
   const trimmed = text.trim()
   const words = trimmed ? trimmed.split(/\s+/).filter(Boolean) : ['']
+  const safeDuration = Math.max(durationMs, 80)
   if (!words.length) {
-    return { words: ['—'], wtimes: [0], wdurations: [Math.max(durationMs, 120)] }
+    return { words: ['—'], wtimes: [0], wdurations: [safeDuration] }
   }
 
   const weights = words.map((w) => Math.max(1, w.replace(/\p{P}/gu, '').length) + 1.25)
   const sum = weights.reduce((a, b) => a + b, 0)
-  let t = 0
+  // Per-word floor shrinks for dense or very short clips so total duration always matches audio
+  // (TalkingHead viseme times must not run past the decoded buffer or sync feels broken).
+  const minPerWord = Math.min(85, safeDuration / Math.max(words.length * 0.88, 1))
+  const raw = words.map((_, i) => Math.max(minPerWord, (weights[i]! / sum) * safeDuration))
+  const rawSum = raw.reduce((a, b) => a + b, 0)
+  const scale = safeDuration / Math.max(rawSum, 1)
+  const wdurations = raw.map((d) => d * scale)
   const wtimes: number[] = []
-  const wdurations: number[] = []
-
-  const target = Math.max(durationMs, words.length * 90)
-  for (let i = 0; i < words.length; i++) {
-    const wd = Math.max(90, (weights[i]! / sum) * target)
-    wtimes.push(t)
-    wdurations.push(wd)
-    t += wd
-  }
-  const scale = target / Math.max(t, 1)
   let acc = 0
   for (let i = 0; i < words.length; i++) {
-    wdurations[i] = wdurations[i]! * scale
-    wtimes[i] = acc
+    wtimes.push(acc)
     acc += wdurations[i]!
   }
   return { words, wtimes, wdurations }
@@ -120,13 +204,122 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
   const avatarReadyRef = useRef(false)
   const disposedRef = useRef(false)
   const speechSafetyTimerRef = useRef<number | null>(null)
+  const speechGestureTimersRef = useRef<number[]>([])
+  const speechJawRafRef = useRef<number | null>(null)
+  const mouthDriverMorphsRef = useRef<string[]>([])
   const speechEndedOnceRef = useRef(false)
 
+  const clearSpeechGestureTimers = () => {
+    for (const id of speechGestureTimersRef.current) {
+      window.clearTimeout(id)
+    }
+    speechGestureTimersRef.current = []
+  }
+
+  const resetSpeechMotion = (head: TalkingHeadInstance) => {
+    for (const m of mouthDriverMorphsRef.current) {
+      try {
+        head.setValue?.(m, 0, null)
+      } catch {
+        /* ignore */
+      }
+    }
+    for (const m of JAW_MORPH_CANDIDATES) {
+      try {
+        head.setValue?.(m, 0, null)
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      head.setValue?.('headRotateX', 0, null)
+      head.setValue?.('headRotateY', 0, null)
+      head.setValue?.('chestInhale', 0, null)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const clearJawAudioDriver = () => {
+    if (speechJawRafRef.current != null) {
+      cancelAnimationFrame(speechJawRafRef.current)
+      speechJawRafRef.current = null
+    }
+    const h = headRef.current
+    if (h && avatarReadyRef.current) {
+      resetSpeechMotion(h)
+    }
+  }
+
   const clearSpeechSafety = () => {
+    clearSpeechGestureTimers()
+    clearJawAudioDriver()
     if (speechSafetyTimerRef.current != null) {
       window.clearTimeout(speechSafetyTimerRef.current)
       speechSafetyTimerRef.current = null
     }
+  }
+
+  /**
+   * Drive mouth + subtle head motion from the same analyser the library uses for speech.
+   * Uses non-`viseme_*` mouth/jaw morphs so we do not fight TalkingHead’s own `speakAudio` viseme track.
+   */
+  function startJawAudioDriver(durationMs: number) {
+    clearJawAudioDriver()
+    const head = headRef.current
+    if (!head) return
+    const analyser = head.audioAnalyzerNode
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.28
+    const td = new Float32Array(analyser.fftSize)
+    const fd = new Uint8Array(analyser.frequencyBinCount)
+    const deadline = performance.now() + durationMs + 600
+    let smoothed = 0.04
+
+    const tick = () => {
+      const h = headRef.current
+      if (!h || speechEndedOnceRef.current || disposedRef.current) {
+        clearJawAudioDriver()
+        return
+      }
+      if (performance.now() > deadline) {
+        clearJawAudioDriver()
+        return
+      }
+      try {
+        analyser.getFloatTimeDomainData(td)
+        analyser.getByteFrequencyData(fd)
+        let sum = 0
+        for (let i = 0; i < td.length; i++) {
+          const s = td[i]!
+          sum += s * s
+        }
+        const rms = Math.sqrt(sum / Math.max(td.length, 1))
+        let peak = 0
+        for (let i = 1; i < 56; i++) {
+          if (fd[i]! > peak) peak = fd[i]!
+        }
+        const env = Math.max(rms * 6.5, peak / 255)
+        const target = Math.min(0.95, Math.max(0, env * 1.35 + 0.03))
+        smoothed += (target - smoothed) * 0.45
+        const jaw = smoothed
+        const morphs =
+          mouthDriverMorphsRef.current.length > 0 ? mouthDriverMorphsRef.current : [...JAW_MORPH_CANDIDATES]
+        for (const m of morphs) {
+          const low = m.toLowerCase()
+          const scale = /smile|dimple|cheek|press|pucker|roll|funnel/.test(low) ? 0.38 : 1
+          h.setValue?.(m, jaw * scale, null)
+        }
+        const nod = Math.max(0, jaw - 0.05) * 0.22
+        h.setValue?.('headRotateX', nod, null)
+        h.setValue?.('headRotateY', Math.sin(performance.now() / 420) * nod * 0.55, null)
+        h.setValue?.('chestInhale', jaw * 0.14, null)
+      } catch {
+        /* ignore */
+      }
+      speechJawRafRef.current = requestAnimationFrame(tick)
+    }
+    speechJawRafRef.current = requestAnimationFrame(tick)
   }
 
   useImperativeHandle(
@@ -148,8 +341,7 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
         let buffer: AudioBuffer
         try {
           const raw = await blob.arrayBuffer()
-          const copy = raw.slice(0)
-          buffer = await head.audioCtx.decodeAudioData(copy)
+          buffer = await decodeAudioBuffer(head.audioCtx, raw)
         } catch {
           return false
         }
@@ -166,25 +358,43 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
           onEnded()
         }
 
+        await head.audioCtx.resume().catch(() => {})
+
         onAssistantAnalyser?.(head.audioAnalyzerNode)
 
         speechSafetyTimerRef.current = window.setTimeout(finish, Math.min(durationMs + 900, 120_000))
 
-        head.speakAudio(
-          {
-            audio: buffer,
-            words,
-            wtimes,
-            wdurations,
-            markers: [finish],
-            mtimes: [Math.max(0, durationMs - 80)],
-          },
-          { lipsyncLang },
-        )
         try {
-          head.lookAtCamera?.(400)
+          head.speakAudio(
+            {
+              audio: buffer,
+              words,
+              wtimes,
+              wdurations,
+              markers: [finish],
+              mtimes: [Math.max(120, durationMs - 40)],
+            },
+            { lipsyncLang },
+          )
+        } catch {
+          clearSpeechSafety()
+          return false
+        }
+        try {
+          head.lookAtCamera?.(500)
         } catch {
           /* optional */
+        }
+        startJawAudioDriver(durationMs)
+        // Library only rolls speakWithHands at 50% probability; force extra gestures so TTS feels alive.
+        runSpeakWithHands(head, 0, 1)
+        for (const at of [1100, 2400, 4000, 5800]) {
+          if (at >= durationMs - 350) continue
+          const tid = window.setTimeout(() => {
+            if (speechEndedOnceRef.current || disposedRef.current) return
+            runSpeakWithHands(head, 0, 1)
+          }, at)
+          speechGestureTimersRef.current.push(tid)
         }
         return true
       },
@@ -222,11 +432,11 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
           cameraRotateEnable: false,
           cameraPanEnable: false,
           cameraZoomEnable: false,
-          modelMovementFactor: 0.42,
+          modelMovementFactor: 0.58,
           avatarIdleEyeContact: 0.22,
           avatarIdleHeadMove: 0.28,
-          avatarSpeakingEyeContact: 0.4,
-          avatarSpeakingHeadMove: 0.28,
+          avatarSpeakingEyeContact: 0.55,
+          avatarSpeakingHeadMove: 0.46,
           modelPixelRatio: Math.min(window.devicePixelRatio || 1, 2),
           lightAmbientIntensity: 2.85,
           lightDirectIntensity: 24,
@@ -238,14 +448,15 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
         head.lipsync.fr = new LipsyncFr()
         head.setMixerGain?.(2.55, null, 0)
 
-        const avatarUrl =
+        const rawAvatarUrl =
           (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB?.trim()) ||
           DEFAULT_AVATAR_SAME_ORIGIN_GLB
+        const avatarUrl = ensureReadyPlayerMeLipSyncMorphs(rawAvatarUrl)
 
         await head.showAvatar(
           {
             url: avatarUrl,
-            body: 'M',
+            body: 'F',
             avatarMood: 'neutral',
             lipsyncLang: 'en',
           },
@@ -267,6 +478,8 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
           return
         }
 
+        mouthDriverMorphsRef.current = discoverMouthMorphs(head)
+
         avatarReadyRef.current = true
         head.start()
         setSurfaceReady(true)
@@ -281,6 +494,7 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
     return () => {
       disposedRef.current = true
       clearSpeechSafety()
+      mouthDriverMorphsRef.current = []
       onAssistantAnalyser?.(null)
       avatarReadyRef.current = false
       setSurfaceReady(false)
@@ -300,13 +514,15 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
   useEffect(() => {
     const head = headRef.current
     if (!head || !avatarReadyRef.current) return
+    // setMood resets every morph baseline — it wipes lip sync / jaw motion if it runs during TTS.
+    if (phase === 'speaking') return
     const mood = moodFromClinicalEmotion(emotion, distressScore)
     try {
       head.setMood?.(mood)
     } catch {
       /* ignore */
     }
-  }, [emotion, distressScore])
+  }, [emotion, distressScore, phase])
 
   useEffect(() => {
     const head = headRef.current
@@ -321,7 +537,11 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
   if (!active) return null
 
   const sizeCls =
-    variant === 'overlay' ? 'h-[min(28rem,88vw)] w-[min(24rem,92vw)]' : 'h-[min(20rem,65vw)] w-[min(18rem,70vw)]'
+    variant === 'voiceHero'
+      ? 'h-[min(58svh,36rem)] w-[min(92vw,28rem)] max-h-[60vh]'
+      : variant === 'overlay'
+        ? 'h-[min(28rem,88vw)] w-[min(24rem,92vw)]'
+        : 'h-[min(20rem,65vw)] w-[min(18rem,70vw)]'
 
   let phaseAnnouncement = ''
   if (phase === 'listening') phaseAnnouncement = 'Sanadi is listening'
@@ -341,11 +561,19 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
       </span>
       <div
         className={cn(
-          'relative overflow-hidden rounded-[2rem] shadow-[0_22px_50px_-24px_rgb(31_111_120/0.14)] ring-2 ring-border/80',
+          variant === 'voiceHero'
+            ? 'relative overflow-hidden rounded-3xl bg-muted/15'
+            : 'relative overflow-hidden rounded-[2rem] bg-gradient-to-b from-card/90 to-muted/50 shadow-[0_26px_56px_-22px_rgb(31_111_120/0.22)] ring-2 ring-primary/25 ring-offset-2 ring-offset-background',
           sizeCls,
         )}
       >
-        <div ref={mountRef} className="relative h-full w-full bg-muted/35" />
+        <div
+          ref={mountRef}
+          className={cn(
+            'relative h-full w-full',
+            variant === 'voiceHero' ? 'bg-gradient-to-b from-primary/[0.04] to-transparent' : 'bg-gradient-to-b from-primary/[0.06] to-transparent',
+          )}
+        />
 
         {(bootError || !surfaceReady) && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/40 px-6 text-center text-xs leading-relaxed text-muted-foreground">
