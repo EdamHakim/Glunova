@@ -18,6 +18,7 @@ export type PatientMedicationRow = {
   source_document_filename: string
   source_document_created_at: string
   source_document_mime_type: string
+  source_document_url: string | null
   source_document_preview_url: string | null
   source_document_count: number
   name_raw: string

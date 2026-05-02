@@ -126,7 +126,7 @@ class DocumentDownloadView(APIView):
         try:
             payload = create_download_payload(doc)
             if payload["type"] == "url":
-                return Response({"url": payload["url"]})
+                return HttpResponseRedirect(payload["url"])
             else:
                 return FileResponse(
                     payload["content"],
@@ -144,8 +144,6 @@ class DocumentPreviewView(APIView):
         doc = get_object_or_404(MedicalDocument, pk=pk)
         if not can_access_patient_documents(request.user, doc.patient_id):
             return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
-        if not doc.mime_type.startswith("image/"):
-            return Response({"detail": "Preview is only available for image documents"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             payload = create_download_payload(doc)

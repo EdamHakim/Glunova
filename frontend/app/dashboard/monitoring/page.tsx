@@ -5,6 +5,13 @@ import { AlertCircle, ArrowUpRight, CheckCircle2, Clock, FileText, Info, Pill } 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import './monitoring.css'
 
 import { useAuth } from '@/components/auth-context'
@@ -78,6 +85,13 @@ export default function MonitoringPage() {
   const [screeningHistory, setScreeningHistory] = useState<ScreeningModalitySummary[]>([])
   const [screeningHistoryLoading, setScreeningHistoryLoading] = useState(false)
   const [screeningHistoryError, setScreeningHistoryError] = useState<string | null>(null)
+  const [selectedDoc, setSelectedDoc] = useState<{ url: string; filename: string } | null>(null)
+  const [previewError, setPreviewError] = useState(false)
+
+  // Reset preview error when modal opens with a new document
+  useEffect(() => {
+    setPreviewError(false)
+  }, [selectedDoc])
 
   // Group lab results by document (used in the Lab Results accordion below).
   const labsByDocument = labResults.reduce((acc, lab) => {
@@ -87,16 +101,26 @@ export default function MonitoringPage() {
         id: docId,
         filename: lab.source_document_filename || 'Other Results',
         date: lab.source_document_created_at || lab.observed_at || lab.created_at,
+        url: lab.source_document_url,
+        preview_url: lab.source_document_preview_url,
+        mime_type: lab.source_document_mime_type,
         results: [],
       }
     }
     acc[docId].results.push(lab)
     return acc
-  }, {} as Record<string, { id: string; filename: string; date: string; results: PatientLabResultRow[] }>)
+  }, {} as Record<string, { id: string; filename: string; date: string; url: string | null; preview_url: string | null; results: PatientLabResultRow[] }>)
 
   const labDocuments = Object.values(labsByDocument).sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   )
+
+  const isImage = (mime: string | null) => mime?.toLowerCase().startsWith('image/')
+  const getCrossOrigin = (url: string | null) => {
+    if (!url) return undefined
+    if (url.includes('supabase.co')) return undefined
+    return 'use-credentials'
+  }
   const role = user?.role
   const isCaregiver = role === 'caregiver'
   const isDoctor = role === 'doctor'
@@ -336,12 +360,28 @@ export default function MonitoringPage() {
                     )}
                   </div>
 
-                  <div className="medication-source">
-                    {medication.source_document_preview_url ? (
+                  <div
+                    className="medication-source group hover:bg-muted/50 transition-colors rounded-md p-1 -m-1 cursor-pointer"
+                    title="View Source Document"
+                    onClick={() => {
+                      if (isImage(medication.source_document_mime_type)) {
+                        medication.source_document_preview_url &&
+                          setSelectedDoc({
+                            url: medication.source_document_preview_url,
+                            filename: medication.source_document_filename,
+                          })
+                      } else if (medication.source_document_url) {
+                        window.open(medication.source_document_url, '_blank')
+                      }
+                    }}
+                  >
+                    {medication.source_document_preview_url &&
+                    isImage(medication.source_document_mime_type) ? (
                       <img
                         src={medication.source_document_preview_url}
                         alt="Source"
                         className="source-thumb"
+                        crossOrigin={getCrossOrigin(medication.source_document_preview_url)}
                       />
                     ) : (
                       <div className="source-thumb flex items-center justify-center bg-muted">
@@ -354,6 +394,7 @@ export default function MonitoringPage() {
                         {new Date(medication.source_document_created_at).toLocaleDateString()}
                       </div>
                     </div>
+                    <ArrowUpRight className="h-3 w-3 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>
               ))}
@@ -384,8 +425,17 @@ export default function MonitoringPage() {
                 <AccordionItem key={doc.id} value={doc.id} className="border rounded-lg px-4 bg-muted/30 lab-document-item">
                   <AccordionTrigger className="hover:no-underline py-4">
                     <div className="flex items-center gap-3 text-left w-full">
-                      <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                        <FileText className="h-5 w-5 text-primary" />
+                      <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border">
+                        {doc.preview_url && isImage(doc.mime_type) ? (
+                          <img
+                            src={doc.preview_url}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            crossOrigin={getCrossOrigin(doc.preview_url)}
+                          />
+                        ) : (
+                          <FileText className="h-5 w-5 text-primary" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{doc.filename}</div>
@@ -393,6 +443,31 @@ export default function MonitoringPage() {
                           {new Date(doc.date).toLocaleDateString()} • {doc.results.length} findings
                         </div>
                       </div>
+                      {doc.preview_url && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline px-2 py-1 rounded bg-primary/5 mr-2 cursor-pointer whitespace-nowrap"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (isImage(doc.mime_type)) {
+                              setSelectedDoc({ url: doc.preview_url!, filename: doc.filename })
+                            } else if (doc.url) {
+                              window.open(doc.url, '_blank')
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setSelectedDoc({ url: doc.preview_url!, filename: doc.filename })
+                            }
+                          }}
+                        >
+                          <ArrowUpRight className="h-3 w-3" />
+                          <span>View</span>
+                        </span>
+                      )}
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="pt-2 pb-6">
@@ -563,6 +638,36 @@ export default function MonitoringPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!selectedDoc} onOpenChange={(open) => !open && setSelectedDoc(null)}>
+        <DialogContent className="max-w-4xl w-[95vw] h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b">
+            <DialogTitle className="truncate pr-8">{selectedDoc?.filename}</DialogTitle>
+            <DialogDescription className="sr-only">
+              Document preview for {selectedDoc?.filename}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 bg-muted/10 relative overflow-auto p-4 flex items-center justify-center">
+            {selectedDoc?.url && (
+              previewError ? (
+                <iframe
+                  src={selectedDoc.url}
+                  className="w-full h-full border-0 bg-white shadow-inner"
+                  title={selectedDoc.filename}
+                />
+              ) : (
+                <img
+                  src={selectedDoc.url}
+                  alt={selectedDoc.filename}
+                  className="max-w-full max-h-full object-contain shadow-lg rounded-sm"
+                  crossOrigin={getCrossOrigin(selectedDoc.url)}
+                  onError={() => setPreviewError(true)}
+                />
+              )
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

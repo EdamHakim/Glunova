@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from django.conf import settings
 from django.db.models import Avg, Count, QuerySet
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -15,6 +17,7 @@ from carecircle.models import CarePlan
 from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, PatientLabResult, RiskAssessment, PatientMedication
 from screening.models import ScreeningResult
 from users.models import UserRole
+from documents.services.storage import create_download_payload
 
 
 def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] | None, Response | None]:
@@ -310,16 +313,31 @@ class PatientMedicationsView(APIView):
             .order_by("-updated_at", "-created_at")
         )
         
-        payload = [
-            {
+        # Resolve URLs (direct if remote, proxy if local)
+        payload = []
+        for med in items:
+            try:
+                storage_info = create_download_payload(med.source_document)
+                if storage_info["type"] == "url":
+                    doc_url = storage_info["url"]
+                    preview_url = storage_info["url"]
+                else:
+                    doc_url = request.build_absolute_uri(reverse("documents-download", kwargs={"pk": med.source_document_id}))
+                    preview_url = request.build_absolute_uri(reverse("documents-preview", kwargs={"pk": med.source_document_id}))
+            except Exception:
+                doc_url = None
+                preview_url = None
+
+            payload.append({
                 "id": med.id,
                 "patient_id": str(med.patient_id),
                 "source_document_id": str(med.source_document_id),
                 "source_document_filename": med.source_document.original_filename,
                 "source_document_created_at": med.source_document.created_at.isoformat(),
                 "source_document_mime_type": med.source_document.mime_type,
-                "source_document_preview_url": None, # Should be generated if needed
-                "source_document_count": 1, # TODO: implement aggregation if needed
+                "source_document_url": doc_url,
+                "source_document_preview_url": preview_url,
+                "source_document_count": 1,
                 "name_raw": med.name_raw,
                 "name_display": med.name_display,
                 "rxcui": med.rxcui,
@@ -331,9 +349,7 @@ class PatientMedicationsView(APIView):
                 "verification_detail": med.verification_detail,
                 "created_at": med.created_at.isoformat(),
                 "updated_at": med.updated_at.isoformat(),
-            }
-            for med in items
-        ]
+            })
         return Response({"items": payload, "total": len(payload)})
 
 
@@ -352,13 +368,31 @@ class PatientLabResultsView(APIView):
             .select_related("source_document")
             .order_by("-observed_at", "-updated_at", "-created_at")
         )
-        payload = [
-            {
+
+        # Resolve URLs (direct if remote, proxy if local)
+        payload = []
+        for row in items:
+            try:
+                storage_info = create_download_payload(row.source_document)
+                if storage_info["type"] == "url":
+                    doc_url = storage_info["url"]
+                    preview_url = storage_info["url"]
+                else:
+                    doc_url = request.build_absolute_uri(reverse("documents-download", kwargs={"pk": row.source_document_id}))
+                    preview_url = request.build_absolute_uri(reverse("documents-preview", kwargs={"pk": row.source_document_id}))
+            except Exception:
+                doc_url = None
+                preview_url = None
+
+            payload.append({
                 "id": row.id,
                 "patient_id": str(row.patient_id),
                 "source_document_id": str(row.source_document_id),
                 "source_document_filename": row.source_document.original_filename,
                 "source_document_created_at": row.source_document.created_at.isoformat(),
+                "source_document_mime_type": row.source_document.mime_type,
+                "source_document_url": doc_url,
+                "source_document_preview_url": preview_url,
                 "test_name": row.test_name,
                 "normalized_name": row.normalized_name,
                 "value": row.value,
@@ -366,12 +400,9 @@ class PatientLabResultsView(APIView):
                 "unit": row.unit,
                 "reference_range": row.reference_range,
                 "observed_at": row.observed_at.isoformat() if row.observed_at else None,
-                "raw_payload": row.raw_payload,
                 "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat(),
-            }
-            for row in items
-        ]
+            })
         return Response({"items": payload, "total": len(payload)})
 
 

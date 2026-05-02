@@ -78,13 +78,21 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+
+.medication-source:hover {
+  background: var(--muted);
 }
 
 .source-thumb {
   width: 40px;
   height: 40px;
   border-radius: 4px;
-  object-cover: cover;
+  object-fit: cover;
   border: 1px solid var(--border);
 }
 
