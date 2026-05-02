@@ -29,7 +29,8 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection_cbt: str = "cbt_knowledge"
     qdrant_collection_memory: str = "patient_memory"
-    qdrant_vector_size: int = 256
+    # Must match sentence-transformers/all-MiniLM-L6-v2 output (384); also used before lazy embed init.
+    qdrant_vector_size: int = 384
     qdrant_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     # Inference API (`image_classification`); avoids local downloads when HF token + inference mode are set.
     psychology_face_emotion_model: str = "mo-thecreator/vit-Facial-Expression-Recognition"

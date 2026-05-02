@@ -51,6 +51,8 @@ class QdrantPatientMemoryStore(MemoryStore):
 
             kb = get_knowledge_base()
             self._kb_embed = kb
+            if kb._embedder is None and getattr(kb, "_real_embeddings_enabled", True):
+                kb._init_embedder()  # noqa: SLF001
             self._vector_size = kb.vector_size
         except Exception:
             self._kb_embed = None

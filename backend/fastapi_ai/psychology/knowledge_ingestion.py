@@ -205,6 +205,8 @@ class QdrantKnowledgeBase:
 
             exists = self._client.collection_exists(collection_name=self.collection)
             if not exists:
+                if self._embedder is None and self._real_embeddings_enabled:
+                    self._init_embedder()
                 self._client.create_collection(
                     collection_name=self.collection,
                     vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
