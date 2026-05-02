@@ -9,14 +9,12 @@ import { Progress } from '@/components/ui/progress'
 import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getNutritionSummary, listExercisePlans, listNutritionMeals, type ExercisePlanRow, type MealLogRow } from '@/lib/nutrition-api'
+import { listExercisePlans, type ExercisePlanRow } from '@/lib/nutrition-api'
 import { NutritionAnalysisModal } from '@/components/nutrition/nutrition-analysis-modal'
 
 export default function NutritionPage() {
   const { user } = useAuth()
   const [patientId, setPatientId] = useState('')
-  const [summary, setSummary] = useState<Awaited<ReturnType<typeof getNutritionSummary>> | null>(null)
-  const [meals, setMeals] = useState<MealLogRow[]>([])
   const [exercisePlans, setExercisePlans] = useState<ExercisePlanRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -25,17 +23,10 @@ export default function NutritionPage() {
   const isDoctor = role === 'doctor'
   const canAssistLogging = role === 'caregiver'
   const intro = isDoctor
-    ? 'Review nutrition adherence and activity guidance for assigned patients.'
+    ? 'Review activity guidance for assigned patients.'
     : canAssistLogging
-      ? 'Support meal logging and follow the shared exercise plan for linked patients.'
-      : 'Track meals, nutrition, and exercise recommendations.'
-  const targetCalories = summary?.goal?.target_calories_kcal ?? 1
-  const targetCarbs = summary?.goal?.target_carbs_g ?? 1
-  const targetProtein = summary?.goal?.target_protein_g ?? 1
-  const caloriesPct = Math.round(Math.min(100, ((summary?.totals.calories_kcal ?? 0) / targetCalories) * 100))
-  const carbsPct = Math.round(Math.min(100, ((summary?.totals.carbs_g ?? 0) / targetCarbs) * 100))
-  const proteinApprox = useMemo(() => Math.max(0, (summary?.totals.carbs_g ?? 0) * 0.35), [summary])
-  const proteinPct = Math.round(Math.min(100, (proteinApprox / targetProtein) * 100))
+      ? 'Support AI food analysis and follow the shared exercise plan for linked patients.'
+      : 'Analyze meals with AI and track exercise recommendations.'
 
   useEffect(() => {
     if (user?.role === 'patient') setPatientId(user.id)
@@ -44,10 +35,8 @@ export default function NutritionPage() {
   const loadData = (pid: string) => {
     setLoading(true)
     setError(null)
-    Promise.all([getNutritionSummary(pid), listNutritionMeals(pid), listExercisePlans(pid)])
-      .then(([summaryPayload, mealsPayload, exercisePayload]) => {
-        setSummary(summaryPayload)
-        setMeals(mealsPayload.items)
+    listExercisePlans(pid)
+      .then((exercisePayload) => {
         setExercisePlans(exercisePayload.items)
       })
       .catch((err: unknown) => {
@@ -60,8 +49,6 @@ export default function NutritionPage() {
 
   useEffect(() => {
     if (!patientId) {
-      setSummary(null)
-      setMeals([])
       setExercisePlans([])
       return
     }
@@ -95,123 +82,22 @@ export default function NutritionPage() {
         </TabsList>
 
         <TabsContent value="nutrition" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">{isPatient ? 'Log Meal' : 'Meal Support'}</CardTitle>
-                <CardDescription>
-                  {isPatient
-                    ? 'Input today&apos;s meals'
-                    : isDoctor
-                      ? 'Review current meal logging channels'
-                      : 'Help the patient capture meals and food choices'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button className="w-full justify-start" variant="outline" disabled={!isPatient && !canAssistLogging}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Text Input
-                </Button>
-                <NutritionAnalysisModal 
-                  disabled={!isPatient && !canAssistLogging} 
-                  onLogged={() => patientId && loadData(patientId)} 
-                />
-                <Button className="w-full justify-start" variant="outline" disabled={!isPatient && !canAssistLogging}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Voice Log
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Today&apos;s Intake</CardTitle>
-                <CardDescription>{isDoctor ? 'Assigned patient adherence snapshot' : 'Remaining allowance'}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">Calories</span>
-                    <span className="font-medium">
-                      {Math.round(summary?.totals.calories_kcal ?? 0)} / {Math.round(summary?.goal?.target_calories_kcal ?? 0)}
-                    </span>
-                  </div>
-                  <Progress value={caloriesPct} className="h-2" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">Carbs</span>
-                    <span className="font-medium">
-                      {Math.round(summary?.totals.carbs_g ?? 0)}g / {Math.round(summary?.goal?.target_carbs_g ?? 0)}g
-                    </span>
-                  </div>
-                  <Progress value={carbsPct} className="h-2" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">Protein</span>
-                    <span className="font-medium">
-                      {Math.round(proteinApprox)}g / {Math.round(summary?.goal?.target_protein_g ?? 0)}g
-                    </span>
-                  </div>
-                  <Progress value={proteinPct} className="h-2" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Glycemic Index</CardTitle>
-                <CardDescription>Daily averages</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="p-3 bg-muted rounded-lg">
-                  <p className="text-xs text-muted-foreground">Avg GI</p>
-                  <p className="text-lg font-bold text-health-info">{Math.round(summary?.averages.gi ?? 0)}</p>
-                  <p className="text-xs text-health-success mt-1">Moderate - Good</p>
-                </div>
-                <div className="p-3 bg-muted rounded-lg">
-                  <p className="text-xs text-muted-foreground">Glycemic Load</p>
-                  <p className="text-lg font-bold text-primary">{Math.round(summary?.averages.gl ?? 0)}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Within target range</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
           <Card>
             <CardHeader>
-              <CardTitle>Today&apos;s Meals</CardTitle>
+              <CardTitle className="text-lg">AI Food Scanner</CardTitle>
               <CardDescription>
-                {isDoctor ? 'Recent nutrition entries available for review' : 'Logged nutrition entries'}
+                {isPatient
+                  ? 'Instantly analyze your meals with AI'
+                  : isDoctor
+                    ? 'AI Food Analysis Tool'
+                    : 'Help the patient analyze their food choices'}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {loading && <p className="text-sm text-muted-foreground">Loading meals...</p>}
-              {!loading && meals.length === 0 && (
-                <p className="text-sm text-muted-foreground">No meal logs available for this patient scope.</p>
-              )}
-              {meals.map((meal) => (
-                <div key={meal.id} className="p-4 border border-border rounded-lg">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-medium">{meal.description}</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {meal.patient_username} - {new Date(meal.logged_at).toLocaleString()}
-                      </p>
-                    </div>
-                    <span className="text-sm font-medium bg-primary/10 text-primary px-2 py-1 rounded">
-                      {Math.round(meal.calories_kcal)} cal
-                    </span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>Carbs: {Math.round(meal.carbs_g)}g</span>
-                    <span>Sugar: {Math.round(meal.sugar_g)}g</span>
-                    <span>GI: {Math.round(meal.gi)}</span>
-                    <span>GL: {Math.round(meal.gl)}</span>
-                  </div>
-                </div>
-              ))}
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Upload a photo of a meal to instantly receive a clinical breakdown of ingredients, glycemic load, and healthy alternatives.
+              </p>
+              <NutritionAnalysisModal disabled={!isPatient && !canAssistLogging} />
             </CardContent>
           </Card>
         </TabsContent>

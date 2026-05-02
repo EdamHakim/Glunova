@@ -4,18 +4,18 @@ import { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Plus, Loader2, Camera, CheckCircle2, AlertCircle } from 'lucide-react'
-import { analyseNutritionPhoto, logMeal, NutritionAnalysisReport } from '@/lib/nutrition-api'
+import { analyseNutritionPhoto, NutritionAnalysisReport } from '@/lib/nutrition-api'
 import { useAuth } from '@/components/auth-context'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { toast } from 'sonner'
 
-export function NutritionAnalysisModal({ disabled, onLogged }: { disabled?: boolean; onLogged?: () => void }) {
+export function NutritionAnalysisModal({ disabled }: { disabled?: boolean }) {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
+
   const [result, setResult] = useState<NutritionAnalysisReport | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,37 +52,7 @@ export function NutritionAnalysisModal({ disabled, onLogged }: { disabled?: bool
     }
   }
 
-  const handleSave = async () => {
-    if (!result || !user) return
-    setSaving(true)
-    try {
-      // Helper to parse numeric values from LLM strings like "approx 450 kcal"
-      const parseValue = (s: string) => parseFloat(s.replace(/[^0-9.]/g, '')) || 0
-      const giMap: Record<string, number> = { low: 30, medium: 55, high: 80 }
-      
-      const avgGi = result.analyse_nutritionnelle.ingredients_analysis.length > 0
-        ? result.analyse_nutritionnelle.ingredients_analysis.reduce((acc, ing) => acc + (giMap[ing.gi.toLowerCase()] || 40), 0) / result.analyse_nutritionnelle.ingredients_analysis.length
-        : 40
 
-      await logMeal({
-        input_type: 'photo',
-        description: result.plat_identifie,
-        calories_kcal: parseValue(result.analyse_nutritionnelle.global_assessment.total_calories),
-        carbs_g: result.analyse_nutritionnelle.ingredients_analysis.length * 15, // Rough estimate if not in GL
-        sugar_g: 0, // LLM doesn't explicitly return sugar yet
-        gi: avgGi,
-        gl: giMap[result.analyse_nutritionnelle.global_assessment.total_glycemic_load.toLowerCase()] || 15
-      })
-      toast.success('Meal logged successfully!')
-      setOpen(false)
-      if (onLogged) onLogged()
-    } catch (error) {
-      console.error(error)
-      toast.error('Failed to log meal.')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const riskColors = {
     green: 'bg-green-500/10 text-green-500 border-green-500/20',
@@ -225,9 +195,9 @@ export function NutritionAnalysisModal({ disabled, onLogged }: { disabled?: bool
                 <Button variant="outline" className="flex-1" onClick={() => { setFile(null); setResult(null); }}>
                   Analyze Another
                 </Button>
-                <Button className="flex-1" onClick={handleSave} disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                  Save to Log
+                <Button className="flex-1" onClick={() => setOpen(false)}>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Done
                 </Button>
               </div>
             </div>

@@ -5,7 +5,7 @@ from carecircle.models import Appointment, CareTask, FamilyUpdate, MedicationGui
 from clinical.models import ClinicalCaseReview, CrisisEscalation, ImagingAnalysis
 from kids.models import KidsInteraction
 from monitoring.models import DiseaseProgression, HealthAlert, PatientMedication, RiskAssessment
-from nutrition.models import ExerciseSession, FoodSubstitution, MealLog, NutritionGoal, RecoveryPlan
+from nutrition.models import ExerciseSession, NutritionGoal, RecoveryPlan
 from psychology.models import EmotionAssessment, TherapySession
 from screening.models import AIExplanation, ScreeningResult
 
@@ -18,9 +18,7 @@ class SyntheticDatasetCommandTests(TestCase):
         self.assertEqual(RiskAssessment.objects.count(), 15)
         self.assertEqual(HealthAlert.objects.count(), 15)
         self.assertEqual(DiseaseProgression.objects.count(), 15)
-        self.assertEqual(MealLog.objects.count(), 5)
         self.assertEqual(NutritionGoal.objects.count(), 5)
-        self.assertEqual(FoodSubstitution.objects.count(), 5)
         self.assertEqual(ExerciseSession.objects.count(), 5)
         self.assertEqual(RecoveryPlan.objects.count(), 5)
         self.assertEqual(EmotionAssessment.objects.count(), 5)

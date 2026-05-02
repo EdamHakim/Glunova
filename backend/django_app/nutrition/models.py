@@ -2,29 +2,6 @@ from django.conf import settings
 from django.db import models
 
 
-class MealLog(models.Model):
-    class InputType(models.TextChoices):
-        TEXT = "text", "Text"
-        BARCODE = "barcode", "Barcode"
-        VOICE = "voice", "Voice"
-        PHOTO = "photo", "Photo"
-
-    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="meal_logs")
-    input_type = models.CharField(max_length=16, choices=InputType.choices)
-    description = models.CharField(max_length=255)
-    carbs_g = models.FloatField(default=0.0)
-    calories_kcal = models.FloatField(default=0.0)
-    sugar_g = models.FloatField(default=0.0)
-    gi = models.FloatField(default=0.0)
-    gl = models.FloatField(default=0.0)
-    metadata = models.JSONField(default=dict, blank=True)
-    logged_at = models.DateTimeField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-logged_at", "-created_at"]
-
-
 class NutritionGoal(models.Model):
     patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="nutrition_goals")
     target_calories_kcal = models.FloatField()
@@ -39,25 +16,6 @@ class NutritionGoal(models.Model):
 
     class Meta:
         ordering = ["-valid_from", "-created_at"]
-
-
-class FoodSubstitution(models.Model):
-    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="food_substitutions")
-    meal_log = models.ForeignKey(
-        "nutrition.MealLog",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="substitutions",
-    )
-    original_food = models.CharField(max_length=255)
-    suggested_food = models.CharField(max_length=255)
-    reason = models.TextField(blank=True)
-    expected_gi_delta = models.FloatField(default=0.0)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-created_at"]
 
 
 class ExerciseSession(models.Model):

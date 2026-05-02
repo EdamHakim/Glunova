@@ -13,7 +13,7 @@ from clinical.models import ClinicalCaseReview, CrisisEscalation, ImagingAnalysi
 from documents.models import MedicalDocument, PatientCaregiverLink
 from kids.models import KidsInteraction
 from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, PatientMedication, RiskAssessment
-from nutrition.models import ExerciseSession, FoodSubstitution, MealLog, NutritionGoal, RecoveryPlan
+from nutrition.models import ExerciseSession, NutritionGoal, RecoveryPlan
 from psychology.models import EmotionAssessment, TherapySession
 from screening.models import AIExplanation, ScreeningResult
 
@@ -61,7 +61,7 @@ class Command(BaseCommand):
 
         modalities = list(ScreeningResult.Modality.values)
         imaging_types = list(ImagingAnalysis.AnalysisType.values)
-        meal_input_types = list(MealLog.InputType.values)
+
         exercise_intensities = list(ExerciseSession.Intensity.values)
         distress_levels = list(EmotionAssessment.DistressLevel.values)
         risk_tiers = list(RiskAssessment.Tier.values)
@@ -138,18 +138,7 @@ class Command(BaseCommand):
                 extracted_json={"kind": "lab_report", "origin": "synthetic"},
             )
 
-            meal_log = MealLog.objects.create(
-                patient=patient,
-                input_type=meal_input_types[idx % len(meal_input_types)],
-                description="Pasta with tomato sauce and side salad",
-                carbs_g=round(rnd.uniform(40, 85), 1),
-                calories_kcal=round(rnd.uniform(350, 700), 1),
-                sugar_g=round(rnd.uniform(6, 22), 1),
-                gi=round(rnd.uniform(40, 78), 1),
-                gl=round(rnd.uniform(8, 25), 1),
-                metadata={"source_document_id": str(doc.pk)},
-                logged_at=now - timedelta(days=idx),
-            )
+
 
             NutritionGoal.objects.create(
                 patient=patient,
@@ -162,14 +151,7 @@ class Command(BaseCommand):
                 rationale="Synthetic adaptive target based on generated risk profile.",
             )
 
-            FoodSubstitution.objects.create(
-                patient=patient,
-                meal_log=meal_log,
-                original_food="White bread",
-                suggested_food="Whole-grain bread",
-                reason="Lower glycemic index alternative suggested by nutrition agent.",
-                expected_gi_delta=-22.0,
-            )
+
 
             exercise = ExerciseSession.objects.create(
                 patient=patient,

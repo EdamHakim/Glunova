@@ -43,35 +43,6 @@ async function postJson<T>(path: string, body: any) {
   return response.json() as Promise<T>
 }
 
-export type NutritionSummary = {
-  totals: { calories_kcal: number; carbs_g: number; sugar_g: number }
-  goal: {
-    target_calories_kcal: number
-    target_carbs_g: number
-    target_protein_g: number
-    target_fat_g: number
-    target_sugar_g: number
-    valid_from: string
-    valid_to: string | null
-  } | null
-  averages: { gi: number; gl: number }
-  substitutions_count: number
-}
-
-export type MealLogRow = {
-  id: number
-  patient_id: number
-  patient_username: string
-  input_type: 'text' | 'barcode' | 'voice' | 'photo'
-  description: string
-  carbs_g: number
-  calories_kcal: number
-  sugar_g: number
-  gi: number
-  gl: number
-  logged_at: string
-}
-
 export type ExercisePlanRow = {
   id: number
   patient_id: number
@@ -123,17 +94,6 @@ export type NutritionAnalysisReport = {
   temps_traitement_sec: number
 }
 
-export async function getNutritionSummary(patientId?: string) {
-  const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
-  return getJson<NutritionSummary>(`/nutrition/summary${query}`)
-}
-
-export async function listNutritionMeals(patientId?: string, limit = 20) {
-  const query = new URLSearchParams({ limit: String(limit) })
-  if (patientId) query.set('patient_id', patientId)
-  return getJson<{ items: MealLogRow[]; total: number }>(`/nutrition/meals?${query.toString()}`)
-}
-
 export async function listExercisePlans(patientId?: string, limit = 20) {
   const query = new URLSearchParams({ limit: String(limit) })
   if (patientId) query.set('patient_id', patientId)
@@ -147,15 +107,3 @@ export async function analyseNutritionPhoto(image: File, profile: any) {
   return postMultipart<NutritionAnalysisReport>('/nutrition/analyse', formData)
 }
 
-export async function logMeal(data: {
-  patient_id?: string
-  input_type: string
-  description: string
-  calories_kcal: number
-  carbs_g: number
-  sugar_g: number
-  gi: number
-  gl: number
-}) {
-  return postJson<{ id: number; status: string }>('/nutrition/meals', data)
-}
