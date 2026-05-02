@@ -67,6 +67,20 @@ class Settings(BaseSettings):
     psychology_kb_english_only: bool = False
     # Before Qdrant memory upsert, translate patient-visible strings (FR/ar/darija/mixed sessions) via Groq.
     psychology_memory_translate_to_english: bool = True
+    # Episodic retrieval (Qdrant): vector recall then decay + clinical boost rerank
+    psychology_memory_recall_limit: int = 24
+    psychology_memory_decay_half_life_days: float = 30.0
+    psychology_memory_decay_floor: float = 0.25
+    psychology_memory_clinical_boost: float = 1.45
+    psychology_memory_recency_weight: float = 0.15
+    psychology_memory_recency_scale_days: float = 14.0
+    psychology_memory_search_limit: int = 5
+    # Session-end consolidation → semantic profile + multi-chunk episodic
+    psychology_consolidation_enabled: bool = True
+    psychology_consolidation_model: str = "llama-3.1-8b-instant"
+    psychology_semantic_contradictions_cap: int = 12
+    # Mem0 optional spike (off by default)
+    mem0_enabled: bool = False
 
     # Sanadi voice (Groq Whisper STT + OpenAI Speech TTS proxy)
     psychology_voice_stt_model: str = "whisper-large-v3-turbo"

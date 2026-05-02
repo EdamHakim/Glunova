@@ -168,7 +168,13 @@ class PsychologyService:
         retrieval_quality = self._retrieval_quality(kb_context)
         if retrieval_quality != "ok":
             anomaly_flags.append(f"retrieval_{retrieval_quality}")
-        memory_items = self._memories.top(payload.patient_id, 5)
+        mem_lim = max(3, min(12, int(settings.psychology_memory_search_limit)))
+        memory_items = self._memories.search_by_message(
+            payload.patient_id,
+            payload.text,
+            mem_lim,
+            recency_boost=True,
+        )
         session_phase = self._session_phase(raw_session.messages)
         prior_techniques = self._extract_recent_techniques(raw_session.messages, limit=5)
         health_context: dict[str, Any] = {}
@@ -353,6 +359,22 @@ class PsychologyService:
 
         clear_physician_review_required(self._pool, patient_id)
 
+    @staticmethod
+    def _avg_distress_turns(messages: list[TherapyMessageInput]) -> float | None:
+        scores: list[float] = []
+        for m in messages:
+            if m.role != "patient":
+                continue
+            fm = m.fusion_metadata
+            if not isinstance(fm, dict):
+                continue
+            ds = fm.get("distress_score")
+            if isinstance(ds, (int, float)):
+                scores.append(float(ds))
+        if not scores:
+            return None
+        return fmean(scores)
+
     def end_session(self, session_id: str, patient_id: int) -> SessionEndResponse:
         session = self._sessions.get_session(session_id)
         if session is None:
@@ -361,13 +383,93 @@ class PsychologyService:
         summary_dict = self._build_summary_dict(session)
         session.session_summary_json = summary_dict
         memory_blob = self._json_for_longterm_memory(session, summary_dict)
-        self._memories.append(patient_id, memory_blob)
+        ended_iso = ""
+        if session.ended_at:
+            ended_iso = session.ended_at.isoformat() + "Z"
+
+        stored_n = 1
+        sess_num = 1
+
+        if self._pool is not None:
+            from psychology.memory_consolidation import run_session_consolidation
+            from psychology.repositories import (
+                count_completed_psychology_sessions,
+                get_semantic_profile_json,
+                set_physician_review_required,
+                set_semantic_profile_json,
+            )
+
+            prev = count_completed_psychology_sessions(self._pool, patient_id)
+            sess_num = prev + 1
+            existing_sem = get_semantic_profile_json(self._pool, patient_id)
+            avg_d = PsychologyService._avg_distress_turns(session.messages)
+            chunks, merged_sem, req_review, review_reason = run_session_consolidation(
+                summary_dict=summary_dict,
+                session_id=session.session_id,
+                patient_id=patient_id,
+                preferred_language=session.preferred_language,
+                avg_distress=avg_d,
+                existing_semantic=existing_sem,
+            )
+            base_meta: dict[str, Any] = {
+                "session_id": session.session_id,
+                "session_number": sess_num,
+                "session_ended_at": ended_iso,
+            }
+            if chunks:
+                for ch in chunks:
+                    meta = dict(base_meta)
+                    mt = ch.get("memory_type")
+                    if mt is not None:
+                        meta["memory_type"] = mt
+                    et = ch.get("emotion_at_time")
+                    if et:
+                        meta["emotion_at_time"] = et
+                    ds = ch.get("distress_score")
+                    if isinstance(ds, (int, float)):
+                        meta["distress_score"] = float(ds)
+                    meta["clinical_flag"] = bool(ch.get("clinical_flag"))
+                    self._memories.append(patient_id, str(ch.get("text", "")), metadata=meta)
+                stored_n = len(chunks)
+            else:
+                clinical = bool(summary_dict.get("risk_flags"))
+                self._memories.append(
+                    patient_id,
+                    memory_blob,
+                    metadata={
+                        **base_meta,
+                        "memory_type": "session_summary",
+                        "clinical_flag": clinical,
+                    },
+                )
+                stored_n = 1
+            if merged_sem is not None:
+                set_semantic_profile_json(self._pool, patient_id, merged_sem)
+            if req_review:
+                set_physician_review_required(self._pool, patient_id, True)
+                if review_reason:
+                    logger.info("physician review required after consolidation: %s", review_reason)
+        else:
+            clinical = bool(summary_dict.get("risk_flags"))
+            self._memories.append(
+                patient_id,
+                memory_blob,
+                metadata={
+                    "session_id": session.session_id,
+                    "session_number": sess_num,
+                    "session_ended_at": ended_iso,
+                    "memory_type": "session_summary",
+                    "clinical_flag": clinical,
+                },
+            )
+            stored_n = 1
+
         self._sessions.put_session(session)
         logger.info("psychology.session.end session_id=%s patient_id=%s", session_id, patient_id)
         return SessionEndResponse(
             session_id=session_id,
             summary_stored=True,
-            stored_memory_items=len(self._memories.top(patient_id, 3)),
+            stored_memory_items=stored_n,
         )
 
     def _fusion(self, payload: MessageRequest) -> FusionOutput:

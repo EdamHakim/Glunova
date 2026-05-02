@@ -37,8 +37,16 @@ class CrisisStore(Protocol):
 
 
 class MemoryStore(Protocol):
-    def append(self, patient_id: int, text: str) -> None: ...
+    def append(self, patient_id: int, text: str, *, metadata: dict | None = None) -> None: ...
     def top(self, patient_id: int, limit: int) -> list[str]: ...
+    def search_by_message(
+        self,
+        patient_id: int,
+        query_text: str,
+        limit: int,
+        *,
+        recency_boost: bool = True,
+    ) -> list[str]: ...
 
 
 class InMemorySessionStore:
@@ -83,8 +91,52 @@ class InMemoryMemoryStore:
     def __init__(self) -> None:
         self._items: dict[int, list[str]] = {}
 
-    def append(self, patient_id: int, text: str) -> None:
+    def append(self, patient_id: int, text: str, *, metadata: dict | None = None) -> None:
         self._items.setdefault(patient_id, []).append(text)
 
     def top(self, patient_id: int, limit: int) -> list[str]:
         return self._items.get(patient_id, [])[-limit:]
+
+    def search_by_message(
+        self,
+        patient_id: int,
+        query_text: str,
+        limit: int,
+        *,
+        recency_boost: bool = True,
+    ) -> list[str]:
+        """No vectors: naive keyword overlap rank, else tail recency."""
+        items = self._items.get(patient_id, [])
+        if not items or not (query_text or "").strip():
+            return self.top(patient_id, limit)
+        qtok = {t for t in _simple_tokens(query_text) if len(t) > 2}
+        if not qtok:
+            return self.top(patient_id, limit)
+        ranked: list[tuple[int, str]] = []
+        for t in items:
+            ttok = _simple_tokens(t)
+            overlap = sum(1 for w in ttok if w in qtok)
+            ranked.append((overlap, t))
+        ranked.sort(key=lambda x: (-x[0], -len(x[1])))
+        out: list[str] = []
+        seen: set[str] = set()
+        for _score, blob in ranked:
+            if blob in seen:
+                continue
+            seen.add(blob)
+            out.append(blob)
+            if len(out) >= limit:
+                break
+        if len(out) < limit:
+            for t in reversed(items):
+                if t not in seen:
+                    seen.add(t)
+                    out.append(t)
+                if len(out) >= limit:
+                    break
+        return out[:limit]
+
+
+def _simple_tokens(s: str) -> set[str]:
+    raw = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in s.lower())
+    return {w for w in raw.split() if w}

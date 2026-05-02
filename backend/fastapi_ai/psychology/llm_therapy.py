@@ -68,15 +68,23 @@ def run_therapy_llm(
         f"- [{item.get('chunk_id') or item.get('source','unknown')}] {item.get('text', '')[:240]}"
         for item in kb_snippets[:4]
     )
-    mem_block = "\n".join(f"- {m[:220]}" for m in memory_items[:3])
-    health_block = json.dumps(health_context, ensure_ascii=False)[:1200]
+    mem_block = "\n".join(f"- {m[:220]}" for m in memory_items[:5])
+    sem_compact = ""
+    hc_dump = health_context or {}
+    if isinstance(hc_dump, dict):
+        sem_compact = str(hc_dump.get("semantic_profile_compact") or "").strip()
+        hc_dump = {k: v for k, v in hc_dump.items() if k not in ("semantic_profile_compact", "semantic_profile_json")}
+    health_block = json.dumps(hc_dump, ensure_ascii=False)[:1200]
+    semantic_section = ""
+    if sem_compact:
+        semantic_section = f"Semantic patient profile (distilled):\n{sem_compact[:900]}\n"
 
     user_prompt = f"""Patient message: {user_text}
 Detected language: {detected_language}
 Detected mental_state: {mental_state}
 Fusion summary: {fusion_summary}
 Health / profile context (JSON): {health_block}
-Recent patient memory bullets:
+{semantic_section}Relevant episodic memory (retrieved by current message):
 {mem_block or '- (none)'}
 CBT knowledge snippets:
 {kb_block or '- (none)'}

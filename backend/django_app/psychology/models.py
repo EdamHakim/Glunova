@@ -16,6 +16,11 @@ class PsychologyProfile(models.Model):
     personality_notes = models.TextField(blank=True)
     preferred_language = models.CharField(max_length=16, default="en")
     physician_review_required = models.BooleanField(default=False)
+    semantic_profile_json = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Sanadi-distilled cross-session semantic memory (stressors, triggers, trends, clinician review cues).",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

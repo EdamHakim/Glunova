@@ -250,8 +250,9 @@ def ensure_psychology_profile(pool: Any, patient_id: int) -> None:
             cur.execute(
                 """
                 INSERT INTO psychology_psychologyprofile
-                  (user_id, health_context_json, personality_notes, preferred_language, physician_review_required, updated_at)
-                VALUES (%s, '{}'::jsonb, '', 'en', false, NOW() AT TIME ZONE 'utc')
+                  (user_id, health_context_json, personality_notes, preferred_language, physician_review_required,
+                   semantic_profile_json, updated_at)
+                VALUES (%s, '{}'::jsonb, '', 'en', false, '{}'::jsonb, NOW() AT TIME ZONE 'utc')
                 ON CONFLICT (user_id) DO NOTHING
                 """,
                 (patient_id,),
@@ -302,13 +303,102 @@ def clear_physician_review_required(pool: Any, patient_id: int) -> None:
         conn.commit()
 
 
+def format_semantic_profile_compact(semantic: dict[str, Any] | None, *, max_chars: int = 900) -> str:
+    """Token-safe bullet block for therapy prompts."""
+    if not semantic or not isinstance(semantic, dict):
+        return ""
+    lines: list[str] = []
+
+    def bullets(label: str, key: str) -> None:
+        items = semantic.get(key)
+        if isinstance(items, list) and items:
+            short = [str(x).strip() for x in items[:6] if str(x).strip()]
+            if short:
+                lines.append(f"- {label}: {', '.join(short)}")
+
+    bullets("Stressors", "primary_stressors")
+    bullets("Triggers", "known_triggers")
+    bullets("Coping strengths", "coping_strengths")
+    bullets("Med notes (from sessions)", "current_medications_summary")
+
+    for key, label in (
+        ("communication_style", "Communication"),
+        ("distress_trend_note", "Distress trend"),
+        ("therapy_progress_note", "Therapy progress"),
+        ("clinical_summary_note", "Clinical note"),
+        ("therapy_language_note", "Language preference"),
+    ):
+        v = semantic.get(key)
+        if isinstance(v, str) and v.strip():
+            lines.append(f"- {label}: {v.strip()[:200]}")
+
+    lc = semantic.get("last_crisis_at")
+    if isinstance(lc, str) and lc.strip():
+        lines.append(f"- Last crisis signal (recorded): {lc.strip()[:80]}")
+
+    contradictions = semantic.get("contradictions_pending")
+    if isinstance(contradictions, list) and contradictions:
+        lines.append(f"- Open contradictions to reconcile: {len(contradictions)} item(s) (clinician may review)")
+
+    out = "\n".join(lines)
+    if len(out) > max_chars:
+        return out[: max_chars - 3] + "..."
+    return out
+
+
+def get_semantic_profile_json(pool: Any, patient_id: int) -> dict[str, Any]:
+    ensure_psychology_profile(pool, patient_id)
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT semantic_profile_json FROM psychology_psychologyprofile WHERE user_id = %s",
+                (patient_id,),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return {}
+    raw = row.get("semantic_profile_json")
+    return raw if isinstance(raw, dict) else {}
+
+
+def set_semantic_profile_json(pool: Any, patient_id: int, data: dict[str, Any]) -> None:
+    ensure_psychology_profile(pool, patient_id)
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE psychology_psychologyprofile
+                SET semantic_profile_json = %s, updated_at = NOW() AT TIME ZONE 'utc'
+                WHERE user_id = %s
+                """,
+                (Jsonb(data), patient_id),
+            )
+        conn.commit()
+
+
+def count_completed_psychology_sessions(pool: Any, patient_id: int) -> int:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM psychology_psychologysession
+                WHERE patient_id = %s AND ended_at IS NOT NULL
+                """,
+                (patient_id,),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return 0
+    return int(row[0])
+
+
 def get_patient_health_context(pool: Any, patient_id: int) -> dict[str, Any]:
     ensure_psychology_profile(pool, patient_id)
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT health_context_json, personality_notes, preferred_language
+                SELECT health_context_json, personality_notes, preferred_language, semantic_profile_json
                 FROM psychology_psychologyprofile WHERE user_id = %s
                 """,
                 (patient_id,),
@@ -319,10 +409,14 @@ def get_patient_health_context(pool: Any, patient_id: int) -> dict[str, Any]:
     hc = row.get("health_context_json") or {}
     if not isinstance(hc, dict):
         hc = {}
+    sem = row.get("semantic_profile_json")
+    sem_dict = sem if isinstance(sem, dict) else {}
     return {
         "health_context_json": hc,
         "personality_notes": str(row.get("personality_notes") or ""),
         "preferred_language": str(row.get("preferred_language") or "en"),
+        "semantic_profile_compact": format_semantic_profile_compact(sem_dict),
+        "semantic_profile_json": sem_dict,
     }
 
 
