@@ -31,8 +31,15 @@ class MeView(APIView):
         if getattr(u, "role", "patient") == "patient":
             data.update({
                 "age": u.age,
+                "date_of_birth": u.date_of_birth.isoformat() if u.date_of_birth else None,
+                "gender": u.gender,
                 "weight_kg": float(u.weight_kg) if u.weight_kg else None,
                 "height_cm": float(u.height_cm) if u.height_cm else None,
+                "hypertension": u.hypertension,
+                "heart_disease": u.heart_disease,
+                "smoking_status": u.smoking_status,
+                "hba1c_level": float(u.hba1c_level) if u.hba1c_level else None,
+                "blood_glucose_level": u.blood_glucose_level,
                 "diabetes_type": "Type 2", # Defaulting as model doesn't have explicit type choice yet
                 "medication": ["Metformin"], # Placeholder
                 "last_glucose": f"{u.blood_glucose_level} mg/dL" if u.blood_glucose_level else None,
@@ -40,6 +47,38 @@ class MeView(APIView):
             })
             
         return Response(data)
+            
+    def patch(self, request):
+        u = request.user
+        data = request.data
+        
+        # Fields that can be updated directly on the User model
+        updatable_fields = [
+            "first_name", "last_name", "email",
+            "date_of_birth", "gender", "height_cm", "weight_kg",
+            "hypertension", "heart_disease", "smoking_status",
+            "hba1c_level", "blood_glucose_level"
+        ]
+        
+        updated = False
+        for field in updatable_fields:
+            if field in data:
+                val = data[field]
+                # Basic validation for numeric fields
+                if field in ["height_cm", "weight_kg", "hba1c_level", "blood_glucose_level"]:
+                    if val == "" or val is None:
+                        setattr(u, field, None)
+                    else:
+                        setattr(u, field, val)
+                else:
+                    setattr(u, field, val)
+                updated = True
+        
+        if updated:
+            u.save()
+            
+        # Return updated user data (same as GET)
+        return self.get(request)
 
 
 class DocumentListCreateView(APIView):
