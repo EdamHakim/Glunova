@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CameraOff, Mic, SendHorizonal, Video } from 'lucide-react'
+import { CameraOff, Headphones, Mic, SendHorizonal, Video } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/auth-context'
@@ -12,8 +12,11 @@ import {
   psychologyWsBase,
   sendPsychologyMessage,
   startPsychologySession,
+  synthesizePsychologyVoice,
+  transcribePsychologyVoice,
   type PsychologyMessageResult,
 } from '@/lib/psychology-api'
+import { SanadiAvatar, type AvatarPhase } from '@/components/psychology/sanadi-avatar'
 
 type LiveEmotion = {
   label: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
@@ -106,6 +109,16 @@ export default function PsychologyPage() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null)
   const lastEmotionUpdateMsRef = useRef<number>(0)
   const [thoughtRecordByMessage, setThoughtRecordByMessage] = useState<Record<string, ThoughtRecord>>({})
+  const [voiceModeActive, setVoiceModeActive] = useState(false)
+  const [avatarPhase, setAvatarPhase] = useState<AvatarPhase>('idle')
+  const [voiceRecording, setVoiceRecording] = useState(false)
+
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null)
+  const discardVoiceRecordingRef = useRef(false)
+  const voiceStreamRef = useRef<MediaStream | null>(null)
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
+  const ttsObjectUrlRef = useRef<string | null>(null)
+  const latestResultLangRef = useRef<PsychologyMessageResult['language_detected'] | null>(null)
 
   const role = user?.role
   const isPatient = role === 'patient'
@@ -296,6 +309,102 @@ export default function PsychologyPage() {
     setMicListening(true)
   }, [micListening])
 
+  const stopAssistantTts = useCallback(() => {
+    const a = ttsAudioRef.current
+    if (a) {
+      a.pause()
+      a.src = ''
+      ttsAudioRef.current = null
+    }
+    const u = ttsObjectUrlRef.current
+    if (u) {
+      URL.revokeObjectURL(u)
+      ttsObjectUrlRef.current = null
+    }
+  }, [])
+
+  const fallbackBrowserTts = useCallback((text: string, lang: PsychologyMessageResult['language_detected']) => {
+    if (typeof window === 'undefined' || typeof speechSynthesis === 'undefined') {
+      setAvatarPhase('idle')
+      return
+    }
+    speechSynthesis.cancel()
+    const u = new SpeechSynthesisUtterance(text)
+    const map: Record<PsychologyMessageResult['language_detected'], string> = {
+      en: 'en-US',
+      fr: 'fr-FR',
+      ar: 'ar-SA',
+      darija: 'ar-MA',
+      mixed: typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US',
+    }
+    u.lang = map[lang] ?? 'en-US'
+    u.onend = () => setAvatarPhase('idle')
+    u.onerror = () => setAvatarPhase('idle')
+    speechSynthesis.speak(u)
+  }, [])
+
+  const speakAssistantReply = useCallback(
+    async (reply: string, lang: PsychologyMessageResult['language_detected']) => {
+      stopAssistantTts()
+      if (typeof window !== 'undefined' && typeof speechSynthesis !== 'undefined') {
+        speechSynthesis.cancel()
+      }
+      setAvatarPhase('speaking')
+      try {
+        const blob = await synthesizePsychologyVoice({ text: reply, language: lang })
+        const url = URL.createObjectURL(blob)
+        ttsObjectUrlRef.current = url
+        const audio = new Audio(url)
+        ttsAudioRef.current = audio
+        audio.onended = () => {
+          stopAssistantTts()
+          setAvatarPhase('idle')
+        }
+        audio.onerror = () => {
+          stopAssistantTts()
+          fallbackBrowserTts(reply, lang)
+        }
+        await audio.play()
+      } catch {
+        stopAssistantTts()
+        fallbackBrowserTts(reply, lang)
+      }
+    },
+    [stopAssistantTts, fallbackBrowserTts],
+  )
+
+  useEffect(() => {
+    return () => {
+      stopAssistantTts()
+      voiceRecorderRef.current?.stop()
+      voiceStreamRef.current?.getTracks().forEach((t) => t.stop())
+    }
+  }, [stopAssistantTts])
+
+  async function blobToSpeechAudioBase64(blob: Blob): Promise<string | undefined> {
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onloadend = () => resolve(String(fr.result ?? ''))
+        fr.onerror = () => reject(new Error('read_failed'))
+        fr.readAsDataURL(blob)
+      })
+      const raw = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl
+      return raw || undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  function pickVoiceRecorderMime(): string | undefined {
+    if (typeof MediaRecorder === 'undefined') return undefined
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+    for (const c of candidates) {
+      if (MediaRecorder.isTypeSupported(c)) return c
+    }
+    return undefined
+  }
+
   async function streamAssistantMessage(content: string, techniqueUsed?: string) {
     const id = `${Date.now()}-assistant`
     setChat((old) => [...old, { id, role: 'assistant', content: '', createdAt: new Date().toISOString(), kind: 'text' }])
@@ -323,8 +432,45 @@ export default function PsychologyPage() {
     }
   }
 
-  async function submitMessage() {
-    if (!input.trim()) return
+  async function appendAssistantAssistantContent(result: PsychologyMessageResult, assistantBehavior: 'stream' | 'voice') {
+    if (assistantBehavior === 'voice') {
+      const id = `${Date.now()}-assistant`
+      setChat((old) => [
+        ...old,
+        { id, role: 'assistant', content: result.reply, createdAt: new Date().toISOString(), kind: 'text' },
+      ])
+      if (result.technique_used === 'cognitive_restructuring') {
+        const thoughtId = `${Date.now()}-thought-record`
+        setThoughtRecordByMessage((old) => ({
+          ...old,
+          [thoughtId]: { event: '', thought: '', feeling: '', reframe: '' },
+        }))
+        setChat((old) => [
+          ...old,
+          {
+            id: thoughtId,
+            role: 'assistant',
+            content: '',
+            createdAt: new Date().toISOString(),
+            kind: 'thought_record',
+          },
+        ])
+      }
+      void speakAssistantReply(result.reply, result.language_detected)
+      return
+    }
+    await streamAssistantMessage(result.reply, result.technique_used)
+  }
+
+  async function sendTherapyExchange(args: {
+    patientText: string
+    speechTranscript?: string
+    speechAudioBase64?: string
+    assistantUi: 'stream' | 'voice'
+    clearTypingDraft?: boolean
+  }) {
+    const patientText = args.patientText.trim()
+    if (!patientText) return
     if (!patientId) {
       setChatError('Your patient profile is not loaded yet. Refresh the page and try again.')
       return
@@ -335,8 +481,9 @@ export default function PsychologyPage() {
       setChatError('Could not start a therapy session. Please try again in a moment.')
       return
     }
-    const patientText = input.trim()
-    const speechEmotion = inferSpeechEmotionFromText(latestSpeechTranscript || patientText)
+    const transcript = (args.speechTranscript ?? '').trim()
+    const speechSource = transcript || patientText
+    const speechEmotion = inferSpeechEmotionFromText(speechSource)
     const liveFrame = cameraOn ? captureFrameBase64() : null
     const multimodalPayload = {
       session_id: activeSessionId,
@@ -345,12 +492,18 @@ export default function PsychologyPage() {
       face_frame_base64: liveFrame || undefined,
       face_emotion: liveEmotion?.label,
       face_confidence: liveEmotion?.confidence,
-      speech_transcript: latestSpeechTranscript || undefined,
+      speech_transcript: transcript || undefined,
       speech_emotion: speechEmotion?.label,
       speech_confidence: speechEmotion?.confidence,
+      ...(args.speechAudioBase64 ? { speech_audio_base64: args.speechAudioBase64 } : {}),
     }
-    setInput('')
-    setLatestSpeechTranscript('')
+    if (args.clearTypingDraft) {
+      setInput('')
+      setLatestSpeechTranscript('')
+    }
+    if (args.assistantUi === 'voice') {
+      setAvatarPhase('thinking')
+    }
     setChat((old) => [...old, { id: `${Date.now()}-patient`, role: 'patient', content: patientText, createdAt: new Date().toISOString(), kind: 'text' }])
     setLoading(true)
     try {
@@ -372,10 +525,11 @@ export default function PsychologyPage() {
         distress_score: result.fusion?.distress_score ?? result.distress_score,
         timestamp: new Date().toISOString(),
       }))
-      await streamAssistantMessage(result.reply, result.technique_used)
+      await appendAssistantAssistantContent(result, args.assistantUi === 'voice' ? 'voice' : 'stream')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setChatError('Message was not sent. Please try again.')
+      setChatError(args.assistantUi === 'voice' ? 'Voice reply was not delivered. Retry or disable Voice mode.' : 'Message was not sent. Please try again.')
+      if (args.assistantUi === 'voice') setAvatarPhase('idle')
       setChat((old) => [
         ...old,
         {
@@ -388,8 +542,149 @@ export default function PsychologyPage() {
       ])
     } finally {
       setLoading(false)
+      if (args.assistantUi === 'voice') {
+        // Speaking state is handled by audio pipeline; revert if no speech queued (handled in speak*)
+      }
     }
   }
+
+  async function submitMessage() {
+    if (!input.trim() || voiceRecording) return
+    await sendTherapyExchange({
+      patientText: input.trim(),
+      speechTranscript: latestSpeechTranscript || undefined,
+      assistantUi: voiceModeActive ? 'voice' : 'stream',
+      clearTypingDraft: true,
+    })
+  }
+
+  useEffect(() => {
+    latestResultLangRef.current = latestResult?.language_detected ?? null
+  }, [latestResult?.language_detected])
+
+  useEffect(() => {
+    if (!voiceModeActive) {
+      discardVoiceRecordingRef.current = true
+      stopAssistantTts()
+      if (voiceRecorderRef.current && voiceRecorderRef.current.state !== 'inactive') {
+        voiceRecorderRef.current.stop()
+      }
+      voiceStreamRef.current?.getTracks().forEach((t) => t.stop())
+      voiceStreamRef.current = null
+      setVoiceRecording(false)
+      setAvatarPhase('idle')
+    }
+  }, [voiceModeActive, stopAssistantTts])
+
+  const startVoiceRecordingTurn = useCallback(async () => {
+    discardVoiceRecordingRef.current = false
+    stopAssistantTts()
+    if (typeof window !== 'undefined' && typeof speechSynthesis !== 'undefined') {
+      speechSynthesis.cancel()
+    }
+    if (!patientId || !voiceModeActive) return
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setChatError('Microphone is not available in this browser.')
+      return
+    }
+    const existing = voiceRecorderRef.current
+    if (existing && existing.state !== 'inactive') return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      })
+      voiceStreamRef.current = stream
+      const mime = pickVoiceRecorderMime()
+      const chunks: BlobPart[] = []
+      const recorder =
+        mime && typeof MediaRecorder !== 'undefined' ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+      voiceRecorderRef.current = recorder
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data)
+      }
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop())
+        voiceStreamRef.current = null
+        voiceRecorderRef.current = null
+        const aborted = discardVoiceRecordingRef.current
+        discardVoiceRecordingRef.current = false
+        void (async () => {
+          if (aborted) {
+            setVoiceRecording(false)
+            setAvatarPhase('idle')
+            return
+          }
+          const blob = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' })
+          setVoiceRecording(false)
+          if (blob.size < 400) {
+            setAvatarPhase('idle')
+            setChatError('That clip was too short. Tap Speak again.')
+            return
+          }
+          setAvatarPhase('thinking')
+          try {
+            const fd = new FormData()
+            const typ = blob.type || ''
+            const ext = typ.includes('mp4') || typ.includes('m4a') ? 'mp4' : typ.includes('webm') ? 'webm' : 'webm'
+            fd.append('audio', blob, `recording.${ext}`)
+            const hintLang = latestResultLangRef.current
+            if (hintLang && hintLang !== 'mixed') {
+              fd.append('language_hint', hintLang === 'darija' ? 'darija' : hintLang)
+            }
+            const tr = await transcribePsychologyVoice(fd)
+            const trimmed = tr.text.trim()
+            if (!trimmed) {
+              setAvatarPhase('idle')
+              setChatError('No speech detected — try speaking a little longer.')
+              return
+            }
+            const b64 = await blobToSpeechAudioBase64(blob)
+            await sendTherapyExchange({
+              patientText: trimmed,
+              speechTranscript: trimmed,
+              speechAudioBase64: b64,
+              assistantUi: 'voice',
+              clearTypingDraft: false,
+            })
+          } catch {
+            setChatError('Voice transcription failed (check STT/API). Retry or turn off Voice mode.')
+            setAvatarPhase('idle')
+          }
+        })()
+      }
+      recorder.start(240)
+      setVoiceRecording(true)
+      setAvatarPhase('listening')
+    } catch {
+      setChatError('Microphone permission is required for Voice mode.')
+      setAvatarPhase('idle')
+    }
+  }, [patientId, voiceModeActive, stopAssistantTts])
+
+  const stopVoiceRecordingTurn = useCallback(() => {
+    const rec = voiceRecorderRef.current
+    if (!rec || rec.state === 'inactive') return
+    rec.stop()
+  }, [])
+
+  const abandonVoiceRecordingTurn = useCallback(() => {
+    discardVoiceRecordingRef.current = true
+    const rec = voiceRecorderRef.current
+    if (rec && rec.state !== 'inactive') {
+      rec.stop()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionStarted) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && voiceRecording) {
+        abandonVoiceRecordingTurn()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sessionStarted, voiceRecording, abandonVoiceRecordingTurn])
 
   async function closeSession() {
     const currentSessionId = sessionId
@@ -403,6 +698,10 @@ export default function PsychologyPage() {
       setChatError('Session closed locally. Remote sync will be retried on next session.')
     } finally {
       stopCamera()
+      stopAssistantTts()
+      setVoiceModeActive(false)
+      setAvatarPhase('idle')
+      setVoiceRecording(false)
       setSessionId(null)
       setSessionStarted(false)
       setChat([])
@@ -479,9 +778,23 @@ export default function PsychologyPage() {
   return (
     <div className="fixed inset-0 z-40 flex h-screen flex-col bg-background">
       <header className="flex h-14 items-center border-b px-4">
-        <div className="w-1/3 text-lg font-semibold">سنَدي Sanadi</div>
-        <div className="flex w-1/3 items-center justify-center">
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400/80" />
+        <div className="flex w-1/3 justify-start">
+          <span className="text-lg font-semibold">سنَدي Sanadi</span>
+        </div>
+        <div className="flex w-1/3 flex-nowrap items-center justify-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={voiceModeActive ? 'secondary' : 'outline'}
+            className="h-9 gap-1.5 whitespace-nowrap"
+            aria-label="Voice mode"
+            aria-pressed={voiceModeActive}
+            onClick={() => setVoiceModeActive((v) => !v)}
+          >
+            <Headphones className="h-4 w-4 shrink-0" />
+            Voice
+          </Button>
+          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-emerald-400/80" title="Live" aria-hidden />
         </div>
         <div className="flex w-1/3 justify-end">
           <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => void closeSession()}>
@@ -489,6 +802,17 @@ export default function PsychologyPage() {
           </button>
         </div>
       </header>
+
+      {voiceModeActive && (
+        <div className="border-b bg-muted/20 px-3 py-3 md:hidden">
+          <SanadiAvatar
+            phase={avatarPhase}
+            emotion={displayEmotion?.label ?? null}
+            distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+            className="scale-[0.85]"
+          />
+        </div>
+      )}
 
       <main ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5">
         <div className="mx-auto flex w-full max-w-5xl gap-5">
@@ -541,8 +865,18 @@ export default function PsychologyPage() {
             </div>
           ))}
           </div>
-          <aside className="sticky top-2 hidden h-fit w-72 shrink-0 rounded-2xl border bg-muted/20 p-3 md:block">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Live camera</p>
+          <aside className="sticky top-2 hidden h-fit w-72 shrink-0 flex-col gap-3 rounded-2xl border bg-muted/20 p-3 md:flex">
+            {voiceModeActive && (
+              <>
+                <p className="text-xs font-medium text-muted-foreground">Companion</p>
+                <SanadiAvatar
+                  phase={avatarPhase}
+                  emotion={displayEmotion?.label ?? null}
+                  distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                />
+              </>
+            )}
+            <p className="text-xs font-medium text-muted-foreground">Live camera</p>
             <video ref={videoRef} className="h-44 w-full rounded-xl bg-black object-cover" playsInline muted />
             <div className="mt-3 space-y-2">
               <div className="flex items-center justify-between text-xs">
@@ -563,24 +897,47 @@ export default function PsychologyPage() {
       </main>
 
       <footer className="border-t px-3 py-2">
+        {voiceModeActive && (
+          <div className="mx-auto mb-2 flex w-full max-w-3xl flex-col gap-2">
+            <Button
+              type="button"
+              className="w-full"
+              disabled={loading || startingSession}
+              onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
+            >
+              {voiceRecording ? 'Done speaking' : 'Tap to speak'}
+            </Button>
+            <p className="text-center text-[0.7rem] text-muted-foreground">Groq transcribes your clip; Sanadi replies with voice when TTS is configured.</p>
+          </div>
+        )}
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
-          <Button type="button" size="icon" variant={micListening ? 'secondary' : 'outline'} className="h-12 w-12" onClick={() => toggleMic()}>
-            <Mic className="h-5 w-5" />
-          </Button>
+          {!voiceModeActive && (
+            <Button type="button" size="icon" variant={micListening ? 'secondary' : 'outline'} className="h-12 w-12" onClick={() => toggleMic()}>
+              <Mic className="h-5 w-5" />
+            </Button>
+          )}
           <textarea
             value={input}
-            placeholder="Say anything..."
+            readOnly={voiceModeActive}
+            placeholder={voiceModeActive ? 'Voice mode on — use Tap to speak, or turn Voice off to type.' : 'Say anything...'}
             rows={1}
-            className="max-h-40 min-h-12 flex-1 resize-y rounded-xl border bg-background px-3 py-3 text-sm outline-none"
+            className="max-h-40 min-h-12 flex-1 resize-y rounded-xl border bg-background px-3 py-3 text-sm outline-none read-only:opacity-80"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
+              if (voiceModeActive) return
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
                 void submitMessage()
               }
             }}
           />
-          <Button type="button" size="icon" className="h-12 w-12" onClick={() => void submitMessage()} disabled={loading || startingSession || !input.trim()}>
+          <Button
+            type="button"
+            size="icon"
+            className="h-12 w-12"
+            onClick={() => void submitMessage()}
+            disabled={loading || startingSession || !input.trim() || voiceRecording}
+          >
             <SendHorizonal className="h-5 w-5" />
           </Button>
           <div className="mb-2 flex flex-col items-center gap-2">

@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     psychology_kb_limit_max: int = 8
     psychology_kb_default_limit: int = 5
 
+    # Sanadi voice (Groq Whisper STT + OpenAI Speech TTS proxy)
+    psychology_voice_stt_model: str = "whisper-large-v3-turbo"
+    psychology_voice_max_upload_bytes: int = 10 * 1024 * 1024
+    psychology_tts_provider: str = "openai"  # openai | none
+    openai_api_key: str = ""
+    psychology_openai_tts_model: str = "tts-1"
+    psychology_openai_tts_voice: str = "nova"
+
     # Azure Document Intelligence (OCR)
     azure_document_intelligence_endpoint: str = ""
     azure_document_intelligence_key: str = ""

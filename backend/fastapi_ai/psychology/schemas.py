@@ -163,6 +163,16 @@ class CrisisEventsResponse(BaseModel):
     items: list[CrisisEvent]
 
 
+class VoiceTranscribeResponse(BaseModel):
+    text: str
+    language_guess: str | None = None
+
+
+class VoiceSynthesizeRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    language: Literal["en", "fr", "ar", "darija", "mixed"] = "en"
+
+
 class SessionEndRequest(BaseModel):
     session_id: str
     patient_id: int = Field(gt=0)
