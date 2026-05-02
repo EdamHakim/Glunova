@@ -66,13 +66,14 @@
   --psychology-soft-purple: #AFA4D4;
   --psychology-soft-lavender: #E8E5F6;
   --psychology-soft-pink: #eed6dc;
-  --sanadi-shell-bg: #fbf8f3;
-  --sanadi-surface-warm: #fef7ed;
-  --sanadi-chat-assistant: #f3e9d9;
-  --sanadi-chat-patient: #edd5c9;
-  --sanadi-overlay: rgba(72, 48, 36, 0.45);
-  --sanadi-wave-patient: #e49a54;
-  --sanadi-wave-assistant: #87bfe8;
+  /* Sanadi — same family as dashboard: teal/cyan + muted + psychology accents */
+  --sanadi-shell-bg: #f2f6f7;
+  --sanadi-surface-warm: #f2f6f7;
+  --sanadi-chat-assistant: #d9eef1;
+  --sanadi-chat-patient: #e5eef0;
+  --sanadi-overlay: rgba(15, 42, 46, 0.48);
+  --sanadi-wave-patient: #d4a373;
+  --sanadi-wave-assistant: #6fafb7;
 }
 
 @keyframes sanadiBreath {
@@ -80,7 +81,7 @@
     filter: drop-shadow(0 0 0.35rem transparent);
   }
   50% { transform: scale(1.024);
-    filter: drop-shadow(0 0 0.5rem rgb(249 229 209 / 0.45));
+    filter: drop-shadow(0 0 0.55rem rgb(31 111 120 / 0.22));
   }
 }
 
@@ -146,13 +147,13 @@
   --psychology-soft-purple: #AFA4D4;
   --psychology-soft-lavender: #2D2040;
   --psychology-soft-pink: #4a3540;
-  --sanadi-shell-bg: #1a2828;
-  --sanadi-surface-warm: #252018;
-  --sanadi-chat-assistant: #3a3530;
-  --sanadi-chat-patient: #4d3a38;
-  --sanadi-overlay: rgba(28, 20, 16, 0.58);
-  --sanadi-wave-patient: #e8aa66;
-  --sanadi-wave-assistant: #8ec5eb;
+  --sanadi-shell-bg: #0f2a2e;
+  --sanadi-surface-warm: #132e33;
+  --sanadi-chat-assistant: #2d5860;
+  --sanadi-chat-patient: #1a383e;
+  --sanadi-overlay: rgba(4, 12, 14, 0.62);
+  --sanadi-wave-patient: #d4a373;
+  --sanadi-wave-assistant: #6fafb7;
 }
 
 @theme inline {
@@ -206,6 +207,7 @@
   --color-sanadi-chat-patient: var(--sanadi-chat-patient);
   --color-sanadi-wave-patient: var(--sanadi-wave-patient);
   --color-sanadi-wave-assistant: var(--sanadi-wave-assistant);
+  --color-sanadi-overlay: var(--sanadi-overlay);
 }
 
 @layer base {

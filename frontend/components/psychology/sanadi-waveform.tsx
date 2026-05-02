@@ -30,8 +30,8 @@ export function SanadiVoiceWaveform({ analyserRef, speaker, barCount = 48, heigh
 
     const draw = () => {
       const canvas = canvasRef.current
-      const patientColor = readCssVar('--sanadi-wave-patient', '#e49a54')
-      const assistantColor = readCssVar('--sanadi-wave-assistant', '#87bfe8')
+      const patientColor = readCssVar('--sanadi-wave-patient', '#d4a373')
+      const assistantColor = readCssVar('--sanadi-wave-assistant', '#6fafb7')
 
       if (!canvas) {
         raf = requestAnimationFrame(draw)
