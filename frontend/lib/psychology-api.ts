@@ -207,3 +207,35 @@ export async function detectEmotionFrame(patientId: number, frameBase64: string)
   })
   return parseJson<EmotionFrameResult>(response)
 }
+
+export type VoiceTranscribeResponse = {
+  text: string
+  language_guess?: string | null
+}
+
+/** Multipart FormData must include field `audio` (Blob/File) and may include `language_hint` (string). */
+export async function transcribePsychologyVoice(formData: FormData): Promise<VoiceTranscribeResponse> {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/voice/transcribe`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  })
+  return parseJson<VoiceTranscribeResponse>(response)
+}
+
+export async function synthesizePsychologyVoice(payload: {
+  text: string
+  language: PsychologyMessageResult['language_detected']
+}): Promise<Blob> {
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/voice/synthesize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `tts_failed_${response.status}`)
+  }
+  return response.blob()
+}

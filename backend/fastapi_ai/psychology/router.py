@@ -4,8 +4,9 @@ import asyncio
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 
+from core.config import settings
 from core.rbac import require_roles
 from core.security import decode_access_token
 from psychology.schemas import (
@@ -22,8 +23,11 @@ from psychology.schemas import (
     SessionStartRequest,
     SessionStartResponse,
     TrendResponse,
+    VoiceSynthesizeRequest,
+    VoiceTranscribeResponse,
 )
 from psychology.knowledge_ingestion import build_ingestion_manifest, get_knowledge_base
+from psychology.voice_service import VoiceConfigurationError, synthesize_speech_mp3, transcribe_audio_bytes
 from psychology.service import create_psychology_service
 
 router = APIRouter(prefix="/psychology", tags=["psychology"])
@@ -218,6 +222,50 @@ def physician_clear_gate(
 ) -> dict:
     service.clear_physician_gate(payload.patient_id)
     return {"ok": True}
+
+
+@router.post("/voice/transcribe", response_model=VoiceTranscribeResponse)
+async def voice_transcribe(
+    audio: UploadFile = File(...),
+    language_hint: str | None = Form(default=None),
+    _claims: dict = Depends(require_roles("patient", "doctor")),
+) -> VoiceTranscribeResponse:
+    """Groq Whisper STT for Sanadi voice mode (multipart `audio`)."""
+    data = await audio.read()
+    max_b = settings.psychology_voice_max_upload_bytes
+    if len(data) > max_b:
+        raise HTTPException(status_code=413, detail=f"audio exceeds maximum size ({max_b} bytes)")
+    if not data:
+        raise HTTPException(status_code=400, detail="empty audio file")
+    name = audio.filename or "recording.webm"
+    try:
+        text, guessed = transcribe_audio_bytes(data, filename=name, language_hint=language_hint)
+    except VoiceConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("voice_transcribe failed: %s", exc)
+        raise HTTPException(status_code=502, detail="transcription upstream failed") from exc
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="no speech detected in audio")
+    return VoiceTranscribeResponse(text=text, language_guess=guessed)
+
+
+@router.post("/voice/synthesize")
+def voice_synthesize(
+    payload: VoiceSynthesizeRequest,
+    _claims: dict = Depends(require_roles("patient", "doctor")),
+) -> Response:
+    """OpenAI Speech TTS (MP3) for Sanadi replies."""
+    try:
+        blob, ctype = synthesize_speech_mp3(payload.text, language=payload.language)
+    except VoiceConfigurationError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("voice_synthesize failed: %s", exc)
+        raise HTTPException(status_code=502, detail="speech synthesis upstream failed") from exc
+    return Response(content=blob, media_type=ctype)
 
 
 @router.get("/knowledge/search")

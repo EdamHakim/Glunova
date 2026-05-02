@@ -60,6 +60,15 @@ The message pipeline accepts optional camera/audio signals and always processes 
 
 This is implemented in `_fusion()` and request validation in `psychology/schemas.py`.
 
+### Voice mode endpoints (patient session UI)
+
+Patient voice mode captures audio in the browser, then calls:
+
+- **`POST /psychology/voice/transcribe`** (`multipart/form-data`: field `audio`, optional form `language_hint`) — Groq Whisper (`psychology_voice_stt_model`, default `whisper-large-v3-turbo`); requires **`GROQ_API_KEY`**.
+- **`POST /psychology/voice/synthesize`** (JSON `{ "text", "language" }`) — OpenAI **`/v1/audio/speech`** (MP3), model/voice via **`psychology_openai_tts_model`** / **`psychology_openai_tts_voice`**; requires **`OPENAI_API_KEY`**. Use **`psychology_tts_provider=none`** if TTS must be skipped (clients may fall back to Web Speech API).
+
+RBAC matches **`POST /psychology/message`** (**patient**, **doctor**). Max upload: **`psychology_voice_max_upload_bytes`**.
+
 ---
 
 ## 3) Emotion + Mental State Stack
