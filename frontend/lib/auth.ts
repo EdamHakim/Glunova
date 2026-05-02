@@ -22,6 +22,8 @@ export type AuthUser = {
   smoking_status?: string | null
   hba1c_level?: number | null
   blood_glucose_level?: number | null
+  profile_picture?: string | null
+  email?: string
 }
 
 function resolveClientApiBaseUrl(envValue: string | undefined, port: number, fallback: string) {
@@ -86,6 +88,8 @@ export async function fetchCurrentSessionUser(): Promise<AuthUser | null> {
       smoking_status: data.smoking_status,
       hba1c_level: data.hba1c_level,
       blood_glucose_level: data.blood_glucose_level,
+      profile_picture: data.profile_picture,
+      email: data.email,
     }
   } catch {
     return null
@@ -114,6 +118,19 @@ export async function updateUserProfile(data: Partial<AuthUser & {
   } catch (err) {
     throw err
   }
+}
+
+export async function uploadProfilePicture(file: File) {
+  const { django } = getApiUrls()
+  const formData = new FormData()
+  formData.append('profile_picture', file)
+  const r = await fetch(`${django}/api/v1/users/me`, {
+    method: 'PATCH',
+    body: formData,
+    credentials: 'include',
+  })
+  if (!r.ok) throw new Error(await r.text())
+  return await r.json()
 }
 
 // Keeping legacy getCurrentUser for small parts of the app until refactor is complete

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAuth } from '@/components/auth-context'
-import { updateUserProfile } from '@/lib/auth'
+import { updateUserProfile, uploadProfilePicture } from '@/lib/auth'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, Camera, User as UserIcon, Heart, Activity, Mail, Calendar } from 'lucide-react'
@@ -72,6 +72,26 @@ export default function ProfilePage() {
     }
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingPicture, setUploadingPicture] = useState(false)
+
+  const handlePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingPicture(true)
+    try {
+      await uploadProfilePicture(file)
+      await refreshUser()
+      toast.success('Profile picture updated!')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to upload picture')
+    } finally {
+      setUploadingPicture(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
   return (
     <div className="space-y-6 p-4 sm:p-6 max-w-5xl mx-auto">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -92,11 +112,24 @@ export default function ProfilePage() {
             <CardContent className="pt-8 space-y-4">
               <div className="relative inline-block">
                 <Avatar className="h-24 w-24 border-4 border-background shadow-xl mx-auto">
-                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username}`} />
+                  <AvatarImage src={user?.profile_picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username}`} />
                   <AvatarFallback>{user?.username?.[0].toUpperCase()}</AvatarFallback>
                 </Avatar>
-                <Button size="icon" variant="secondary" className="absolute bottom-0 right-0 rounded-full h-8 w-8 shadow-md">
-                  <Camera className="h-4 w-4" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePictureUpload}
+                />
+                <Button 
+                  size="icon" 
+                  variant="secondary" 
+                  className="absolute bottom-0 right-0 rounded-full h-8 w-8 shadow-md"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingPicture}
+                >
+                  {uploadingPicture ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
                 </Button>
               </div>
               <div>

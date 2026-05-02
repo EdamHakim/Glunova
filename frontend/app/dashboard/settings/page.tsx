@@ -24,6 +24,9 @@ export default function SettingsPage() {
   const { user, refreshUser } = useAuth()
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return (
     <div className="space-y-6 p-4 sm:p-6">

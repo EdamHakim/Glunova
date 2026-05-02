@@ -82,8 +82,8 @@ export default function Navbar() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon">
               <Avatar className="h-8 w-8">
-                <AvatarImage src="https://api.dicebear.com/7.x/avataaars/svg?seed=Dr+Smith" />
-                <AvatarFallback>DS</AvatarFallback>
+                <AvatarImage src={user?.profile_picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username || 'guest'}`} />
+                <AvatarFallback>{user?.username?.[0]?.toUpperCase() || 'G'}</AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>

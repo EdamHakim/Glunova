@@ -39,6 +39,7 @@ class User(AbstractUser):
     smoking_status = models.CharField(max_length=20, choices=SmokingStatusChoices.choices, null=True, blank=True)
     hba1c_level = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     blood_glucose_level = models.IntegerField(null=True, blank=True)
+    profile_picture = models.ImageField(upload_to="profile_pictures/", null=True, blank=True)
 
     @property
     def age(self) -> int | None:

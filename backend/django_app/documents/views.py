@@ -1,5 +1,5 @@
 from rest_framework import status, serializers
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,6 +16,7 @@ from .services.storage import create_download_payload
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         u = request.user
@@ -46,11 +47,25 @@ class MeView(APIView):
                 "carb_limit_per_meal_g": 60, # Default limit
             })
             
+        # Build profile picture URL
+        profile_picture_url = None
+        if u.profile_picture:
+            profile_picture_url = request.build_absolute_uri(u.profile_picture.url)
+            
+        data["profile_picture"] = profile_picture_url
         return Response(data)
             
     def patch(self, request):
         u = request.user
         data = request.data
+        
+        # Handle profile picture upload
+        if "profile_picture" in request.FILES:
+            # Delete old picture file if it exists
+            if u.profile_picture:
+                u.profile_picture.delete(save=False)
+            u.profile_picture = request.FILES["profile_picture"]
+            u.save(update_fields=["profile_picture"])
         
         # Fields that can be updated directly on the User model
         updatable_fields = [
@@ -60,17 +75,27 @@ class MeView(APIView):
             "hba1c_level", "blood_glucose_level"
         ]
         
+        # Nullable fields that accept None when empty
+        nullable_fields = {
+            "date_of_birth", "gender", "height_cm", "weight_kg",
+            "hypertension", "heart_disease", "smoking_status",
+            "hba1c_level", "blood_glucose_level"
+        }
+        
         updated = False
         for field in updatable_fields:
             if field in data:
                 val = data[field]
-                # Basic validation for numeric fields
-                if field in ["height_cm", "weight_kg", "hba1c_level", "blood_glucose_level"]:
+                if field in nullable_fields:
+                    # Coerce empty strings to None for nullable fields
                     if val == "" or val is None:
                         setattr(u, field, None)
                     else:
                         setattr(u, field, val)
                 else:
+                    # For required fields (first_name, last_name, email), skip empty values
+                    if val == "" or val is None:
+                        continue
                     setattr(u, field, val)
                 updated = True
         
