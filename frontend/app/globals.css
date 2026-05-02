@@ -65,7 +65,25 @@
   /* Psychology Module */
   --psychology-soft-purple: #AFA4D4;
   --psychology-soft-lavender: #E8E5F6;
+  --psychology-soft-pink: #eed6dc;
+  --sanadi-shell-bg: #fbf8f3;
+  --sanadi-surface-warm: #fef7ed;
+  --sanadi-chat-assistant: #f3e9d9;
+  --sanadi-chat-patient: #edd5c9;
+  --sanadi-overlay: rgba(72, 48, 36, 0.45);
+  --sanadi-wave-patient: #e49a54;
+  --sanadi-wave-assistant: #87bfe8;
 }
+
+@keyframes sanadiBreath {
+  0%, 100% { transform: scale(1);
+    filter: drop-shadow(0 0 0.35rem transparent);
+  }
+  50% { transform: scale(1.024);
+    filter: drop-shadow(0 0 0.5rem rgb(249 229 209 / 0.45));
+  }
+}
+
 
 .dark {
   /* Dark Background System */
@@ -127,6 +145,14 @@
   /* Psychology Module */
   --psychology-soft-purple: #AFA4D4;
   --psychology-soft-lavender: #2D2040;
+  --psychology-soft-pink: #4a3540;
+  --sanadi-shell-bg: #1a2828;
+  --sanadi-surface-warm: #252018;
+  --sanadi-chat-assistant: #3a3530;
+  --sanadi-chat-patient: #4d3a38;
+  --sanadi-overlay: rgba(28, 20, 16, 0.58);
+  --sanadi-wave-patient: #e8aa66;
+  --sanadi-wave-assistant: #8ec5eb;
 }
 
 @theme inline {
@@ -174,6 +200,12 @@
   --color-health-info: var(--health-info);
   --color-psychology-soft-purple: var(--psychology-soft-purple);
   --color-psychology-soft-pink: var(--psychology-soft-pink);
+  --color-sanadi-shell-bg: var(--sanadi-shell-bg);
+  --color-sanadi-surface-warm: var(--sanadi-surface-warm);
+  --color-sanadi-chat-assistant: var(--sanadi-chat-assistant);
+  --color-sanadi-chat-patient: var(--sanadi-chat-patient);
+  --color-sanadi-wave-patient: var(--sanadi-wave-patient);
+  --color-sanadi-wave-assistant: var(--sanadi-wave-assistant);
 }
 
 @layer base {

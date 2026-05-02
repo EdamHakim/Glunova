@@ -1,9 +1,21 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CameraOff, Headphones, Mic, SendHorizonal, Video } from 'lucide-react'
+import { Noto_Sans_Arabic } from 'next/font/google'
+import {
+  CameraOff,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Headphones,
+  Mic,
+  SendHorizonal,
+  Sparkles,
+  Video,
+} from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useAuth } from '@/components/auth-context'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -17,6 +29,33 @@ import {
   type PsychologyMessageResult,
 } from '@/lib/psychology-api'
 import { SanadiAvatar, type AvatarPhase } from '@/components/psychology/sanadi-avatar'
+import { SanadiMoodRing } from '@/components/psychology/sanadi-mood-ring'
+import { SanadiVoiceWaveform, type WaveformSpeaker } from '@/components/psychology/sanadi-waveform'
+import { cn } from '@/lib/utils'
+
+const notoSansArabic = Noto_Sans_Arabic({
+  subsets: ['arabic'],
+  weight: ['400', '500', '600'],
+  display: 'swap',
+})
+
+/** Matches FastAPI SessionStartRequest.preferred_language. */
+type PreferredSessionLang = 'mixed' | 'en' | 'fr' | 'ar'
+
+const SANADI_PREF_LANG_KEY = 'sanadi_pref_lang'
+
+function browserSpeechRecognitionLang(pref: PreferredSessionLang): string {
+  if (typeof navigator === 'undefined') return 'en-US'
+  if (pref === 'ar') return 'ar-SA'
+  if (pref === 'fr') return 'fr-FR'
+  if (pref === 'mixed') return navigator.language || 'en-US'
+  return 'en-US'
+}
+
+function coercePreferredLang(raw: string | null): PreferredSessionLang {
+  if (raw === 'en' || raw === 'fr' || raw === 'ar' || raw === 'mixed') return raw
+  return 'mixed'
+}
 
 type LiveEmotion = {
   label: 'neutral' | 'happy' | 'anxious' | 'distressed' | 'depressed'
@@ -63,6 +102,41 @@ function detectLikelyLanguage(text: string): string {
   return 'en'
 }
 
+function LanguagePicker({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: PreferredSessionLang
+  disabled?: boolean
+  onChange: (next: PreferredSessionLang) => void
+}) {
+  const opts: { id: PreferredSessionLang; label: string }[] = [
+    { id: 'mixed', label: 'Auto' },
+    { id: 'en', label: 'EN' },
+    { id: 'fr', label: 'FR' },
+    { id: 'ar', label: 'AR' },
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Session language">
+      {opts.map((o) => (
+        <Button
+          key={o.id}
+          type="button"
+          size="sm"
+          variant={value === o.id ? 'secondary' : 'outline'}
+          className="h-8 min-w-[2.5rem] rounded-full px-2 text-xs shadow-sm"
+          aria-pressed={value === o.id}
+          disabled={disabled}
+          onClick={() => onChange(o.id)}
+        >
+          {o.label}
+        </Button>
+      ))}
+    </div>
+  )
+}
+
 function inferSpeechEmotionFromText(text: string): { label: LiveEmotion['label']; confidence: number } | null {
   const lower = text.toLowerCase()
   if (!lower.trim()) return null
@@ -96,8 +170,6 @@ export default function PsychologyPage() {
   const [latestSpeechTranscript, setLatestSpeechTranscript] = useState('')
   const [startingSession, setStartingSession] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
-  const [detectedSpeechLanguage, setDetectedSpeechLanguage] = useState<string | null>(null)
-  const [cameraTransport, setCameraTransport] = useState<'idle' | 'websocket' | 'http-fallback'>('idle')
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -119,6 +191,14 @@ export default function PsychologyPage() {
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
   const ttsObjectUrlRef = useRef<string | null>(null)
   const latestResultLangRef = useRef<PsychologyMessageResult['language_detected'] | null>(null)
+  const voiceAnalyserRef = useRef<AnalyserNode | null>(null)
+  const recordingAudioCtxRef = useRef<AudioContext | null>(null)
+  const ttsAudioCtxRef = useRef<AudioContext | null>(null)
+
+  const [railCollapsed, setRailCollapsed] = useState(false)
+  const [visitOrdinal, setVisitOrdinal] = useState(1)
+  const [preferredSessionLang, setPreferredSessionLang] = useState<PreferredSessionLang>('mixed')
+  const [cameraPanelOpen, setCameraPanelOpen] = useState(false)
 
   const role = user?.role
   const isPatient = role === 'patient'
@@ -129,6 +209,16 @@ export default function PsychologyPage() {
       : latestResult
         ? { label: latestResult.emotion, confidence: 0.65 }
       : null
+  const waveSpeaker: WaveformSpeaker = useMemo(() => {
+    if (!voiceModeActive) return 'idle'
+    if (voiceRecording) return 'patient'
+    if (avatarPhase === 'speaking') return 'assistant'
+    return 'idle'
+  }, [voiceModeActive, voiceRecording, avatarPhase])
+  const sessionDir = preferredSessionLang === 'ar' ? 'rtl' : 'ltr'
+  const sessionLangAttr =
+    preferredSessionLang === 'fr' ? 'fr' : preferredSessionLang === 'ar' ? 'ar' : preferredSessionLang === 'en' ? 'en' : 'en'
+
   const patientId = useMemo(() => {
     const fromSession = user?.userId
     if (typeof fromSession === 'number' && Number.isFinite(fromSession) && fromSession > 0) return fromSession
@@ -141,7 +231,7 @@ export default function PsychologyPage() {
     if (!forceNew && sessionId) return sessionId
     setStartingSession(true)
     try {
-      const payload = await startPsychologySession(patientId, 'mixed')
+      const payload = await startPsychologySession(patientId, preferredSessionLang)
       if (payload.allowed === false || !payload.session_id) return null
       setSessionId(payload.session_id)
       return payload.session_id
@@ -151,7 +241,7 @@ export default function PsychologyPage() {
     } finally {
       setStartingSession(false)
     }
-  }, [patientId, sessionId])
+  }, [patientId, sessionId, preferredSessionLang])
 
   const stopCamera = useCallback(() => {
     keepCameraAliveRef.current = false
@@ -169,7 +259,6 @@ export default function PsychologyPage() {
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraOn(false)
-    setCameraTransport('idle')
     setLiveEmotion(null)
   }, [])
 
@@ -184,12 +273,10 @@ export default function PsychologyPage() {
 
       const socket = wsRef.current
       if (socket && socket.readyState === WebSocket.OPEN) {
-        setCameraTransport('websocket')
         socket.send(JSON.stringify({ frame_base64: frame }))
         const staleMs = Date.now() - lastEmotionUpdateMsRef.current
         if (staleMs < 1600) return
       }
-      setCameraTransport('http-fallback')
       try {
         const inferred = await detectEmotionFrame(patientId, frame)
         setLiveEmotion({
@@ -236,10 +323,7 @@ export default function PsychologyPage() {
         if (!keepCameraAliveRef.current) return
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws
-        ws.onopen = () => setCameraTransport('websocket')
-        ws.onerror = () => setCameraTransport('http-fallback')
         ws.onclose = () => {
-          setCameraTransport('http-fallback')
           wsRef.current = null
           if (!keepCameraAliveRef.current) return
           if (wsReconnectTimerRef.current != null) window.clearTimeout(wsReconnectTimerRef.current)
@@ -278,6 +362,24 @@ export default function PsychologyPage() {
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [chat])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      setPreferredSessionLang(coercePreferredLang(sessionStorage.getItem(SANADI_PREF_LANG_KEY)))
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      sessionStorage.setItem(SANADI_PREF_LANG_KEY, preferredSessionLang)
+    } catch {
+      /* ignore */
+    }
+  }, [preferredSessionLang])
+
   const toggleMic = useCallback(() => {
     const SR = typeof window !== 'undefined' && (window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition)
     if (!SR) return
@@ -288,14 +390,12 @@ export default function PsychologyPage() {
       return
     }
     const rec = new SR()
-    rec.lang = navigator.language || 'en-US'
+    rec.lang = browserSpeechRecognitionLang(preferredSessionLang)
     rec.interimResults = false
     rec.continuous = false
     rec.onresult = (event) => {
       const text = event.results[0]?.[0]?.transcript?.trim()
       if (text) {
-        const resultLang = event.results[0]?.[0]?.language || detectLikelyLanguage(text)
-        setDetectedSpeechLanguage(resultLang)
         setLatestSpeechTranscript(text)
         setInput((prev) => (prev ? `${prev} ${text}` : text))
       }
@@ -307,7 +407,7 @@ export default function PsychologyPage() {
     recognitionRef.current = rec
     rec.start()
     setMicListening(true)
-  }, [micListening])
+  }, [micListening, preferredSessionLang])
 
   const stopAssistantTts = useCallback(() => {
     const a = ttsAudioRef.current
@@ -321,6 +421,9 @@ export default function PsychologyPage() {
       URL.revokeObjectURL(u)
       ttsObjectUrlRef.current = null
     }
+    void ttsAudioCtxRef.current?.close()
+    ttsAudioCtxRef.current = null
+    voiceAnalyserRef.current = null
   }, [])
 
   const fallbackBrowserTts = useCallback((text: string, lang: PsychologyMessageResult['language_detected']) => {
@@ -351,6 +454,9 @@ export default function PsychologyPage() {
       }
       setAvatarPhase('speaking')
       try {
+        void recordingAudioCtxRef.current?.close()
+        recordingAudioCtxRef.current = null
+        voiceAnalyserRef.current = null
         const blob = await synthesizePsychologyVoice({ text: reply, language: lang })
         const url = URL.createObjectURL(blob)
         ttsObjectUrlRef.current = url
@@ -363,6 +469,24 @@ export default function PsychologyPage() {
         audio.onerror = () => {
           stopAssistantTts()
           fallbackBrowserTts(reply, lang)
+        }
+        try {
+          const AC = typeof window !== 'undefined'
+            ? window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+            : null
+          if (AC) {
+            const ctx = new AC()
+            await ctx.resume().catch(() => {})
+            ttsAudioCtxRef.current = ctx
+            const analyser = ctx.createAnalyser()
+            analyser.fftSize = 256
+            const mes = ctx.createMediaElementSource(audio)
+            mes.connect(analyser)
+            analyser.connect(ctx.destination)
+            voiceAnalyserRef.current = analyser
+          }
+        } catch {
+          /* Web Audio optional; element output still works */
         }
         await audio.play()
       } catch {
@@ -594,6 +718,27 @@ export default function PsychologyPage() {
         audio: { echoCancellation: true, noiseSuppression: true },
       })
       voiceStreamRef.current = stream
+      void recordingAudioCtxRef.current?.close()
+      recordingAudioCtxRef.current = null
+      voiceAnalyserRef.current = null
+      try {
+        const AC =
+          typeof window !== 'undefined'
+            ? window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+            : null
+        if (AC) {
+          const ctx = new AC()
+          await ctx.resume().catch(() => {})
+          recordingAudioCtxRef.current = ctx
+          const analyser = ctx.createAnalyser()
+          analyser.fftSize = 256
+          const src = ctx.createMediaStreamSource(stream)
+          src.connect(analyser)
+          voiceAnalyserRef.current = analyser
+        }
+      } catch {
+        /* optional waveform */
+      }
       const mime = pickVoiceRecorderMime()
       const chunks: BlobPart[] = []
       const recorder =
@@ -604,6 +749,9 @@ export default function PsychologyPage() {
       }
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop())
+        void recordingAudioCtxRef.current?.close()
+        recordingAudioCtxRef.current = null
+        voiceAnalyserRef.current = null
         voiceStreamRef.current = null
         voiceRecorderRef.current = null
         const aborted = discardVoiceRecordingRef.current
@@ -628,8 +776,11 @@ export default function PsychologyPage() {
             const ext = typ.includes('mp4') || typ.includes('m4a') ? 'mp4' : typ.includes('webm') ? 'webm' : 'webm'
             fd.append('audio', blob, `recording.${ext}`)
             const hintLang = latestResultLangRef.current
-            if (hintLang && hintLang !== 'mixed') {
-              fd.append('language_hint', hintLang === 'darija' ? 'darija' : hintLang)
+            const explicitPref = preferredSessionLang !== 'mixed' ? preferredSessionLang : null
+            const fromTurn = hintLang && hintLang !== 'mixed' ? (hintLang === 'darija' ? 'darija' : hintLang) : null
+            const sttHint = explicitPref || fromTurn
+            if (sttHint) {
+              fd.append('language_hint', sttHint === 'darija' ? 'darija' : sttHint)
             }
             const tr = await transcribePsychologyVoice(fd)
             const trimmed = tr.text.trim()
@@ -659,7 +810,7 @@ export default function PsychologyPage() {
       setChatError('Microphone permission is required for Voice mode.')
       setAvatarPhase('idle')
     }
-  }, [patientId, voiceModeActive, stopAssistantTts])
+  }, [patientId, preferredSessionLang, voiceModeActive, stopAssistantTts])
 
   const stopVoiceRecordingTurn = useCallback(() => {
     const rec = voiceRecorderRef.current
@@ -699,6 +850,9 @@ export default function PsychologyPage() {
     } finally {
       stopCamera()
       stopAssistantTts()
+      void recordingAudioCtxRef.current?.close()
+      recordingAudioCtxRef.current = null
+      voiceAnalyserRef.current = null
       setVoiceModeActive(false)
       setAvatarPhase('idle')
       setVoiceRecording(false)
@@ -718,6 +872,15 @@ export default function PsychologyPage() {
     if (!sid) {
       setChatError('Session could not start. Please try again.')
       return
+    }
+    try {
+      const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem('sanadi_session_visit_index') : null
+      const parsed = raw ? Number.parseInt(raw, 10) : 0
+      const next = Number.isFinite(parsed) && parsed >= 0 ? parsed + 1 : 1
+      if (typeof window !== 'undefined') window.sessionStorage.setItem('sanadi_session_visit_index', String(next))
+      setVisitOrdinal(next)
+    } catch {
+      setVisitOrdinal(1)
     }
     setSessionStarted(true)
     setChat([
@@ -750,7 +913,14 @@ export default function PsychologyPage() {
 
   if (!sessionStarted) {
     return (
-      <div className="flex h-full min-h-[calc(100vh-4rem)] items-center justify-center bg-background p-6">
+      <div
+        lang={sessionLangAttr}
+        dir={sessionDir}
+        className={cn(
+          'flex h-full min-h-[calc(100vh-4rem)] items-center justify-center bg-[color:var(--sanadi-surface-warm)] p-6',
+          preferredSessionLang === 'ar' && notoSansArabic.className,
+        )}
+      >
         <div className="w-full max-w-xl space-y-6 text-center">
           <h1 className="text-4xl font-semibold tracking-tight">سنَدي</h1>
           <p className="text-base text-muted-foreground">Your clinical companion for calm, guided support.</p>
@@ -761,6 +931,13 @@ export default function PsychologyPage() {
             <span className="rounded-full border bg-muted/30 px-3 py-1">CBT-guided support</span>
             <span className="rounded-full border bg-muted/30 px-3 py-1">Clinically supervised safety</span>
             <span className="rounded-full border bg-muted/30 px-3 py-1">Camera always optional</span>
+          </div>
+          <div className="mx-auto flex max-w-md flex-col items-center gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Language</p>
+            <LanguagePicker value={preferredSessionLang} onChange={setPreferredSessionLang} />
+            <p className="text-[0.7rem] leading-snug text-muted-foreground">
+              Choose before you begin. Your selection applies to this session and cannot be changed until you end it.
+            </p>
           </div>
           <Button size="lg" className="px-10" onClick={() => void beginSession()} disabled={startingSession}>
             Begin session
@@ -776,17 +953,35 @@ export default function PsychologyPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex h-screen flex-col bg-background">
-      <header className="flex h-14 items-center border-b px-4">
-        <div className="flex w-1/3 justify-start">
-          <span className="text-lg font-semibold">سنَدي Sanadi</span>
+    <div
+      lang={sessionLangAttr}
+      dir={sessionDir}
+      className={cn(
+        'fixed inset-0 z-50 flex h-screen flex-col bg-[color:var(--sanadi-shell-bg)] text-foreground',
+        preferredSessionLang === 'ar' && notoSansArabic.className,
+      )}
+    >
+      {(voiceRecording || micListening) && (
+        <div
+          className="pointer-events-none fixed left-4 top-16 z-[120] flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur-sm dark:bg-black/65"
+          role="status"
+          aria-live="polite"
+        >
+          <span aria-hidden>🔴</span>
+          <span>Recording</span>
+          <span className="sr-only">Microphone is active</span>
         </div>
-        <div className="flex w-1/3 flex-nowrap items-center justify-center gap-2">
+      )}
+
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-orange-950/12 bg-[color:var(--sanadi-shell-bg)]/90 px-4 backdrop-blur-md dark:border-orange-50/10">
+        <span className="text-lg font-semibold tracking-tight text-teal-900 dark:text-amber-50">سنَدي Sanadi</span>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <LanguagePicker value={preferredSessionLang} disabled onChange={() => {}} />
           <Button
             type="button"
             size="sm"
             variant={voiceModeActive ? 'secondary' : 'outline'}
-            className="h-9 gap-1.5 whitespace-nowrap"
+            className="h-9 rounded-full gap-1.5 whitespace-nowrap shadow-sm"
             aria-label="Voice mode"
             aria-pressed={voiceModeActive}
             onClick={() => setVoiceModeActive((v) => !v)}
@@ -794,29 +989,125 @@ export default function PsychologyPage() {
             <Headphones className="h-4 w-4 shrink-0" />
             Voice
           </Button>
-          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-emerald-400/80" title="Live" aria-hidden />
-        </div>
-        <div className="flex w-1/3 justify-end">
-          <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => void closeSession()}>
-            End session
-          </button>
+          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-emerald-500/85" title="Live" aria-hidden />
         </div>
       </header>
 
-      {voiceModeActive && (
-        <div className="border-b bg-muted/20 px-3 py-3 md:hidden">
-          <SanadiAvatar
-            phase={avatarPhase}
-            emotion={displayEmotion?.label ?? null}
-            distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-            className="scale-[0.85]"
-          />
-        </div>
-      )}
+      <div className="flex min-h-0 flex-1 flex-row">
+        <aside
+          className={cn(
+            'flex shrink-0 flex-col border-r border-orange-950/10 bg-orange-50/40 transition-[width] duration-300 dark:border-teal-800/40 dark:bg-teal-950/45',
+            railCollapsed ? 'w-[3.35rem] items-center px-1 py-3' : 'w-[17rem] p-4',
+          )}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="mb-2 shrink-0 rounded-full"
+            onClick={() => setRailCollapsed((c) => !c)}
+            aria-label={railCollapsed ? 'Expand session panel' : 'Collapse session panel'}
+          >
+            {railCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+          </Button>
+          {!railCollapsed ? (
+            <>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">{user?.username ?? 'You'}</p>
+                <p className="text-xs text-muted-foreground">Session {visitOrdinal}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+                </p>
+              </div>
+              <div className="mx-auto my-5 flex flex-col items-center gap-2">
+                <SanadiMoodRing
+                  emotion={displayEmotion?.label ?? null}
+                  distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                  className="h-16 w-16 rounded-full shadow-md ring-4 ring-white/70 dark:ring-white/10"
+                />
+              </div>
+              <Collapsible open={cameraPanelOpen} onOpenChange={setCameraPanelOpen} className="w-full shrink-0">
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mb-1 flex h-11 w-full items-center justify-between gap-2 rounded-2xl px-4 text-left text-xs font-medium shadow-sm"
+                  >
+                    <span>Camera (optional)</span>
+                    <ChevronDown className={cn('h-4 w-4 shrink-0 opacity-70 transition-transform', cameraPanelOpen && 'rotate-180')} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-3 pb-4 data-[state=closed]:animate-none">
+                  <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
+                    Optional preview. You control when your camera runs; nothing is inferred from visuals here.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full rounded-2xl shadow-sm"
+                    onClick={() => (cameraOn ? stopCamera() : void startCamera())}
+                  >
+                    {cameraOn ? (
+                      <>
+                        <CameraOff className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview off
+                      </>
+                    ) : (
+                      <>
+                        <Video className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview on
+                      </>
+                    )}
+                  </Button>
+                  <video ref={videoRef} className="mx-auto h-40 w-full max-w-[240px] rounded-xl bg-black object-cover shadow-inner" playsInline muted />
+                </CollapsibleContent>
+              </Collapsible>
+              <div className="mt-auto pt-4">
+                <Button type="button" variant="outline" className="w-full rounded-2xl shadow-sm" onClick={() => void closeSession()}>
+                  End session
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="mt-2 flex flex-1 flex-col items-center gap-3">
+              <SanadiMoodRing
+                emotion={displayEmotion?.label ?? null}
+                distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                className="h-9 w-9 rounded-full shadow ring-2 ring-white/50 dark:ring-white/10"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-auto rounded-full px-2 text-[0.65rem]"
+                onClick={() => void closeSession()}
+                aria-label="End session"
+              >
+                End
+              </Button>
+            </div>
+          )}
+        </aside>
 
-      <main ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5">
-        <div className="mx-auto flex w-full max-w-5xl gap-5">
-          <div className="flex min-w-0 flex-1 flex-col gap-4">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {voiceModeActive && (
+            <div className="pointer-events-none fixed inset-0 z-[60] md:left-[17rem]" aria-hidden>
+              <div className="absolute inset-0 bg-[color:var(--sanadi-overlay)] backdrop-blur-[3px]" />
+              <div className="relative flex min-h-[48vh] flex-col items-center justify-center px-4 pb-48 pt-10 md:min-h-[52vh]">
+                <SanadiAvatar
+                  variant="overlay"
+                  phase={avatarPhase}
+                  emotion={displayEmotion?.label ?? null}
+                  distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                />
+                <div className="mt-8 w-[min(28rem,92vw)]">
+                  <SanadiVoiceWaveform analyserRef={voiceAnalyserRef} speaker={waveSpeaker} height={72} className="opacity-95" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <main ref={chatScrollRef} className="relative z-10 flex-1 overflow-y-auto px-3 py-4 md:px-5">
+            <div className="mx-auto flex w-full max-w-5xl gap-4">
+              <div className="mx-auto flex min-w-0 max-w-2xl flex-1 flex-col gap-3.5">
           {chat.map((entry) => (
             <div
               key={entry.id}
@@ -824,138 +1115,133 @@ export default function PsychologyPage() {
               className={`flex w-full ${entry.role === 'assistant' ? 'justify-start' : 'justify-end'}`}
             >
               {entry.kind === 'thought_record' ? (
-                <div className="w-[min(42rem,90vw)] rounded-2xl border bg-muted/30 p-4">
+                <div className="w-[min(42rem,90vw)] rounded-[1.25rem] border border-orange-950/10 bg-card/80 p-4 shadow-sm dark:border-orange-50/10">
                   <p className="mb-3 text-sm font-medium">Thought record</p>
                   <div className="space-y-2">
                     <label className="block text-xs text-muted-foreground">What happened</label>
                     <textarea
-                      className="w-full rounded-md border bg-background p-2 text-sm"
+                      className="w-full rounded-xl border bg-background p-2 text-sm"
                       value={thoughtRecordByMessage[entry.id]?.event || ''}
                       onChange={(e) => setThoughtRecordByMessage((old) => ({ ...old, [entry.id]: { ...(old[entry.id] || { event: '', thought: '', feeling: '', reframe: '' }), event: e.target.value } }))}
                     />
                     <label className="block text-xs text-muted-foreground">What I thought</label>
                     <textarea
-                      className="w-full rounded-md border bg-background p-2 text-sm"
+                      className="w-full rounded-xl border bg-background p-2 text-sm"
                       value={thoughtRecordByMessage[entry.id]?.thought || ''}
                       onChange={(e) => setThoughtRecordByMessage((old) => ({ ...old, [entry.id]: { ...(old[entry.id] || { event: '', thought: '', feeling: '', reframe: '' }), thought: e.target.value } }))}
                     />
                     <label className="block text-xs text-muted-foreground">How it made me feel</label>
                     <textarea
-                      className="w-full rounded-md border bg-background p-2 text-sm"
+                      className="w-full rounded-xl border bg-background p-2 text-sm"
                       value={thoughtRecordByMessage[entry.id]?.feeling || ''}
                       onChange={(e) => setThoughtRecordByMessage((old) => ({ ...old, [entry.id]: { ...(old[entry.id] || { event: '', thought: '', feeling: '', reframe: '' }), feeling: e.target.value } }))}
                     />
                     <label className="block text-xs text-muted-foreground">Another way to see it</label>
                     <textarea
-                      className="w-full rounded-md border bg-background p-2 text-sm"
+                      className="w-full rounded-xl border bg-background p-2 text-sm"
                       value={thoughtRecordByMessage[entry.id]?.reframe || ''}
                       onChange={(e) => setThoughtRecordByMessage((old) => ({ ...old, [entry.id]: { ...(old[entry.id] || { event: '', thought: '', feeling: '', reframe: '' }), reframe: e.target.value } }))}
                     />
                   </div>
                 </div>
               ) : entry.role === 'assistant' ? (
-                <div className="max-w-[85%] rounded-3xl border border-border/70 bg-muted/45 px-5 py-4 text-left text-[1.02rem] leading-relaxed shadow-sm">
-                  {entry.content}
+                <div className="flex max-w-[90%] items-start gap-2.5">
+                  <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--sanadi-chat-assistant)] shadow-md ring-1 ring-orange-950/10 dark:ring-orange-50/10">
+                    <Sparkles className="h-4 w-4 text-teal-800/90 dark:text-amber-100/90" />
+                  </div>
+                  <div className="rounded-[1.65rem] border border-orange-950/10 bg-[color:var(--sanadi-chat-assistant)] px-5 py-3.5 text-left text-[1.02rem] leading-relaxed text-teal-950 shadow-md dark:border-orange-50/10 dark:text-amber-50/95">
+                    {entry.content}
+                  </div>
                 </div>
               ) : (
-                <div className="max-w-[78%] rounded-3xl bg-primary/10 px-4 py-2.5 text-left text-sm leading-relaxed text-foreground/95 ring-1 ring-primary/20">
+                <div className="max-w-[84%] rounded-[1.65rem] border border-orange-950/10 bg-[color:var(--sanadi-chat-patient)] px-4 py-3 text-left text-sm leading-relaxed text-foreground shadow-md dark:border-orange-50/10">
                   {entry.content}
                 </div>
               )}
             </div>
           ))}
           </div>
-          <aside className="sticky top-2 hidden h-fit w-72 shrink-0 flex-col gap-3 rounded-2xl border bg-muted/20 p-3 md:flex">
-            {voiceModeActive && (
-              <>
-                <p className="text-xs font-medium text-muted-foreground">Companion</p>
-                <SanadiAvatar
-                  phase={avatarPhase}
-                  emotion={displayEmotion?.label ?? null}
-                  distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-                />
-              </>
-            )}
-            <p className="text-xs font-medium text-muted-foreground">Live camera</p>
-            <video ref={videoRef} className="h-44 w-full rounded-xl bg-black object-cover" playsInline muted />
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Emotion</span>
-                <span className="font-medium capitalize">{displayEmotion?.label || 'Not detected yet'}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Confidence</span>
-                <span className="font-medium">{displayEmotion ? `${Math.round(displayEmotion.confidence * 100)}%` : '—'}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Camera mode</span>
-                <span className="font-medium">{cameraOn ? 'On' : 'Off'}</span>
-              </div>
-            </div>
-          </aside>
+          {voiceModeActive && (
+            <aside className="sticky top-2 z-20 hidden h-fit w-[min(17rem,calc((100vw-17rem)*0.22))] shrink-0 flex-col gap-3 rounded-[1.25rem] border border-orange-950/10 bg-muted/25 p-3 shadow-sm dark:border-orange-50/10 md:flex">
+              <p className="text-xs font-medium text-muted-foreground">Companion</p>
+              <SanadiAvatar
+                phase={avatarPhase}
+                emotion={displayEmotion?.label ?? null}
+                distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+              />
+            </aside>
+          )}
         </div>
       </main>
 
-      <footer className="border-t px-3 py-2">
-        {voiceModeActive && (
-          <div className="mx-auto mb-2 flex w-full max-w-3xl flex-col gap-2">
-            <Button
-              type="button"
-              className="w-full"
-              disabled={loading || startingSession}
-              onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
-            >
-              {voiceRecording ? 'Done speaking' : 'Tap to speak'}
-            </Button>
-            <p className="text-center text-[0.7rem] text-muted-foreground">Groq transcribes your clip; Sanadi replies with voice when TTS is configured.</p>
-          </div>
-        )}
-        <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
-          {!voiceModeActive && (
-            <Button type="button" size="icon" variant={micListening ? 'secondary' : 'outline'} className="h-12 w-12" onClick={() => toggleMic()}>
-              <Mic className="h-5 w-5" />
-            </Button>
-          )}
-          <textarea
-            value={input}
-            readOnly={voiceModeActive}
-            placeholder={voiceModeActive ? 'Voice mode on — use Tap to speak, or turn Voice off to type.' : 'Say anything...'}
-            rows={1}
-            className="max-h-40 min-h-12 flex-1 resize-y rounded-xl border bg-background px-3 py-3 text-sm outline-none read-only:opacity-80"
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (voiceModeActive) return
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                void submitMessage()
-              }
-            }}
-          />
-          <Button
-            type="button"
-            size="icon"
-            className="h-12 w-12"
-            onClick={() => void submitMessage()}
-            disabled={loading || startingSession || !input.trim() || voiceRecording}
-          >
-            <SendHorizonal className="h-5 w-5" />
-          </Button>
-          <div className="mb-2 flex flex-col items-center gap-2">
-            <button
-              type="button"
-              className="rounded-md border px-2 py-1 text-xs text-muted-foreground"
-              onClick={() => (cameraOn ? stopCamera() : void startCamera())}
-            >
-              {cameraOn ? <CameraOff className="h-4 w-4" /> : <Video className="h-4 w-4" />}
-            </button>
-            <span className={`h-2 w-2 rounded-full ${cameraOn ? 'bg-emerald-400' : 'bg-muted-foreground/30'}`} />
-          </div>
+          <footer className="relative z-[80] border-t border-orange-950/10 bg-[color:var(--sanadi-shell-bg)]/95 px-3 py-3 backdrop-blur-md dark:border-orange-50/10">
+            {voiceModeActive && (
+              <>
+                <div className="mx-auto mb-3 w-full max-w-2xl">
+                  <SanadiVoiceWaveform
+                    analyserRef={voiceAnalyserRef}
+                    speaker={waveSpeaker}
+                    height={88}
+                    className="rounded-2xl bg-orange-100/35 px-2 py-2 shadow-inner dark:bg-teal-950/40"
+                  />
+                </div>
+                <div className="mx-auto mb-3 flex w-full max-w-2xl flex-col gap-2">
+                  <Button
+                    type="button"
+                    className="w-full rounded-2xl py-6 text-base shadow-md"
+                    disabled={loading || startingSession}
+                    onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
+                  >
+                    {voiceRecording ? 'Done speaking' : 'Tap to speak'}
+                  </Button>
+                  <p className="text-center text-[0.7rem] text-muted-foreground">
+                    Groq transcribes your clip; Sanadi replies with voice when TTS is configured.
+                  </p>
+                </div>
+              </>
+            )}
+            <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
+              {!voiceModeActive && (
+                <Button type="button" size="icon" variant={micListening ? 'secondary' : 'outline'} className="h-12 w-12 rounded-2xl shadow-sm" onClick={() => toggleMic()}>
+                  <Mic className="h-5 w-5" />
+                </Button>
+              )}
+              {!voiceModeActive ? (
+                <textarea
+                  value={input}
+                  placeholder="Say anything..."
+                  rows={1}
+                  className="max-h-40 min-h-12 flex-1 resize-y rounded-2xl border border-orange-950/12 bg-background px-3 py-3 text-sm shadow-sm outline-none dark:border-orange-50/10"
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      void submitMessage()
+                    }
+                  }}
+                />
+              ) : (
+                <div className="flex min-h-12 flex-1 items-center justify-center rounded-2xl border border-dashed border-orange-950/15 bg-muted/30 px-3 py-3 text-center text-sm text-muted-foreground dark:border-orange-50/15">
+                  Voice mode — use Tap to speak or turn Voice off to type.
+                </div>
+              )}
+              {!voiceModeActive && (
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-12 w-12 rounded-2xl shadow-md"
+                  onClick={() => void submitMessage()}
+                  disabled={loading || startingSession || !input.trim() || voiceRecording}
+                >
+                  <SendHorizonal className="h-5 w-5" />
+                </Button>
+              )}
+            </div>
+            {chatError && <p className="mx-auto mt-2 w-full max-w-2xl text-xs text-muted-foreground">{chatError}</p>}
+          </footer>
         </div>
-        <div className="mx-auto mt-2 flex w-full max-w-3xl items-center justify-end text-xs text-muted-foreground">
-          <span>{detectedSpeechLanguage ? `Speech: ${detectedSpeechLanguage}` : latestResult ? `Mode: ${latestResult.language_detected}` : 'Speech auto-detect enabled'}</span>
-        </div>
-        {chatError && <p className="mx-auto mt-2 w-full max-w-3xl text-xs text-muted-foreground">{chatError}</p>}
-      </footer>
+      </div>
     </div>
+
   )
 }
