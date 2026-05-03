@@ -7,11 +7,12 @@ export type AuthUser = {
   userId: number | null
   id: string // Add string ID for compatibility with documents-api
   full_name: string
-  // Health profile fields (available for patients)
+  // Health profile fields (available for patients only — from PatientProfile)
   age?: number | null
   weight_kg?: number | null
   height_cm?: number | null
   diabetes_type?: string | null
+  allergies?: string[] | null
   medication?: string[] | null
   last_glucose?: string | null
   carb_limit_per_meal_g?: number | null
@@ -78,6 +79,7 @@ export async function fetchCurrentSessionUser(): Promise<AuthUser | null> {
       weight_kg: data.weight_kg,
       height_cm: data.height_cm,
       diabetes_type: data.diabetes_type,
+      allergies: data.allergies,
       medication: data.medication,
       last_glucose: data.last_glucose,
       carb_limit_per_meal_g: data.carb_limit_per_meal_g,
@@ -96,14 +98,16 @@ export async function fetchCurrentSessionUser(): Promise<AuthUser | null> {
   }
 }
 
-export async function updateUserProfile(data: Partial<AuthUser & { 
-  date_of_birth?: string, 
-  gender?: string, 
-  hypertension?: boolean, 
-  heart_disease?: boolean, 
+export async function updateUserProfile(data: Partial<AuthUser & {
+  date_of_birth?: string,
+  gender?: string,
+  hypertension?: boolean,
+  heart_disease?: boolean,
   smoking_status?: string,
   hba1c_level?: number,
-  blood_glucose_level?: number
+  blood_glucose_level?: number,
+  diabetes_type?: string,
+  allergies?: string[],
 }>) {
   try {
     const { django } = getApiUrls()

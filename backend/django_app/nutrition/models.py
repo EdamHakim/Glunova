@@ -18,6 +18,32 @@ class NutritionGoal(models.Model):
         ordering = ["-valid_from", "-created_at"]
 
 
+class WeeklyWellnessPlan(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        READY   = "ready",   "Ready"
+        FAILED  = "failed",  "Failed"
+
+    patient            = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="wellness_plans"
+    )
+    week_start         = models.DateField()
+    status             = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    fitness_level      = models.CharField(max_length=20, blank=True)
+    goal               = models.CharField(max_length=30, blank=True)
+    cuisine            = models.CharField(max_length=30, blank=True)
+    generated_at       = models.DateTimeField(null=True, blank=True)
+    clinical_snapshot  = models.JSONField(default=dict)
+    week_summary       = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-week_start"]
+        unique_together = [("patient", "week_start")]
+
+    def __str__(self):
+        return f"WellnessPlan({self.patient_id}, week={self.week_start})"
+
+
 class ExerciseSession(models.Model):
     class Intensity(models.TextChoices):
         LOW = "low", "Low"
@@ -29,14 +55,24 @@ class ExerciseSession(models.Model):
         COMPLETED = "completed", "Completed"
         SKIPPED = "skipped", "Skipped"
 
-    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="exercise_sessions")
-    title = models.CharField(max_length=255)
-    intensity = models.CharField(max_length=16, choices=Intensity.choices)
+    patient          = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="exercise_sessions")
+    wellness_plan    = models.ForeignKey(WeeklyWellnessPlan, on_delete=models.CASCADE, related_name="exercise_sessions", null=True, blank=True)
+    day_index        = models.PositiveSmallIntegerField(null=True, blank=True)  # 0-6
+    exercise_type    = models.CharField(max_length=30, blank=True)  # cardio / strength / flexibility / HIIT / mobility
+    title            = models.CharField(max_length=255)
+    description      = models.TextField(blank=True)
+    intensity        = models.CharField(max_length=16, choices=Intensity.choices)
     duration_minutes = models.PositiveIntegerField()
-    scheduled_for = models.DateTimeField()
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PLANNED)
-    notes = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    sets             = models.PositiveSmallIntegerField(null=True, blank=True)
+    reps             = models.PositiveSmallIntegerField(null=True, blank=True)
+    equipment        = models.JSONField(default=list)
+    pre_exercise_glucose_check = models.BooleanField(default=False)
+    post_exercise_snack_tip    = models.TextField(blank=True)
+    diabetes_rationale         = models.TextField(blank=True)
+    scheduled_for    = models.DateTimeField()
+    status           = models.CharField(max_length=16, choices=Status.choices, default=Status.PLANNED)
+    notes            = models.TextField(blank=True)
+    created_at       = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-scheduled_for", "-created_at"]
@@ -87,10 +123,12 @@ class WeeklyMealPlan(models.Model):
 
 class Meal(models.Model):
     class MealType(models.TextChoices):
-        BREAKFAST = "breakfast", "Breakfast"
-        LUNCH     = "lunch",     "Lunch"
-        DINNER    = "dinner",    "Dinner"
-        SNACK     = "snack",     "Snack"
+        BREAKFAST           = "breakfast",           "Breakfast"
+        LUNCH               = "lunch",               "Lunch"
+        DINNER              = "dinner",              "Dinner"
+        SNACK               = "snack",               "Snack"
+        PRE_WORKOUT_SNACK   = "pre_workout_snack",   "Pre-Workout Snack"
+        POST_WORKOUT_SNACK  = "post_workout_snack",  "Post-Workout Snack"
 
     class GILevel(models.TextChoices):
         LOW    = "low",    "Low"
@@ -98,7 +136,10 @@ class Meal(models.Model):
         HIGH   = "high",   "High"
 
     meal_plan                = models.ForeignKey(
-        WeeklyMealPlan, on_delete=models.CASCADE, related_name="meals"
+        WeeklyMealPlan, on_delete=models.CASCADE, related_name="meals", null=True, blank=True
+    )
+    wellness_plan            = models.ForeignKey(
+        WeeklyWellnessPlan, on_delete=models.CASCADE, related_name="meals", null=True, blank=True
     )
     day_index                = models.PositiveSmallIntegerField()
     meal_type                = models.CharField(max_length=20, choices=MealType.choices)
