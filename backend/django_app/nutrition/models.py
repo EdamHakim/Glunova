@@ -53,3 +53,79 @@ class RecoveryPlan(models.Model):
     glucose_recheck_minutes = models.PositiveIntegerField(default=30)
     next_session_tip = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class WeeklyMealPlan(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        READY   = "ready",   "Ready"
+        FAILED  = "failed",  "Failed"
+
+    class Cuisine(models.TextChoices):
+        MEDITERRANEAN = "mediterranean", "Mediterranean"
+        MAGHREB       = "maghreb",       "Maghreb / North African"
+        MIDDLE_EASTERN = "middle_eastern", "Middle Eastern"
+        WESTERN       = "western",       "Western"
+
+    patient           = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="meal_plans"
+    )
+    week_start        = models.DateField()
+    status            = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    cuisine           = models.CharField(max_length=30, choices=Cuisine.choices, default=Cuisine.MEDITERRANEAN)
+    generated_at      = models.DateTimeField(null=True, blank=True)
+    clinical_snapshot = models.JSONField(default=dict)
+    week_summary      = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-week_start"]
+        unique_together = [("patient", "week_start")]
+
+    def __str__(self):
+        return f"MealPlan({self.patient_id}, week={self.week_start})"
+
+
+class Meal(models.Model):
+    class MealType(models.TextChoices):
+        BREAKFAST = "breakfast", "Breakfast"
+        LUNCH     = "lunch",     "Lunch"
+        DINNER    = "dinner",    "Dinner"
+        SNACK     = "snack",     "Snack"
+
+    class GILevel(models.TextChoices):
+        LOW    = "low",    "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH   = "high",   "High"
+
+    class NutritionalSource(models.TextChoices):
+        USDA_VALIDATED = "usda_validated", "USDA Validated"
+        LLM_ESTIMATED  = "llm_estimated",  "LLM Estimated"
+
+    meal_plan                = models.ForeignKey(
+        WeeklyMealPlan, on_delete=models.CASCADE, related_name="meals"
+    )
+    day_index                = models.PositiveSmallIntegerField()
+    meal_type                = models.CharField(max_length=20, choices=MealType.choices)
+    name                     = models.CharField(max_length=200)
+    description              = models.TextField()
+    ingredients              = models.JSONField(default=list)
+    preparation_time_minutes = models.PositiveSmallIntegerField(default=20)
+    calories_kcal            = models.FloatField()
+    carbs_g                  = models.FloatField()
+    protein_g                = models.FloatField()
+    fat_g                    = models.FloatField()
+    sugar_g                  = models.FloatField()
+    glycemic_index           = models.CharField(max_length=10, choices=GILevel.choices)
+    glycemic_load            = models.CharField(max_length=10, choices=GILevel.choices)
+    nutritional_source       = models.CharField(
+        max_length=20, choices=NutritionalSource.choices, default=NutritionalSource.LLM_ESTIMATED
+    )
+    usda_breakdown           = models.JSONField(default=list)
+    diabetes_rationale       = models.TextField()
+
+    class Meta:
+        ordering = ["day_index", "meal_type"]
+        unique_together = [("meal_plan", "day_index", "meal_type")]
+
+    def __str__(self):
+        return f"{self.meal_type} day{self.day_index} — {self.name}"

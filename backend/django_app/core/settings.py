@@ -106,6 +106,10 @@ SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "medical-document
 # AI Service Integration
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://fastapi_ai:8001").rstrip("/")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+# Meal planner — FastAPI base URL (Django→FastAPI internal calls)
+FASTAPI_BASE_URL = os.getenv("FASTAPI_BASE_URL", "http://localhost:8001")
+# USDA FoodData Central (optional free key → higher rate limit)
+USDA_API_KEY = os.getenv("USDA_API_KEY", "DEMO_KEY")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (

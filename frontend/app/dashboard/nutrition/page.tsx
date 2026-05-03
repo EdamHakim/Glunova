@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { listExercisePlans, type ExercisePlanRow } from '@/lib/nutrition-api'
 import { NutritionAnalysisModal } from '@/components/nutrition/nutrition-analysis-modal'
+import { MealPlannerTabContent } from './meal-planner/page'
 
 export default function NutritionPage() {
   const { user } = useAuth()
@@ -75,10 +76,11 @@ export default function NutritionPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Tabs defaultValue="nutrition" className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 sm:h-10 sm:grid-cols-3 sm:gap-0">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 sm:h-10 sm:grid-cols-4 sm:gap-0">
           <TabsTrigger value="nutrition">Nutrition</TabsTrigger>
           <TabsTrigger value="exercise">Exercise</TabsTrigger>
           <TabsTrigger value="ai-coach">AI Coach</TabsTrigger>
+          <TabsTrigger value="meal-planner">Meal Planner</TabsTrigger>
         </TabsList>
 
         <TabsContent value="nutrition" className="space-y-4">
@@ -134,6 +136,10 @@ export default function NutritionPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="meal-planner" className="space-y-4">
+          <MealPlannerTabContent patientId={patientId || undefined} isPatient={isPatient} />
         </TabsContent>
 
         <TabsContent value="ai-coach" className="space-y-4">
