@@ -110,21 +110,7 @@ export async function analyseNutritionPhoto(image: File, profile: any) {
 // ── Weekly Meal Planner ───────────────────────────────────────────────────────
 
 export type CuisineOption = 'mediterranean' | 'maghreb' | 'middle_eastern' | 'western'
-export type NutritionalSource = 'usda_validated' | 'llm_estimated'
 export type GILevel = 'low' | 'medium' | 'high'
-
-export interface UsdaIngredientBreakdown {
-  ingredient: string
-  grams: number
-  usda_name: string | null
-  usda_fdc_id?: number
-  calories_kcal?: number
-  carbs_g?: number
-  protein_g?: number
-  fat_g?: number
-  sugar_g?: number
-  note?: string
-}
 
 export interface MealItem {
   meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack'
@@ -139,8 +125,6 @@ export interface MealItem {
   sugar_g: number
   glycemic_index: GILevel
   glycemic_load: GILevel
-  nutritional_source: NutritionalSource
-  usda_breakdown: UsdaIngredientBreakdown[]
   diabetes_rationale: string
 }
 

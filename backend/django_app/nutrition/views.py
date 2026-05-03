@@ -159,8 +159,6 @@ def _persist_plan(patient, plan_data: dict, profile: dict, cuisine: str) -> Week
                     "sugar_g":                  m["sugar_g"],
                     "glycemic_index":           m["glycemic_index"],
                     "glycemic_load":            m["glycemic_load"],
-                    "nutritional_source":       m.get("nutritional_source", Meal.NutritionalSource.LLM_ESTIMATED),
-                    "usda_breakdown":           m.get("usda_breakdown", []),
                     "diabetes_rationale":       m["diabetes_rationale"],
                 },
             )
@@ -184,8 +182,6 @@ def _serialize_plan(plan: WeeklyMealPlan) -> dict:
             "sugar_g":                  m.sugar_g,
             "glycemic_index":           m.glycemic_index,
             "glycemic_load":            m.glycemic_load,
-            "nutritional_source":       m.nutritional_source,
-            "usda_breakdown":           m.usda_breakdown,
             "diabetes_rationale":       m.diabetes_rationale,
         })
     return {
@@ -219,7 +215,7 @@ class MealPlanGenerateView(APIView):
             resp = httpx.post(
                 f"{FASTAPI_BASE}/nutrition/meal-plan/generate",
                 json=profile,
-                timeout=360,  # Groq (~20s) + USDA validation (~50 unique ingredients × 2s)
+                timeout=360,  # Groq full-week generation (large JSON)
             )
             resp.raise_for_status()
             plan_data = resp.json()
@@ -259,7 +255,7 @@ class MealPlanRegenerateDayView(APIView):
             resp = httpx.post(
                 f"{FASTAPI_BASE}/nutrition/meal-plan/generate",
                 json=profile,
-                timeout=120,  # single day: Groq (~20s) + USDA (~4 meals × ~5 ingredients × 2s)
+                timeout=120,  # single-day Groq generation
             )
             resp.raise_for_status()
             plan_data = resp.json()

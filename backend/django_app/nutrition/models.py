@@ -97,10 +97,6 @@ class Meal(models.Model):
         MEDIUM = "medium", "Medium"
         HIGH   = "high",   "High"
 
-    class NutritionalSource(models.TextChoices):
-        USDA_VALIDATED = "usda_validated", "USDA Validated"
-        LLM_ESTIMATED  = "llm_estimated",  "LLM Estimated"
-
     meal_plan                = models.ForeignKey(
         WeeklyMealPlan, on_delete=models.CASCADE, related_name="meals"
     )
@@ -117,10 +113,6 @@ class Meal(models.Model):
     sugar_g                  = models.FloatField()
     glycemic_index           = models.CharField(max_length=10, choices=GILevel.choices)
     glycemic_load            = models.CharField(max_length=10, choices=GILevel.choices)
-    nutritional_source       = models.CharField(
-        max_length=20, choices=NutritionalSource.choices, default=NutritionalSource.LLM_ESTIMATED
-    )
-    usda_breakdown           = models.JSONField(default=list)
     diabetes_rationale       = models.TextField()
 
     class Meta:

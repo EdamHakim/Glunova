@@ -2,6 +2,7 @@ import os
 import time
 import json
 import base64
+from pathlib import Path
 import re
 import requests
 from typing import List, Dict, Any, Optional
@@ -79,7 +80,8 @@ class PipelineNutrition:
             raise EnvironmentError("GROQ_API_KEY is not set. Add it to your .env file.")
         
         print("Chargement de YOLO-World...")
-        yolo_model_path = os.environ.get("YOLO_MODEL", "yolov8s-worldv2.pt")
+        _default_yolo = Path(__file__).resolve().parent / "models" / "yolov8s-worldv2.pt"
+        yolo_model_path = os.environ.get("YOLO_MODEL") or str(_default_yolo)
         self.yolo_model = YOLOWorld(yolo_model_path)
         # YOLO-World stays on CPU for compatibility or as configured
         self.yolo_model.to("cpu")

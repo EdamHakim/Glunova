@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   CalendarDays, ChefHat, RefreshCw, Sparkles, Utensils,
-  Coffee, Sun, Moon, Apple, ChevronDown, ChevronUp, Info,
+  Coffee, Sun, Moon, Apple, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,14 +11,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuth } from '@/components/auth-context'
 import {
   type CuisineOption,
   type DayPlan,
   type GILevel,
   type MealItem,
-  type NutritionalSource,
   type WeeklyMealPlan,
   generateMealPlan,
   getMealPlan,
@@ -49,36 +47,6 @@ const GI_COLORS: Record<GILevel, string> = {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function NutritionalSourceBadge({ source }: { source: NutritionalSource }) {
-  return source === 'usda_validated' ? (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 cursor-default">
-            USDA ✓
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p className="text-xs">Macros validated against USDA FoodData Central</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  ) : (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 cursor-default">
-            LLM est.
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p className="text-xs">Macros are AI-estimated — USDA lookup returned no match for some ingredients</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
 function MealCard({ meal }: { meal: MealItem }) {
   const [open, setOpen] = useState(false)
 
@@ -88,9 +56,6 @@ function MealCard({ meal }: { meal: MealItem }) {
       <div className="flex items-center gap-1.5 text-muted-foreground">
         {MEAL_ICONS[meal.meal_type]}
         <span className="text-xs uppercase tracking-wide font-medium">{meal.meal_type}</span>
-        <div className="ml-auto">
-          <NutritionalSourceBadge source={meal.nutritional_source} />
-        </div>
       </div>
 
       {/* Meal name */}
@@ -137,38 +102,12 @@ function MealCard({ meal }: { meal: MealItem }) {
           </p>
           {/* Ingredient list */}
           <ul className="space-y-0.5">
-            {meal.ingredients.map((ing, i) => {
-              const usdaEntry = meal.usda_breakdown.find((b) => b.ingredient === ing)
-              return (
-                <li key={i} className="flex items-start gap-1 text-xs text-muted-foreground">
-                  <span className="mt-0.5 text-emerald-500">·</span>
-                  <span>{ing}</span>
-                  {usdaEntry?.usda_name && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Info className="h-3 w-3 text-muted-foreground/50 ml-auto flex-shrink-0 mt-0.5 cursor-default" />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs font-medium">{usdaEntry.usda_name}</p>
-                          {usdaEntry.calories_kcal !== undefined && (
-                            <p className="text-xs">
-                              {Math.round(usdaEntry.calories_kcal)} kcal ·&nbsp;
-                              C {Math.round(usdaEntry.carbs_g ?? 0)}g ·&nbsp;
-                              P {Math.round(usdaEntry.protein_g ?? 0)}g ·&nbsp;
-                              F {Math.round(usdaEntry.fat_g ?? 0)}g
-                            </p>
-                          )}
-                          {usdaEntry.usda_fdc_id && (
-                            <p className="text-[10px] text-muted-foreground">FDC ID: {usdaEntry.usda_fdc_id}</p>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </li>
-              )
-            })}
+            {meal.ingredients.map((ing, i) => (
+              <li key={i} className="flex items-start gap-1 text-xs text-muted-foreground">
+                <span className="mt-0.5 text-emerald-500">·</span>
+                <span>{ing}</span>
+              </li>
+            ))}
           </ul>
         </CollapsibleContent>
       </Collapsible>
@@ -452,7 +391,7 @@ export function MealPlannerTabContent({ patientId, isPatient = false }: MealPlan
             <CardTitle className="text-lg">No meal plan yet</CardTitle>
             <CardDescription>
               {isPatient
-                ? 'Generate your personalised 7-day plan. Macros are cross-validated against USDA FoodData Central.'
+                ? 'Generate your personalised 7-day plan with AI-estimated macros from your clinical profile.'
                 : 'This patient has not generated a meal plan yet.'}
             </CardDescription>
           </CardHeader>
@@ -465,20 +404,6 @@ export function MealPlannerTabContent({ patientId, isPatient = false }: MealPlan
             </CardContent>
           )}
         </Card>
-      )}
-
-      {/* Source legend */}
-      {!initialLoading && !generating && plan && (
-        <div className="flex gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" />
-            USDA ✓ = macros validated from USDA FoodData Central
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-400" />
-            LLM est. = AI-estimated (USDA lookup found no match)
-          </span>
-        </div>
       )}
     </div>
   )
@@ -495,7 +420,7 @@ export default function MealPlannerPage() {
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Weekly Meal Planner</h1>
         <p className="text-muted-foreground mt-2">
           {isPatient
-            ? 'AI-generated 7-day plan tailored to your HbA1c, glucose levels, and medications. Macros validated against USDA.'
+            ? 'AI-generated 7-day plan tailored to your HbA1c, glucose levels, and medications, with model-estimated macros.'
             : "Read-only view of the patient's personalised weekly meal plan."}
         </p>
       </div>

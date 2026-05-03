@@ -103,14 +103,16 @@ UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "10"))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "medical-documents")
-# AI Service Integration
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://fastapi_ai:8001").rstrip("/")
+# AI Service Integration — URL Django uses to call FastAPI (Groq, meal plan, etc.)
+_ai_url = (os.getenv("AI_SERVICE_URL") or "http://127.0.0.1:8001").strip().rstrip("/")
+# backend/.env often uses http://fastapi_ai:8001 for Docker; that host does not resolve
+# when Django runs on your machine (e.g. runserver + uvicorn). Inside a container,
+# `/.dockerenv` exists — keep the Docker hostname in that case.
+if "fastapi_ai" in _ai_url and not Path("/.dockerenv").exists():
+    _ai_url = "http://127.0.0.1:8001"
+AI_SERVICE_URL = _ai_url
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-# Meal planner — FastAPI base URL (Django→FastAPI internal calls)
-FASTAPI_BASE_URL = os.getenv("FASTAPI_BASE_URL", "http://localhost:8001")
-# USDA FoodData Central (optional free key → higher rate limit)
-USDA_API_KEY = os.getenv("USDA_API_KEY", "DEMO_KEY")
-
+FASTAPI_BASE_URL = (os.getenv("FASTAPI_BASE_URL") or AI_SERVICE_URL).strip().rstrip("/")
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "core.auth_authenticator.JWTCookieAuthentication",

@@ -60,12 +60,11 @@ async def analyse_meal(
 @router.post("/meal-plan/generate")
 async def generate_meal_plan(request: MealPlanRequest):
     """
-    Stage 1: Groq LLM generates a 7-day (or single-day) meal plan.
-    Stage 2: USDA FoodData Central validates macros per ingredient.
+    Groq LLM generates a 7-day (or single-day) meal plan with estimated macros.
     Called internally by Django — no user auth needed on this route.
 
-    Runs in a thread pool so the blocking Groq + USDA HTTP calls do not
-    freeze the FastAPI event loop.
+    Runs in a thread pool so the blocking Groq HTTP call does not freeze
+    the FastAPI event loop.
     """
     try:
         result = await asyncio.to_thread(_generate_meal_plan, request)

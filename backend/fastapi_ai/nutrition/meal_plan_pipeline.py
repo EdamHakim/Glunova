@@ -1,15 +1,8 @@
 """
-Two-stage Weekly Meal Plan pipeline.
+Weekly Meal Plan pipeline — LLM (Groq llama-3.3-70b-versatile).
 
-Stage 1 — LLM (Groq llama-3.3-70b-versatile)
-  Generates 7-day plan structure: meal names, descriptions, ingredients
-  with quantities, GI/GL assessment, diabetes rationale, and
-  LLM-estimated macros (kept as fallback).
-
-Stage 2 — USDA FoodData Central validation
-  For each meal, queries USDA per ingredient, scales by parsed quantity,
-  sums to validated macros.  LLM values replaced when USDA succeeds;
-  tagged "llm_estimated" otherwise so the UI can surface the difference.
+Generates the plan structure: meal names, descriptions, ingredients with
+quantities, GI/GL assessment, diabetes rationale, and model-estimated macros.
 """
 import json
 import os
@@ -19,7 +12,6 @@ from typing import Optional
 
 from .meal_plan_schema import MealPlanRequest
 from .pipeline_nutrition import call_with_retry   # reuse existing retry helper
-from .usda_client import validate_meal_macros
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -144,44 +136,9 @@ def _call_groq(prompt: str) -> dict:
     return json.loads(raw)
 
 
-def _enrich_with_usda(plan_data: dict) -> dict:
-    """
-    Stage 2: For every meal run USDA lookup.
-    - Replaces LLM macro values with USDA-validated ones when found.
-    - Preserves LLM estimates under llm_estimated_* keys for transparency.
-    - Tags each meal with nutritional_source and stores per-ingredient breakdown.
-    """
-    for day in plan_data.get("days", []):
-        for meal in day.get("meals", []):
-            usda = validate_meal_macros(meal.get("ingredients", []))
-
-            # Keep LLM numbers for auditability
-            meal["llm_estimated_calories"] = meal.get("calories_kcal")
-            meal["llm_estimated_carbs"]    = meal.get("carbs_g")
-            meal["llm_estimated_protein"]  = meal.get("protein_g")
-            meal["llm_estimated_fat"]      = meal.get("fat_g")
-            meal["llm_estimated_sugar"]    = meal.get("sugar_g")
-
-            if usda["source"] == "usda_validated":
-                meal["calories_kcal"] = usda["calories_kcal"]
-                meal["carbs_g"]       = usda["carbs_g"]
-                meal["protein_g"]     = usda["protein_g"]
-                meal["fat_g"]         = usda["fat_g"]
-                meal["sugar_g"]       = usda["sugar_g"]
-
-            meal["nutritional_source"] = usda["source"]
-            meal["usda_breakdown"]     = usda["breakdown"]
-
-    return plan_data
-
-
 def generate_meal_plan(req: MealPlanRequest) -> dict:
     target_days = [req.day_index] if req.day_index is not None else list(range(7))
 
-    # Stage 1 — LLM generation
     plan_data = _call_groq(_build_prompt(req, target_days))
-
-    # Stage 2 — USDA validation (gracefully falls back per-ingredient)
-    plan_data = _enrich_with_usda(plan_data)
 
     return plan_data

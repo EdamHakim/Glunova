@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env
+    environment:
+      # Django in Docker must use the compose service name, not localhost.
+      AI_SERVICE_URL: http://fastapi_ai:8001
     ports:
       - "8000:8000"
 
