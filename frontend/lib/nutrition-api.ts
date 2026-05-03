@@ -107,3 +107,81 @@ export async function analyseNutritionPhoto(image: File, profile: any) {
   return postMultipart<NutritionAnalysisReport>('/nutrition/analyse', formData)
 }
 
+// ── Weekly Meal Planner ───────────────────────────────────────────────────────
+
+export type CuisineOption = 'mediterranean' | 'maghreb' | 'middle_eastern' | 'western'
+export type NutritionalSource = 'usda_validated' | 'llm_estimated'
+export type GILevel = 'low' | 'medium' | 'high'
+
+export interface UsdaIngredientBreakdown {
+  ingredient: string
+  grams: number
+  usda_name: string | null
+  usda_fdc_id?: number
+  calories_kcal?: number
+  carbs_g?: number
+  protein_g?: number
+  fat_g?: number
+  sugar_g?: number
+  note?: string
+}
+
+export interface MealItem {
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack'
+  name: string
+  description: string
+  ingredients: string[]
+  preparation_time_minutes: number
+  calories_kcal: number
+  carbs_g: number
+  protein_g: number
+  fat_g: number
+  sugar_g: number
+  glycemic_index: GILevel
+  glycemic_load: GILevel
+  nutritional_source: NutritionalSource
+  usda_breakdown: UsdaIngredientBreakdown[]
+  diabetes_rationale: string
+}
+
+export interface DayPlan {
+  day_index: number
+  day_name: string
+  meals: MealItem[]
+}
+
+export interface WeekSummary {
+  avg_daily_calories: number
+  avg_daily_carbs_g: number
+  avg_daily_protein_g: number
+  avg_daily_fat_g: number
+  dietary_philosophy: string
+}
+
+export interface WeeklyMealPlan {
+  id: number
+  week_start: string
+  status: 'pending' | 'ready' | 'failed'
+  cuisine: CuisineOption
+  generated_at: string | null
+  week_summary: WeekSummary
+  days: DayPlan[]
+}
+
+export async function generateMealPlan(cuisine: CuisineOption = 'mediterranean'): Promise<WeeklyMealPlan> {
+  return postJson<WeeklyMealPlan>('/nutrition/meal-plan/generate', { cuisine })
+}
+
+export async function getMealPlan(patientId?: string): Promise<WeeklyMealPlan | null> {
+  const query = patientId ? `?patient_id=${patientId}` : ''
+  try {
+    return await getJson<WeeklyMealPlan>(`/nutrition/meal-plan/current${query}`)
+  } catch {
+    return null
+  }
+}
+
+export async function regenerateMealPlanDay(planId: number, dayIndex: number): Promise<WeeklyMealPlan> {
+  return postJson<WeeklyMealPlan>(`/nutrition/meal-plan/${planId}/regenerate-day`, { day_index: dayIndex })
+}
+
