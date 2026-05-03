@@ -9,8 +9,6 @@
  */
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { LipsyncEn } from '@met4citizen/talkinghead/modules/lipsync-en.mjs'
-import { LipsyncFr } from '@met4citizen/talkinghead/modules/lipsync-fr.mjs'
 import { cn } from '@/lib/utils'
 import type { AvatarEmotion, AvatarPhase } from '@/components/psychology/sanadi-avatar'
 
@@ -444,8 +442,12 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
         })
 
         headRef.current = head
-        head.lipsync.en = new LipsyncEn()
-        head.lipsync.fr = new LipsyncFr()
+        const [lipsyncEnMod, lipsyncFrMod] = await Promise.all([
+          import('@met4citizen/talkinghead/modules/lipsync-en.mjs'),
+          import('@met4citizen/talkinghead/modules/lipsync-fr.mjs'),
+        ])
+        head.lipsync.en = new lipsyncEnMod.LipsyncEn()
+        head.lipsync.fr = new lipsyncFrMod.LipsyncFr()
         head.setMixerGain?.(2.55, null, 0)
 
         const rawAvatarUrl =
