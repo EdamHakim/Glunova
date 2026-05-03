@@ -87,7 +87,10 @@ class Settings(BaseSettings):
     psychology_memory_search_limit: int = 5
     # Session-end consolidation → semantic profile + multi-chunk episodic
     psychology_consolidation_enabled: bool = True
+    # When true (Postgres pool only), persist the ended session first and run consolidation + Qdrant upserts after the HTTP response (faster UX).
+    psychology_consolidation_defer: bool = True
     psychology_consolidation_model: str = "llama-3.1-8b-instant"
+    psychology_consolidation_max_tokens: int = 2800
     psychology_semantic_contradictions_cap: int = 12
     # Mem0 optional spike (off by default)
     mem0_enabled: bool = False

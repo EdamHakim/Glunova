@@ -6,6 +6,7 @@ from statistics import fmean
 import base64
 import binascii
 from io import BytesIO
+import copy
 import json
 import logging
 import math
@@ -380,95 +381,180 @@ class PsychologyService:
             return None
         return fmean(scores)
 
-    def end_session(self, session_id: str, patient_id: int) -> SessionEndResponse:
+    def _finalize_pool_session_memory(
+        self,
+        *,
+        session_id: str,
+        patient_id: int,
+        preferred_language: str,
+        started_at: datetime,
+        summary_dict: dict[str, Any],
+        messages_snapshot: list[TherapyMessageInput],
+        ended_iso: str,
+        session_number: int | None = None,
+    ) -> int:
+        """Postgres-only: consolidation LLM, episodic upserts, semantic profile, physician gate (may be deferred).
+
+        When ``session_number`` is set (sync path before ``put_session``), use it for memory metadata.
+        When omitted (deferred path after ``put_session``), derive from completed-session count (includes this session).
+        Returns number of episodic rows written (or 1 for summary fallback).
+        """
+        if self._pool is None:
+            return 0
+        from psychology.memory_consolidation import run_session_consolidation
+        from psychology.repositories import (
+            count_completed_psychology_sessions,
+            get_semantic_profile_json,
+            set_physician_review_required,
+            set_semantic_profile_json,
+        )
+
+        summary_work = copy.deepcopy(summary_dict)
+        stub = SessionRecord(
+            session_id=session_id,
+            patient_id=patient_id,
+            preferred_language=preferred_language,
+            started_at=started_at,
+            messages=list(messages_snapshot),
+        )
+        memory_blob = self._json_for_longterm_memory(stub, summary_work)
+
+        if session_number is not None:
+            sess_num = max(1, int(session_number))
+        else:
+            sess_num = max(1, int(count_completed_psychology_sessions(self._pool, patient_id)))
+
+        existing_sem = get_semantic_profile_json(self._pool, patient_id)
+        avg_d = PsychologyService._avg_distress_turns(messages_snapshot)
+        chunks, merged_sem, req_review, review_reason = run_session_consolidation(
+            summary_dict=summary_work,
+            session_id=session_id,
+            patient_id=patient_id,
+            preferred_language=preferred_language,
+            avg_distress=avg_d,
+            existing_semantic=existing_sem,
+        )
+        base_meta: dict[str, Any] = {
+            "session_id": session_id,
+            "session_number": sess_num,
+            "session_ended_at": ended_iso,
+        }
+        if chunks:
+            for ch in chunks:
+                meta = dict(base_meta)
+                mt = ch.get("memory_type")
+                if mt is not None:
+                    meta["memory_type"] = mt
+                et = ch.get("emotion_at_time")
+                if et:
+                    meta["emotion_at_time"] = et
+                ds = ch.get("distress_score")
+                if isinstance(ds, (int, float)):
+                    meta["distress_score"] = float(ds)
+                meta["clinical_flag"] = bool(ch.get("clinical_flag"))
+                self._memories.append(patient_id, str(ch.get("text", "")), metadata=meta)
+            stored = len(chunks)
+        else:
+            clinical = bool(summary_work.get("risk_flags"))
+            self._memories.append(
+                patient_id,
+                memory_blob,
+                metadata={
+                    **base_meta,
+                    "memory_type": "session_summary",
+                    "clinical_flag": clinical,
+                },
+            )
+            stored = 1
+        if merged_sem is not None:
+            set_semantic_profile_json(self._pool, patient_id, merged_sem)
+        if req_review:
+            set_physician_review_required(self._pool, patient_id, True)
+            if review_reason:
+                logger.info("physician review required after consolidation: %s", review_reason)
+        return stored
+
+    def end_session(self, session_id: str, patient_id: int, background_tasks: Any | None = None) -> SessionEndResponse:
         session = self._sessions.get_session(session_id)
         if session is None:
             raise KeyError(session_id)
         session.ended_at = datetime.utcnow()
         summary_dict = self._build_summary_dict(session)
         session.session_summary_json = summary_dict
-        memory_blob = self._json_for_longterm_memory(session, summary_dict)
         ended_iso = ""
         if session.ended_at:
             ended_iso = session.ended_at.isoformat() + "Z"
 
-        stored_n = 1
         sess_num = 1
+        defer = bool(getattr(settings, "psychology_consolidation_defer", True))
+
+        if self._pool is not None and defer:
+            self._sessions.put_session(session)
+            messages_snapshot = list(session.messages)
+            started_at = session.started_at
+            preferred_language = session.preferred_language
+            def finalize() -> None:
+                try:
+                    self._finalize_pool_session_memory(
+                        session_id=session.session_id,
+                        patient_id=patient_id,
+                        preferred_language=preferred_language,
+                        started_at=started_at,
+                        summary_dict=summary_dict,
+                        messages_snapshot=messages_snapshot,
+                        ended_iso=ended_iso,
+                        session_number=None,
+                    )
+                except Exception:
+                    logger.exception("psychology.session.end deferred finalize failed session_id=%s", session_id)
+            if background_tasks is not None:
+                background_tasks.add_task(finalize)
+            else:
+                finalize()
+            logger.info("psychology.session.end session_id=%s patient_id=%s deferred_finalize=1", session_id, patient_id)
+            return SessionEndResponse(
+                session_id=session_id,
+                summary_stored=True,
+                stored_memory_items=0,
+            )
 
         if self._pool is not None:
-            from psychology.memory_consolidation import run_session_consolidation
-            from psychology.repositories import (
-                count_completed_psychology_sessions,
-                get_semantic_profile_json,
-                set_physician_review_required,
-                set_semantic_profile_json,
-            )
+            from psychology.repositories import count_completed_psychology_sessions
 
             prev = count_completed_psychology_sessions(self._pool, patient_id)
             sess_num = prev + 1
-            existing_sem = get_semantic_profile_json(self._pool, patient_id)
-            avg_d = PsychologyService._avg_distress_turns(session.messages)
-            chunks, merged_sem, req_review, review_reason = run_session_consolidation(
-                summary_dict=summary_dict,
+            stored_n = self._finalize_pool_session_memory(
                 session_id=session.session_id,
                 patient_id=patient_id,
                 preferred_language=session.preferred_language,
-                avg_distress=avg_d,
-                existing_semantic=existing_sem,
+                started_at=session.started_at,
+                summary_dict=summary_dict,
+                messages_snapshot=list(session.messages),
+                ended_iso=ended_iso,
+                session_number=sess_num,
             )
-            base_meta: dict[str, Any] = {
+            self._sessions.put_session(session)
+            logger.info("psychology.session.end session_id=%s patient_id=%s", session_id, patient_id)
+            return SessionEndResponse(
+                session_id=session_id,
+                summary_stored=True,
+                stored_memory_items=stored_n,
+            )
+
+        memory_blob = self._json_for_longterm_memory(session, summary_dict)
+        clinical = bool(summary_dict.get("risk_flags"))
+        self._memories.append(
+            patient_id,
+            memory_blob,
+            metadata={
                 "session_id": session.session_id,
                 "session_number": sess_num,
                 "session_ended_at": ended_iso,
-            }
-            if chunks:
-                for ch in chunks:
-                    meta = dict(base_meta)
-                    mt = ch.get("memory_type")
-                    if mt is not None:
-                        meta["memory_type"] = mt
-                    et = ch.get("emotion_at_time")
-                    if et:
-                        meta["emotion_at_time"] = et
-                    ds = ch.get("distress_score")
-                    if isinstance(ds, (int, float)):
-                        meta["distress_score"] = float(ds)
-                    meta["clinical_flag"] = bool(ch.get("clinical_flag"))
-                    self._memories.append(patient_id, str(ch.get("text", "")), metadata=meta)
-                stored_n = len(chunks)
-            else:
-                clinical = bool(summary_dict.get("risk_flags"))
-                self._memories.append(
-                    patient_id,
-                    memory_blob,
-                    metadata={
-                        **base_meta,
-                        "memory_type": "session_summary",
-                        "clinical_flag": clinical,
-                    },
-                )
-                stored_n = 1
-            if merged_sem is not None:
-                set_semantic_profile_json(self._pool, patient_id, merged_sem)
-            if req_review:
-                set_physician_review_required(self._pool, patient_id, True)
-                if review_reason:
-                    logger.info("physician review required after consolidation: %s", review_reason)
-        else:
-            clinical = bool(summary_dict.get("risk_flags"))
-            self._memories.append(
-                patient_id,
-                memory_blob,
-                metadata={
-                    "session_id": session.session_id,
-                    "session_number": sess_num,
-                    "session_ended_at": ended_iso,
-                    "memory_type": "session_summary",
-                    "clinical_flag": clinical,
-                },
-            )
-            stored_n = 1
-
+                "memory_type": "session_summary",
+                "clinical_flag": clinical,
+            },
+        )
+        stored_n = 1
         self._sessions.put_session(session)
         logger.info("psychology.session.end session_id=%s patient_id=%s", session_id, patient_id)
         return SessionEndResponse(
@@ -695,9 +781,6 @@ class PsychologyService:
                 anomalies.append("llm_crisis_guard_mode")
             if llm.get("safety_mode") == "elevated_guard":
                 anomalies.append("llm_elevated_guard_mode")
-            citations = llm.get("citations")
-            if not isinstance(citations, list) or len(citations) == 0:
-                anomalies.append("llm_missing_citations")
             return llm["reply"].strip(), rec_out, tech_out, anomalies, str(llm.get("safety_mode") or "normal")
         if retrieval_quality != "ok":
             reply = (
@@ -739,29 +822,24 @@ class PsychologyService:
         user_text: str,
         state: MentalState,
         recommendation: str | None,
-        kb_context: list[dict[str, str]] | None = None,
+        _kb_context: list[dict[str, str]] | None = None,
     ) -> str:
-        kb_hint = ""
-        if kb_context:
-            first = kb_context[0].get("text", "").strip()
-            if first:
-                kb_hint = f" CBT hint: {first[:140]}"
         if state == MentalState.neutral:
-            return f"Thank you for sharing. What felt most manageable for you today?{kb_hint}"
+            return "Thank you for sharing. What felt most manageable for you today?"
         if state == MentalState.anxious:
             return (
                 "I hear that this feels heavy. Let's slow down together: inhale for 4, hold 7, exhale 8. "
-                f"After one round, tell me one thought that is driving this stress.{kb_hint}"
+                "After one round, tell me one thought that is driving this stress."
             )
         if state == MentalState.distressed:
             return (
                 "You're carrying a lot right now. Let's ground first: name 5 things you can see, "
-                f"4 you can feel, and 3 you can hear. Then we can break this into one small next step.{kb_hint}"
+                "4 you can feel, and 3 you can hear. Then we can break this into one small next step."
             )
         if state == MentalState.depressed:
             return (
                 "Thank you for saying this out loud. We can keep this very small: pick one tiny action "
-                f"for the next 10 minutes, like drinking water or opening a window.{kb_hint}"
+                "for the next 10 minutes, like drinking water or opening a window."
             )
         return SAFE_CRISIS_REPLY
 

@@ -81,9 +81,11 @@ def run_session_consolidation(
 
         client = Groq(api_key=api_key)
         model = (settings.psychology_consolidation_model or settings.groq_model).strip()
+        max_tok = int(getattr(settings, "psychology_consolidation_max_tokens", 2800) or 2800)
         response = client.chat.completions.create(
             model=model,
             temperature=0.15,
+            max_tokens=max(512, min(max_tok, 8192)),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": CONSOLIDATION_SYSTEM},

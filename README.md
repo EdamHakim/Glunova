@@ -37,7 +37,7 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 - **Nutrition and activity** — glycemic-index–aware meal planning, exercise scheduling, and agentic nutrition guidance; ingredient and portion cues via **computer vision** (e.g. **YOLO-World** / **Ultralytics** in the nutrition pipeline).
 - **Psychology and engagement** — multimodal emotional support, therapeutic modes, pediatric engagement, and accessible UX patterns.
 - **Care circle and clinic** — family and caregiver coordination, **medical document OCR** and extraction orchestration, and clinical decision support surfaces.
-- **Security and governance** — **JWT** authentication, **RBAC**, and shared relational data between services (see [role_access_plan.md](role_access_plan.md) and [rbac_implementation_plan.md](rbac_implementation_plan.md)).
+- **Security and governance** — **JWT** authentication, **RBAC**, and shared relational data between services.
 
 ---
 

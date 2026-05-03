@@ -16,7 +16,7 @@ from clinic.schemas import (
     ThermalFootInferenceResponse,
     ThermalFootModelHealthResponse,
 )
-from clinic.models.DFUSegmentation import DFUSegmenter
+from clinic.DFUSegmentation import DFUSegmenter
 from monitoring.services.triggers import record_screening_and_refresh
 from clinic.services.retinopathy_service import RetinopathyService
 from clinic.services.thermal_foot_pt_service import ThermalFootPtService
