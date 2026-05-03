@@ -496,7 +496,7 @@ export default function MealPlannerPage() {
         <p className="text-muted-foreground mt-2">
           {isPatient
             ? 'AI-generated 7-day plan tailored to your HbA1c, glucose levels, and medications. Macros validated against USDA.'
-            : 'Read-only view of the patient's personalised weekly meal plan.'}
+            : "Read-only view of the patient's personalised weekly meal plan."}
         </p>
       </div>
       <MealPlannerTabContent patientId={isPatient ? undefined : ''} isPatient={isPatient} />

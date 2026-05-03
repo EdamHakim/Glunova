@@ -5,3 +5,4 @@ __pycache__/
 **/models/
 /psychology data
 psychology_todo.md
+/.claude

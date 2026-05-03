@@ -16,7 +16,7 @@ from documents.access import can_access_patient_documents, parse_patient_pk
 from documents.models import PatientCaregiverLink
 from nutrition.models import ExerciseSession, Meal, NutritionGoal, RecoveryPlan, WeeklyMealPlan
 
-FASTAPI_BASE = getattr(settings, "FASTAPI_BASE_URL", "http://localhost:8001")
+FASTAPI_BASE = getattr(settings, "AI_SERVICE_URL", "http://localhost:8001")
 
 _DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -94,7 +94,7 @@ class ExercisePlanListView(APIView):
 
 def _build_clinical_profile(patient, cuisine: str) -> dict:
     """Assemble the MealPlanRequest payload from a patient's DB records."""
-    from clinical.models import PatientMedication
+    from monitoring.models import PatientMedication
 
     meds = list(
         PatientMedication.objects.filter(patient=patient, verification_status="matched")
@@ -219,10 +219,15 @@ class MealPlanGenerateView(APIView):
             resp = httpx.post(
                 f"{FASTAPI_BASE}/nutrition/meal-plan/generate",
                 json=profile,
-                timeout=120,
+                timeout=360,  # Groq (~20s) + USDA validation (~50 unique ingredients × 2s)
             )
             resp.raise_for_status()
             plan_data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            return Response(
+                {"detail": f"AI generation failed: {exc.response.status_code} — {exc.response.text[:300]}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         except Exception as exc:
             return Response({"detail": f"AI generation failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
 
@@ -254,10 +259,15 @@ class MealPlanRegenerateDayView(APIView):
             resp = httpx.post(
                 f"{FASTAPI_BASE}/nutrition/meal-plan/generate",
                 json=profile,
-                timeout=90,
+                timeout=120,  # single day: Groq (~20s) + USDA (~4 meals × ~5 ingredients × 2s)
             )
             resp.raise_for_status()
             plan_data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            return Response(
+                {"detail": f"AI generation failed: {exc.response.status_code} — {exc.response.text[:300]}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         except Exception as exc:
             return Response({"detail": f"AI generation failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
 

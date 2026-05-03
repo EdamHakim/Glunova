@@ -3,15 +3,40 @@ USDA FoodData Central validation layer.
 
 Endpoint : https://api.nal.usda.gov/fdc/v1/foods/search
 API key  : optional — get one free at https://fdc.nal.usda.gov/api-key-signup.html
-           DEMO_KEY works (30 req/min); a real key gives 1 000 req/min.
+           DEMO_KEY = 30 req/min; real key = 1 000 req/min.
+
+Rate-limit strategy
+-------------------
+A 7-day meal plan fires ~112–140 USDA queries.  With DEMO_KEY (30 req/min) the
+API starts returning 429s after the first ~30 calls, silently turning every
+remaining ingredient into "not found".  We handle this with two mechanisms:
+
+1. Module-level ingredient cache  — the same ingredient name (e.g. "chicken
+   breast") recurring across multiple days hits USDA only once per process
+   lifetime.  This alone typically cuts unique queries by 40–60 %.
+
+2. Per-request throttle  — a configurable sleep between uncached requests.
+   Default: 2.1 s (≈ 28 req/min, safely under the 30 req/min DEMO_KEY cap).
+   Set USDA_REQUEST_DELAY=0.1 in .env when you have a real API key.
 """
 import os
 import re
+import time
 import requests
 from typing import Optional
 
 USDA_BASE    = "https://api.nal.usda.gov/fdc/v1"
 USDA_API_KEY = os.environ.get("USDA_API_KEY", "DEMO_KEY")
+
+# Seconds to sleep between uncached USDA requests.
+# 2.1 s → ~28 req/min (safe under DEMO_KEY 30/min cap).
+# Set to 0.1 with a real API key for fast lookups.
+_DELAY = float(os.environ.get("USDA_REQUEST_DELAY", "2.1" if USDA_API_KEY == "DEMO_KEY" else "0.1"))
+
+# Module-level cache: ingredient name → USDA food entry (or None if not found).
+# Survives for the lifetime of the FastAPI process, eliminating duplicate calls
+# for the same ingredient appearing across multiple days of the same plan.
+_cache: dict[str, Optional[dict]] = {}
 
 # Ingredient unit strings → approximate grams
 UNIT_TO_GRAMS: dict[str, float] = {
@@ -57,7 +82,18 @@ def parse_quantity_grams(ingredient_str: str) -> tuple[float, str]:
 
 
 def search_food(query: str) -> Optional[dict]:
-    """Return the best-match USDA food entry or None on any error."""
+    """
+    Return the best-match USDA food entry or None on any error.
+    Results are cached by query string; uncached calls are throttled
+    to respect the DEMO_KEY 30 req/min rate limit.
+    """
+    key = query.lower().strip()
+    if key in _cache:
+        return _cache[key]
+
+    # Throttle before every real network request
+    time.sleep(_DELAY)
+
     params = {
         "query":    query,
         "dataType": ["SR Legacy", "Foundation", "Branded"],
@@ -68,9 +104,12 @@ def search_food(query: str) -> Optional[dict]:
         r = requests.get(f"{USDA_BASE}/foods/search", params=params, timeout=10)
         r.raise_for_status()
         foods = r.json().get("foods", [])
-        return foods[0] if foods else None
+        result = foods[0] if foods else None
     except Exception:
-        return None
+        result = None
+
+    _cache[key] = result
+    return result
 
 
 def _extract_nutrients_per_100g(food: dict) -> dict[str, float]:
