@@ -619,8 +619,18 @@ class QdrantKnowledgeBase:
         }
 
     def _embed_text(self, text: str) -> list[float]:
+        # Prefer HF Inference API to avoid loading local weights when a token is available.
+        token = (settings.psychology_hf_api_token or "").strip()
+        mode = (settings.psychology_emotion_inference_mode or "auto").strip().lower()
+        if token and mode != "local":
+            from psychology.hf_emotion_inference import embed_text as _hf_embed
+            vec = _hf_embed(token, self.embedding_model_name, text, settings.psychology_hf_inference_timeout_s)
+            if vec is not None:
+                return vec
+            if mode == "inference_api":
+                return self._fallback_embed_text(text, size=self.vector_size)
+        # Local fallback — lazy-load SentenceTransformer only when needed.
         if self._embedder is None and self._real_embeddings_enabled:
-            # Lazy-load embedder to keep FastAPI startup fast.
             self._init_embedder()
         if self._embedder is not None and self._real_embeddings_enabled:
             try:

@@ -56,53 +56,56 @@ class MeView(APIView):
         return Response(data)
             
     def patch(self, request):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.db import IntegrityError
+
         u = request.user
         data = request.data
-        
+
         # Handle profile picture upload
         if "profile_picture" in request.FILES:
-            # Delete old picture file if it exists
             if u.profile_picture:
                 u.profile_picture.delete(save=False)
             u.profile_picture = request.FILES["profile_picture"]
             u.save(update_fields=["profile_picture"])
-        
+
         # Fields that can be updated directly on the User model
         updatable_fields = [
             "first_name", "last_name", "email",
             "date_of_birth", "gender", "height_cm", "weight_kg",
             "hypertension", "heart_disease", "smoking_status",
-            "hba1c_level", "blood_glucose_level"
+            "hba1c_level", "blood_glucose_level",
         ]
-        
-        # Nullable fields that accept None when empty
+
+        # Nullable fields that accept None / empty string
         nullable_fields = {
             "date_of_birth", "gender", "height_cm", "weight_kg",
             "hypertension", "heart_disease", "smoking_status",
-            "hba1c_level", "blood_glucose_level"
+            "hba1c_level", "blood_glucose_level",
         }
-        
-        updated = False
+
+        changed_fields: list[str] = []
         for field in updatable_fields:
-            if field in data:
-                val = data[field]
-                if field in nullable_fields:
-                    # Coerce empty strings to None for nullable fields
-                    if val == "" or val is None:
-                        setattr(u, field, None)
-                    else:
-                        setattr(u, field, val)
-                else:
-                    # For required fields (first_name, last_name, email), skip empty values
-                    if val == "" or val is None:
-                        continue
-                    setattr(u, field, val)
-                updated = True
-        
-        if updated:
-            u.save()
-            
-        # Return updated user data (same as GET)
+            if field not in data:
+                continue
+            val = data[field]
+            if field in nullable_fields:
+                setattr(u, field, None if (val == "" or val is None) else val)
+            else:
+                if val == "" or val is None:
+                    continue
+                setattr(u, field, val)
+            changed_fields.append(field)
+
+        if changed_fields:
+            try:
+                u.save(update_fields=changed_fields)
+                u.refresh_from_db()  # reload DB-coerced types (e.g. date strings → date objects)
+            except (DjangoValidationError, IntegrityError, ValueError, TypeError) as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as exc:
+                return Response({"detail": f"Save failed: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         return self.get(request)
 
 
