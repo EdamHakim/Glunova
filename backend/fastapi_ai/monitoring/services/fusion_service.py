@@ -58,6 +58,7 @@ class MonitoringFusionService:
         "complication_asymmetry": "COMPLICATION_THRESHOLD",
         "tabular_high":           "TABULAR_HIGH_THRESHOLD",
         "dr_detected":            "DR_DETECTED_THRESHOLD",
+        "dfu_override":           "DFU_OVERRIDE_THRESHOLD",
     }
 
     def _apply_config(self) -> None:
@@ -147,9 +148,18 @@ class MonitoringFusionService:
         }
 
         # DR V8 grade + confidence are persisted in the DR ScreeningResult metadata
-        # by the DR cascade route. Default to 0 if not run yet for this patient.
+        # by the DR cascade route. The fusion override rules expect ICDR (0-4 with
+        # 0=No DR, 3=Severe, 4=Proliferative), but V8 returns grade_idx in 0-3
+        # (Mild/Moderate/Severe/Proliferative — V8 only runs once V5.1 confirms DR).
+        # We prefer clinical_grade when available (already ICDR), and fall back to
+        # converting V8's grade_idx using the v51_dr_detected flag.
         dr_meta = (scores.get("p_dr_v51") or {}).get("metadata", {})
-        dr_grade = int(dr_meta.get("dr_v8_grade", 0))
+        if "clinical_grade" in dr_meta:
+            dr_grade = int(dr_meta.get("clinical_grade", 0))
+        else:
+            v8_idx = int(dr_meta.get("dr_v8_grade", 0))
+            v51_detected = bool(dr_meta.get("v51_dr_detected", False))
+            dr_grade = v8_idx + 1 if v51_detected else 0
         dr_confidence = float(dr_meta.get("dr_v8_confidence", 0.0))
 
         cat_meta = (scores.get("p_cataract") or {}).get("metadata", {})

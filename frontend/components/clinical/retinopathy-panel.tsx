@@ -1,7 +1,7 @@
 'use client'
 
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
-import { Eye, Loader2, Sparkles, Upload } from 'lucide-react'
+import { Eye, Info, Loader2, Sparkles, Upload } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +12,37 @@ import { getApiUrls } from '@/lib/auth'
 import { useAuth } from '@/components/auth-context'
 
 const GRADE_NAMES = ['Mild', 'Moderate', 'Severe', 'Proliferative'] as const
+
+const LESION_HINTS: Record<string, { primary: string[]; rule?: string }> = {
+  'Mild NPDR': {
+    primary: [
+      'Microaneurysms (tiny red dots, < 125 µm) — usually scattered in the posterior pole',
+    ],
+  },
+  'Moderate NPDR': {
+    primary: [
+      'Microaneurysms + dot/blot hemorrhages (deeper, intraretinal)',
+      'Hard exudates (yellow, lipid deposits — often clustered around leaks)',
+      'Cotton-wool spots (white, fluffy — nerve fiber layer infarcts)',
+    ],
+  },
+  'Severe NPDR': {
+    primary: [
+      'Extensive intraretinal hemorrhages',
+      'Venous beading (sausage-like vein irregularities)',
+      'IRMA — Intraretinal microvascular abnormalities (shunt vessels)',
+    ],
+    rule: '4-2-1 rule (ETDRS): ≥20 hemorrhages in all 4 quadrants OR venous beading in ≥2 quadrants OR IRMA in ≥1 quadrant',
+  },
+  'Proliferative DR': {
+    primary: [
+      'Neovascularization at the disc (NVD) or elsewhere (NVE)',
+      'Preretinal or vitreous hemorrhage',
+      'Fibrovascular proliferation, possible tractional retinal detachment',
+    ],
+    rule: 'PDR is a sight-threatening emergency — refer for pan-retinal photocoagulation or anti-VEGF without delay (AAO PPP 2019).',
+  },
+}
 
 type V51Detail = {
   dr_detected: boolean
@@ -316,25 +347,77 @@ export function RetinopathyPanel() {
             </div>
 
             {heatmap ? (
-              <div className="rounded-lg border p-3">
-                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="rounded-lg border p-3 space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-sm font-medium">AI Attention Map</p>
-                    <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-                      Highlighted regions show where the model focused to reach its decision.
-                      Verify these areas align with visible diabetic lesions
-                      (microaneurysms, hemorrhages, exudates).
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      AI Attention Map (Grad-CAM)
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                      Gradient-weighted Class Activation Mapping highlights the retinal regions that
+                      most influenced the model&apos;s severity grading. Use it as an interpretability
+                      check — not as a replacement for fundoscopy.
                     </p>
                   </div>
                   <Badge variant="outline" className="shrink-0">
                     {heatmap.grade_label}
                   </Badge>
                 </div>
+
                 <img
                   src={`data:image/jpeg;base64,${heatmap.heatmap_base64}`}
                   alt="Retinopathy AI attention overlay"
                   className="w-full max-h-[420px] object-contain rounded bg-muted"
                 />
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+                      <Info className="h-3.5 w-3.5" />
+                      Heatmap legend
+                    </p>
+                    <ul className="space-y-1.5 text-xs">
+                      <li className="flex items-center gap-2">
+                        <span className="inline-block h-3 w-3 rounded-full bg-red-500" />
+                        <span><strong>Red / orange</strong> — strongest model attention (decisive lesion)</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="inline-block h-3 w-3 rounded-full bg-yellow-400" />
+                        <span><strong>Yellow / green</strong> — moderate contribution</span>
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span className="inline-block h-3 w-3 rounded-full bg-blue-500" />
+                        <span><strong>Blue / dark</strong> — region ignored by the model</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs font-semibold mb-2">
+                      Lesions to verify for {heatmap.grade_label}
+                    </p>
+                    {LESION_HINTS[heatmap.grade_label] ? (
+                      <>
+                        <ul className="space-y-1 text-xs text-muted-foreground list-disc pl-4">
+                          {LESION_HINTS[heatmap.grade_label].primary.map((lesion) => (
+                            <li key={lesion}>{lesion}</li>
+                          ))}
+                        </ul>
+                        {LESION_HINTS[heatmap.grade_label].rule ? (
+                          <p className="text-xs mt-2 pt-2 border-t border-border/60 text-foreground/90">
+                            <strong>Reference:</strong> {LESION_HINTS[heatmap.grade_label].rule}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No specific lesion checklist for this grade.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
               </div>
             ) : null}
           </div>
