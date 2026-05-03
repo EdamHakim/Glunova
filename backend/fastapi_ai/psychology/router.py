@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 
 from core.config import settings
 from core.rbac import require_roles
@@ -177,10 +177,11 @@ def crisis_events(
 @router.post("/session/end", response_model=SessionEndResponse)
 def end_session(
     payload: SessionEndRequest,
+    background_tasks: BackgroundTasks,
     _claims: dict = Depends(require_roles("patient", "doctor")),
 ) -> SessionEndResponse:
     try:
-        return service.end_session(payload.session_id, payload.patient_id)
+        return service.end_session(payload.session_id, payload.patient_id, background_tasks=background_tasks)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
 
