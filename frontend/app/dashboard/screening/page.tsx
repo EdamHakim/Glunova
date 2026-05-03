@@ -1,7 +1,7 @@
 'use client'
 
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
-import { Upload, Mic, AlertCircle } from 'lucide-react'
+import { Upload, Mic, AlertCircle, Eye } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +24,15 @@ type TongueResult = {
   heatmapBase64?: string
 }
 
+type CataractResult = {
+  prediction_label: string
+  prediction_index: number
+  confidence: number
+  p_cataract: number
+  probabilities: Record<string, number>
+  heatmapBase64?: string
+}
+
 import { useAuth } from '@/components/auth-context'
 
 export default function ScreeningPage() {
@@ -35,6 +44,83 @@ export default function ScreeningPage() {
   const [error, setError] = useState('')
   const [tongueResult, setTongueResult] = useState<TongueResult | null>(null)
   const [isResultModalOpen, setIsResultModalOpen] = useState(false)
+
+  // ─── Cataract (Eye Image) state ───
+  const [eyeFile, setEyeFile] = useState<File | null>(null)
+  const [eyePreviewUrl, setEyePreviewUrl] = useState('')
+  const [eyeLoading, setEyeLoading] = useState(false)
+  const [eyeError, setEyeError] = useState('')
+  const [cataractResult, setCataractResult] = useState<CataractResult | null>(null)
+  const [isCataractModalOpen, setIsCataractModalOpen] = useState(false)
+
+  function onEyeFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0] ?? null
+    setEyeFile(selected)
+    setEyeError('')
+    setCataractResult(null)
+    setEyePreviewUrl(selected ? URL.createObjectURL(selected) : '')
+  }
+
+  async function onCataractSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setEyeError('')
+    setCataractResult(null)
+
+    if (!eyeFile) {
+      setEyeError('Please select an eye image before uploading.')
+      return
+    }
+    if (!sessionUser || sessionUser.role !== 'patient' || sessionUser.userId == null) {
+      setEyeError('Cataract screening requires a logged-in patient account.')
+      return
+    }
+
+    setEyeLoading(true)
+    try {
+      const { fastapi } = getApiUrls()
+
+      const inferPayload = new FormData()
+      inferPayload.append('image', eyeFile)
+      const inferResponse = await fetch(`${fastapi}/screening/cataract/infer`, {
+        method: 'POST',
+        credentials: 'include',
+        body: inferPayload,
+      })
+      if (!inferResponse.ok) {
+        const data = await inferResponse.json().catch(() => ({}))
+        throw new Error(data?.detail ?? 'Cataract inference failed.')
+      }
+      const inferData = await inferResponse.json()
+
+      const result: CataractResult = {
+        prediction_label: inferData.prediction_label,
+        prediction_index: inferData.prediction_index,
+        confidence: inferData.confidence,
+        p_cataract: inferData.p_cataract,
+        probabilities: inferData.probabilities,
+      }
+
+      // Try to also fetch the Grad-CAM (best-effort)
+      const gradcamPayload = new FormData()
+      gradcamPayload.append('image', eyeFile)
+      const gradcamResponse = await fetch(`${fastapi}/screening/cataract/gradcam`, {
+        method: 'POST',
+        credentials: 'include',
+        body: gradcamPayload,
+      })
+      if (gradcamResponse.ok) {
+        const gradcamData = await gradcamResponse.json()
+        result.heatmapBase64 = gradcamData.heatmap_base64
+      }
+
+      setCataractResult(result)
+      setIsCataractModalOpen(true)
+    } catch (submitError) {
+      setEyeError(submitError instanceof Error ? submitError.message : 'Request failed.')
+    } finally {
+      setEyeLoading(false)
+    }
+  }
 
   const riskPercent = useMemo(() => {
     if (!tongueResult) return 0
@@ -169,6 +255,64 @@ export default function ScreeningPage() {
           </DialogContent>
         </Dialog>
 
+        {/* Cataract Result Dialog */}
+        <Dialog open={isCataractModalOpen} onOpenChange={setIsCataractModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cataract Screening Result</DialogTitle>
+              <DialogDescription>
+                AI cataract severity classification (account #{sessionUser?.userId}).
+              </DialogDescription>
+            </DialogHeader>
+
+            {cataractResult ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <span className="text-sm text-muted-foreground">Severity</span>
+                  <Badge>{cataractResult.prediction_label}</Badge>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <span className="text-sm text-muted-foreground">Confidence</span>
+                  <span className="font-semibold">
+                    {Math.round(cataractResult.confidence * 100)}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <span className="text-sm text-muted-foreground">P(cataract)</span>
+                  <span className="font-semibold">
+                    {Math.round(cataractResult.p_cataract * 100)}%
+                  </span>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-sm text-muted-foreground mb-2">Probabilities per class</p>
+                  <ul className="space-y-1 text-xs">
+                    {Object.entries(cataractResult.probabilities).map(([label, prob]) => (
+                      <li key={label} className="flex justify-between">
+                        <span className="capitalize">{label}</span>
+                        <span className="font-mono">{(prob * 100).toFixed(1)}%</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {cataractResult.heatmapBase64 ? (
+                  <div className="rounded-lg border p-2">
+                    <p className="text-sm text-muted-foreground mb-2">Grad-CAM Heatmap</p>
+                    <img
+                      src={`data:image/jpeg;base64,${cataractResult.heatmapBase64}`}
+                      alt="Cataract Grad-CAM"
+                      className="w-full h-48 object-cover rounded"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <DialogFooter>
+              <Button onClick={() => setIsCataractModalOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Non-Invasive Screening</h1>
           <p className="text-muted-foreground mt-2">AI-powered health assessment using voice, tongue, and eye imaging</p>
@@ -224,24 +368,47 @@ export default function ScreeningPage() {
             </CardContent>
           </Card>
 
-          {/* Eye Image */}
+          {/* Cataract Image — MobileNet inference */}
           <Card className="flex flex-col">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Upload className="h-5 w-5 text-health-success" />
-                Eye Image
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Eye className="h-5 w-5 text-health-success" />
+                Cataract Image
               </CardTitle>
-              <CardDescription>Upload eye/retina photo</CardDescription>
+              <CardDescription>Upload and run cataract severity inference</CardDescription>
             </CardHeader>
-            <CardContent className="flex-1 flex flex-col justify-center gap-4">
-              <div className="aspect-video bg-muted rounded-lg flex items-center justify-center border-2 border-dashed border-border hover:border-primary cursor-pointer transition-colors">
-                <div className="text-center">
-                  <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">Drag or click to upload</p>
-                </div>
-              </div>
-              <Button variant="outline" className="w-full">
-                Upload Image
+            <CardContent className="flex flex-1 flex-col justify-center gap-4">
+              <form className="space-y-3" onSubmit={onCataractSubmit}>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={onEyeFileChange}
+                  required
+                />
+                {eyePreviewUrl ? (
+                  <div className="rounded-lg border p-2">
+                    <img
+                      src={eyePreviewUrl}
+                      alt="Eye preview"
+                      className="h-36 w-full rounded object-cover"
+                    />
+                  </div>
+                ) : null}
+
+                {eyeError ? (
+                  <p className="flex items-start gap-2 text-sm text-destructive">
+                    <AlertCircle className="h-4 w-4 mt-0.5" />
+                    {eyeError}
+                  </p>
+                ) : null}
+
+                <Button type="submit" className="w-full" disabled={eyeLoading}>
+                  {eyeLoading ? 'Analyzing...' : 'Run Cataract Screening'}
+                </Button>
+              </form>
+
+              <Button variant="outline" className="w-full" asChild>
+                <a href="/dashboard/screening/cataract">Advanced Detection →</a>
               </Button>
             </CardContent>
           </Card>

@@ -658,6 +658,29 @@ def late_fusion_robust(features_dict, dr_grade=0, dr_grade_confidence=0.0,
             'asymmetry_filtered': asymmetry_filtered,
         }
 
+    # === ETAPE 6 ter : Override CRITICAL (Severe Cataract detectee) ===
+    # Justification AAO PPP 2024 (Cataract in the Adult Eye) : une cataracte
+    # severe (grade 3 = mature avec opacite importante, vision < 20/200) est
+    # une urgence ophtalmologique fonctionnelle (chute, perte d'autonomie).
+    # On exige confidence >= 0.75 pour eviter les faux positifs sur un modele
+    # MobileNet 4-classes dont la classe "severe" peut etre instable.
+    if cataract_grade == 3 and cataract_confidence >= OVERRIDE_CONFIDENCE_THRESHOLD:
+        override_active = True
+        override_reason = f'Severe cataract avec confidence {cataract_confidence:.2f}'
+        return {
+            'p_finale': p_finale,
+            'tier': 'CRITICAL',
+            'reasons': ['Severe cataract detected — vision impairment, urgent surgical evaluation'],
+            'recommendation': 'OPHTHALMIC EMERGENCY (cataract) — Urgent referral to cataract surgeon for evaluation; mature cataract significantly impairs vision and increases fall/autonomy risk.',
+            'contributions': contributions,
+            'norm_weights': norm_weights,
+            'confidence_factor': confidence_factor,
+            'n_models_used': n_models_raw,
+            'override_active': override_active,
+            'override_reason': override_reason,
+            'asymmetry_filtered': asymmetry_filtered,
+        }
+
     # === ETAPE 6 bis : Override CRITICAL (Diabetic Foot Ulcer detecte) ===
     # Justification clinique IWGDF 2023 : un ulcere diabetique actif est une
     # urgence par lui-meme, independamment des autres signaux. 19-34% de risque
