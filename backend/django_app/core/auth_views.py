@@ -9,8 +9,18 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from users.models import CaregiverProfile, DoctorProfile, PatientProfile
+
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+_PATIENT_PROFILE_FIELDS = [
+    "date_of_birth", "gender", "height_cm", "weight_kg",
+    "hypertension", "heart_disease", "smoking_status",
+    "hba1c_level", "blood_glucose_level", "diabetes_type", "allergies",
+]
+_DOCTOR_PROFILE_FIELDS    = ["specialization", "license_number", "hospital_affiliation"]
+_CAREGIVER_PROFILE_FIELDS = ["relationship", "is_professional"]
 
 
 def _trigger_fusion_refresh(patient_id: int) -> None:
@@ -33,24 +43,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = (
-            "username", "email", "password", "first_name", "last_name", "role",
-            # Patient health profile (optional; only meaningful when role="patient").
-            "date_of_birth", "gender", "height_cm", "weight_kg",
-            "hypertension", "heart_disease", "smoking_status",
-            "hba1c_level", "blood_glucose_level",
-        )
-        extra_kwargs = {
-            "date_of_birth": {"required": False, "allow_null": True},
-            "gender": {"required": False, "allow_null": True, "allow_blank": True},
-            "height_cm": {"required": False, "allow_null": True},
-            "weight_kg": {"required": False, "allow_null": True},
-            "hypertension": {"required": False, "allow_null": True},
-            "heart_disease": {"required": False, "allow_null": True},
-            "smoking_status": {"required": False, "allow_null": True, "allow_blank": True},
-            "hba1c_level": {"required": False, "allow_null": True},
-            "blood_glucose_level": {"required": False, "allow_null": True},
-        }
+        fields = ("username", "email", "password", "first_name", "last_name", "role")
 
     def create(self, validated_data):
         password = validated_data.pop("password")
@@ -68,11 +61,19 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        # Trigger #1: kick off the v11 fusion to compute the patient's initial tier.
-        # Synchronous but with a short timeout — does not block signup if FastAPI
-        # is unavailable or the patient is missing required health fields.
-        if user.role == "patient":
+
+        role = user.role
+        if role == "patient":
+            profile_data = {k: request.data[k] for k in _PATIENT_PROFILE_FIELDS if k in request.data}
+            PatientProfile.objects.create(user=user, **profile_data)
             _trigger_fusion_refresh(int(user.id))
+        elif role == "doctor":
+            profile_data = {k: request.data[k] for k in _DOCTOR_PROFILE_FIELDS if k in request.data}
+            DoctorProfile.objects.create(user=user, **profile_data)
+        elif role == "caregiver":
+            profile_data = {k: request.data[k] for k in _CAREGIVER_PROFILE_FIELDS if k in request.data}
+            CaregiverProfile.objects.create(user=user, **profile_data)
+
         return Response(
             {
                 "id": user.id,

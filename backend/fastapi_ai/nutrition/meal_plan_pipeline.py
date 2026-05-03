@@ -1,5 +1,5 @@
 """
-Weekly Meal Plan pipeline — LLM (Groq llama-3.3-70b-versatile).
+Weekly Meal Plan pipeline — LLM via api.navy (OpenAI-compatible).
 
 Generates the plan structure: meal names, descriptions, ingredients with
 quantities, GI/GL assessment, diabetes rationale, and model-estimated macros.
@@ -7,11 +7,15 @@ quantities, GI/GL assessment, diabetes rationale, and model-estimated macros.
 import json
 import os
 import re
-import requests
 from typing import Optional
+
+from openai import OpenAI
 
 from .meal_plan_schema import MealPlanRequest
 from .pipeline_nutrition import call_with_retry   # reuse existing retry helper
+
+NAVY_BASE_URL = "https://api.navy/v1"
+NAVY_MODEL    = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -107,38 +111,27 @@ Return ONLY valid JSON — no text before or after, no markdown fences:
 }}"""
 
 
-def _call_groq(prompt: str) -> dict:
-    groq_key = os.environ.get("GROQ_API_KEY")
-    if not groq_key:
-        raise EnvironmentError("GROQ_API_KEY not set")
+def _call_navy(prompt: str) -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("OPENAI_API_KEY not set")
+
+    client = OpenAI(api_key=api_key, base_url=NAVY_BASE_URL)
 
     def _api_call():
-        r = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type":  "application/json",
-            },
-            json={
-                "model":       "llama-3.3-70b-versatile",
-                "messages":    [{"role": "user", "content": prompt}],
-                "temperature": 0.4,
-                "max_tokens":  6000,
-            },
-            timeout=90,
+        return client.chat.completions.create(
+            model=NAVY_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=6000,
         )
-        r.raise_for_status()
-        return r.json()
 
     resp = call_with_retry(_api_call)
-    raw  = resp["choices"][0]["message"]["content"].strip()
+    raw  = resp.choices[0].message.content.strip()
     raw  = re.sub(r"```json\s*|```\s*", "", raw).strip()
     return json.loads(raw)
 
 
 def generate_meal_plan(req: MealPlanRequest) -> dict:
     target_days = [req.day_index] if req.day_index is not None else list(range(7))
-
-    plan_data = _call_groq(_build_prompt(req, target_days))
-
-    return plan_data
+    return _call_navy(_build_prompt(req, target_days))

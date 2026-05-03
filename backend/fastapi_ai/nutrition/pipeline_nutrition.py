@@ -332,13 +332,11 @@ Return a valid JSON object (NO text before/after, NO markdown) with this structu
         # 2. YOLO-World
         print(f"Step 2/4: YOLO-World...")
         detections = self.detecter_ingredients_yolo(image_path, vision_res["ingredients"])
-        
-        # 3. Roboflow SAM
-        print(f"Step 3/4: Roboflow SAM API...")
+
         detections_final = self.segmenter_ingredients_sam(image_path, detections)
         
-        # 4. Nutrition Analysis
-        print(f"Step 4/4: Nutrition Analysis...")
+        # 3. Nutrition Analysis
+        print(f"Step 3/3: Nutrition Analysis...")
         nutrition_res = self.analyser_nutrition_groq(vision_res["dish"], detections_final, profil)
         
         # Clean results for serialisation
