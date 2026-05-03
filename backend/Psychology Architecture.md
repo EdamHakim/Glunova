@@ -82,7 +82,7 @@ Voice routes use the same roles as **`POST /psychology/message`**: **patient**, 
 Settings live in `core/config.py`. Remote vs local routing is controlled by **`psychology_emotion_inference_mode`**: `auto` | `inference_api` | `local` (`auto` uses HF Inference API when `psychology_hf_api_token` or `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` is set, otherwise local checkpoints where implemented).
 
 | Face | `psychology_face_emotion_model` (default **`mo-thecreator/vit-Facial-Expression-Recognition`**) | ViT image classification via HF Inference API when a token is available, else **`transformers`** local weights. Mapped into Sanadi’s five emotion labels in `PsychologyService._map_face_label_generic`. |
-| Speech | **`iic/emotion2vec_plus_large`** (ModelScope pipeline, local WAV) | Default path for speech emotion. Optional **`psychology_speech_emotion_hf_model`**: when set and API mode/token allow, **`audio_classification`** on HF Inference API. |
+| Speech | **`iic/emotion2vec_plus_large`** (ModelScope, local WAV) + **`psychology_speech_emotion_hf_model`** (default **`superb/hubert-large-superb-er`**) | HF Inference **`audio_classification`** when token + non-`local` mode allow; local emotion2vec otherwise. If `inference_api` and the HF repo is cleared to empty, service falls back to local emotion2vec with a warning. |
 | Text | **`j-hartmann/emotion-english-distilroberta-base`** (optional HF) | If **`psychology_text_emotion_use_hf`** is true, or Inference API token is present in non-`local` mode, HF path runs; otherwise fast keyword heuristics in `_text_emotion()`. |
 | Embedding | **`sentence-transformers/all-MiniLM-L6-v2`** (`qdrant_embedding_model`) | Powers Qdrant CBT retrieval and episodic memory vectors; **`qdrant_vector_size`** in settings must match the collection schema in use. |
 
@@ -363,7 +363,7 @@ Offline evaluation package: `backend/fastapi_ai/psychology/evaluation/`
 | Consolidation LLM | **`psychology_consolidation_model`** default `llama-3.1-8b-instant` | Session-end distill / structured memory chunks. |
 | Vision LLM (platform) | **`groq_vision_model`** default `llama-3.2-11b-vision-preview` | Available for vision/OCR pipelines; Sanadi reply path is text+json. |
 | Face emotion | **`psychology_face_emotion_model`** default `mo-thecreator/vit-Facial-Expression-Recognition` | HF Inference API or local ViT per **`psychology_emotion_inference_mode`**. |
-| Speech emotion | **`iic/emotion2vec_plus_large`** + optional **`psychology_speech_emotion_hf_model`** | Local ModelScope pipeline and/or HF audio classification. |
+| Speech emotion | **`iic/emotion2vec_plus_large`** + **`psychology_speech_emotion_hf_model`** (default **`superb/hubert-large-superb-er`**) | Local ModelScope pipeline and/or HF `audio_classification` (with retries on cold start). |
 | Text emotion | Heuristics + optional **`psychology_text_emotion_model`** (DistilRoBERTa) | Low-latency default; HF local/API when configured. |
 | Embeddings | **`qdrant_embedding_model`** default `sentence-transformers/all-MiniLM-L6-v2` | KB + episodic memory vectors (dimension **`qdrant_vector_size`**). |
 | Vector DB | Qdrant (**`qdrant_collection_cbt`**, **`qdrant_collection_memory`**) | Vector recall + lexical/category rerank before prompt assembly. |

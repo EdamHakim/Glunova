@@ -39,15 +39,18 @@ class Settings(BaseSettings):
     # When false but `psychology_emotion_inference_mode` is auto/inference_api and an HF token is set, text emotion uses Inference API (no weights download).
     psychology_text_emotion_use_hf: bool = False
     psychology_text_emotion_model: str = "j-hartmann/emotion-english-distilroberta-base"
+    # If set, HF Inference will try this model when the primary text emotion model fails (cold start, 400, provider).
+    # Set empty to disable. Use a known text-classification–friendly model (e.g. j-hartmann) as backup for multilingual hubs.
+    psychology_text_emotion_hf_fallback_model: str = "j-hartmann/emotion-english-distilroberta-base"
     # HF Inference API: remote inference via `huggingface_hub.InferenceClient` (no local model download).
     # `auto` — use Inference API when `psychology_hf_api_token` or standard env `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` resolves; otherwise local checkpoints.
-    # `inference_api` — Inference API only (fails closed if token missing).
+    # `inference_api` — Inference API only (fails closed if token missing; speech still needs a HF audio repo id).
     # `local` — always transformers / ModelScope locally.
     psychology_emotion_inference_mode: str = "auto"
     psychology_hf_api_token: str = ""
     psychology_hf_inference_timeout_s: float = 60.0
-    # Optional HF repo for speech emotion through Inference API (`audio_classification`). Empty keeps ModelScope `psychology_speech_emotion_model` for local inference.
-    psychology_speech_emotion_hf_model: str = ""
+    # HF repo for speech emotion via Inference API (`audio_classification`). Default enables speech in `inference_api` mode when a token is set. Set empty to skip HF speech (then `auto`/`local` use ModelScope `psychology_speech_emotion_model` only).
+    psychology_speech_emotion_hf_model: str = "superb/hubert-large-superb-er"
 
     # Absolute path to KB assets; empty = `<repo>/psychology data` (Sanadi markdown; see `psychology/pdf_kb.py`).
     psychology_data_dir: str = ""

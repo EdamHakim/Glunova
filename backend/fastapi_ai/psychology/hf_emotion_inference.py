@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from huggingface_hub import InferenceClient
@@ -34,32 +35,78 @@ def classify_image(api_token: str, model_id: str, image_bytes: bytes, timeout_s:
         return None
 
 
-def classify_text(api_token: str, model_id: str, text: str, timeout_s: float) -> tuple[str, float] | None:
-    """Text classification (emotion labels) via HF Inference."""
-    try:
-        client = InferenceClient(token=api_token.strip(), timeout=timeout_s)
-        ranked = client.text_classification(text, model=model_id, top_k=1)
-        if not ranked:
-            return None
-        label, score = _scalar_label_score(ranked[0])
-        return label, score
-    except Exception as exc:
-        logger.warning("HF Inference text_classification failed for %s: %s", model_id, exc)
-        return None
+def classify_text(
+    api_token: str,
+    model_id: str,
+    text: str,
+    timeout_s: float,
+    *,
+    retries: int = 3,
+    max_input_chars: int = 1024,
+) -> tuple[str, float] | None:
+    """Text classification (emotion labels) via HF Inference.
+
+    Long inputs are truncated (many classifiers error past ~512 subword tokens). Retries help with cold-start 503s.
+    """
+    trimmed = (text or "").strip()
+    if max_input_chars > 0 and len(trimmed) > max_input_chars:
+        trimmed = trimmed[:max_input_chars]
+
+    token = api_token.strip()
+    attempts = max(1, min(int(retries), 6))
+    for attempt in range(attempts):
+        try:
+            client = InferenceClient(token=token, timeout=timeout_s)
+            ranked = client.text_classification(trimmed, model=model_id, top_k=1)
+            if not ranked:
+                return None
+            label, score = _scalar_label_score(ranked[0])
+            return label, score
+        except Exception as exc:
+            if attempt + 1 >= attempts:
+                logger.warning(
+                    "HF Inference text_classification failed for %s after %s attempts: %s",
+                    model_id,
+                    attempts,
+                    exc,
+                )
+                return None
+            time.sleep(0.5 * (attempt + 1))
+    return None
 
 
-def classify_audio(api_token: str, model_id: str, audio_bytes: bytes, timeout_s: float) -> tuple[str, float] | None:
-    """Audio classification via HF Inference (`audio_classification`)."""
-    try:
-        client = InferenceClient(token=api_token.strip(), timeout=timeout_s)
-        ranked = client.audio_classification(audio_bytes, model=model_id, top_k=1)
-        if not ranked:
-            return None
-        label, score = _scalar_label_score(ranked[0])
-        return label, score
-    except Exception as exc:
-        logger.warning("HF Inference audio_classification failed for %s: %s", model_id, exc)
+def classify_audio(
+    api_token: str,
+    model_id: str,
+    audio_bytes: bytes,
+    timeout_s: float,
+    *,
+    retries: int = 3,
+) -> tuple[str, float] | None:
+    """Audio classification via HF Inference (`audio_classification`). Retries help with cold-start 503s."""
+    if not audio_bytes:
         return None
+    token = api_token.strip()
+    attempts = max(1, min(int(retries), 6))
+    for attempt in range(attempts):
+        try:
+            client = InferenceClient(token=token, timeout=timeout_s)
+            ranked = client.audio_classification(audio_bytes, model=model_id, top_k=1)
+            if not ranked:
+                return None
+            label, score = _scalar_label_score(ranked[0])
+            return label, score
+        except Exception as exc:
+            if attempt + 1 >= attempts:
+                logger.warning(
+                    "HF Inference audio_classification failed for %s after %s attempts: %s",
+                    model_id,
+                    attempts,
+                    exc,
+                )
+                return None
+            time.sleep(0.5 * (attempt + 1))
+    return None
 
 
 def embed_text(api_token: str, model_id: str, text: str, timeout_s: float) -> list[float] | None:

@@ -1214,10 +1214,10 @@ class PsychologyService:
             return None
         if mode == "inference_api" and not hf_audio_model:
             logger.warning(
-                "psychology speech emotion: inference_api mode requires PSYCHOLOGY_SPEECH_EMOTION_HF_MODEL "
-                "(Inference API `audio_classification` repo id)"
+                "psychology speech emotion: PSYCHOLOGY_SPEECH_EMOTION_HF_MODEL is empty under inference_api; "
+                "trying local emotion2vec (ModelScope). Set a HF `audio_classification` repo id to force API-only speech."
             )
-            return None
+            return self._infer_speech_emotion_emotion2vec_local(wav_bytes)
         if (
             mode != "local"
             and token
@@ -1241,6 +1241,16 @@ class PsychologyService:
             or "j-hartmann/emotion-english-distilroberta-base"
         )
         out = classify_text(token, model_id, text, settings.psychology_hf_inference_timeout_s)
+        if out is None:
+            fb = (getattr(settings, "psychology_text_emotion_hf_fallback_model", "") or "").strip()
+            if fb and fb != model_id:
+                out = classify_text(token, fb, text, settings.psychology_hf_inference_timeout_s)
+                if out is not None:
+                    logger.info(
+                        "psychology text emotion: primary HF model %s failed; using fallback %s",
+                        model_id,
+                        fb,
+                    )
         if out is None:
             return None
         raw_label, score = out
