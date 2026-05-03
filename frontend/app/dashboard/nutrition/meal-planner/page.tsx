@@ -45,13 +45,145 @@ const GI_COLORS: Record<GILevel, string> = {
   high:   'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300',
 }
 
+/** Dedupe Pexels calls when the same meal name appears on multiple days. */
+const mealPhotoCache = new Map<string, { url: string | null; credit: string | null; creditUrl: string | null }>()
+const mealPhotoInflight = new Map<string, Promise<{ url: string | null; credit: string | null; creditUrl: string | null }>>()
+
+const MAX_CONCURRENT_PHOTOS = 5
+let photoActive = 0
+const photoWaitQueue: Array<() => void> = []
+
+function acquirePhotoSlot(): Promise<void> {
+  if (photoActive < MAX_CONCURRENT_PHOTOS) {
+    photoActive++
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    photoWaitQueue.push(() => {
+      photoActive++
+      resolve()
+    })
+  })
+}
+
+function releasePhotoSlot() {
+  photoActive--
+  const next = photoWaitQueue.shift()
+  if (next) next()
+}
+
+async function loadMealPhoto(name: string) {
+  const hit = mealPhotoCache.get(name)
+  if (hit) return hit
+  const inflight = mealPhotoInflight.get(name)
+  if (inflight) return inflight
+
+  const p = (async () => {
+    await acquirePhotoSlot()
+    try {
+      const r = await fetch(`/api/meal-photo?q=${encodeURIComponent(name)}`)
+      const d = (await r.json()) as {
+        url?: string | null
+        credit?: string | null
+        creditUrl?: string | null
+      }
+      return {
+        url: d.url ?? null,
+        credit: d.credit ?? null,
+        creditUrl: d.creditUrl ?? null,
+      }
+    } catch {
+      return { url: null, credit: null, creditUrl: null }
+    } finally {
+      releasePhotoSlot()
+      mealPhotoInflight.delete(name)
+    }
+  })()
+
+  mealPhotoInflight.set(name, p)
+  const result = await p
+  mealPhotoCache.set(name, result)
+  return result
+}
+
+/** Stock photo from Pexels (`PEXELS_API_KEY` in frontend/.env.local or backend/.env). */
+function MealPhoto({ name }: { name: string }) {
+  const [url, setUrl] = useState<string | null | undefined>(undefined)
+  const [credit, setCredit] = useState<string | null>(null)
+  const [creditUrl, setCreditUrl] = useState<string | null>(null)
+  const [imgBroken, setImgBroken] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setUrl(undefined)
+    setCredit(null)
+    setCreditUrl(null)
+    setImgBroken(false)
+    loadMealPhoto(name).then((d) => {
+      if (!cancelled) {
+        setUrl(d.url)
+        setCredit(d.credit)
+        setCreditUrl(d.creditUrl)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [name])
+
+  const showImg = url && !imgBroken
+
+  return (
+    <div className="relative h-24 w-full shrink-0 overflow-hidden rounded-md bg-muted">
+      {url === undefined ? (
+        <Skeleton className="absolute inset-0 h-full w-full rounded-md" />
+      ) : showImg ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt=""
+            className="absolute inset-0 h-full w-full max-h-full object-cover"
+            loading="lazy"
+            decoding="async"
+            sizes="220px"
+            onError={() => setImgBroken(true)}
+          />
+          {(credit || creditUrl) && (
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-1 pt-4">
+              {creditUrl ? (
+                <a
+                  href={creditUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-white/90 hover:underline"
+                >
+                  {credit ?? 'Photo'} · Pexels
+                </a>
+              ) : (
+                <span className="text-[10px] text-white/80">Pexels</span>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+          <ChefHat className="h-10 w-10 opacity-35" aria-hidden />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function MealCard({ meal }: { meal: MealItem }) {
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2 text-sm">
+    <div className="rounded-lg border border-border bg-card p-3 space-y-2 text-sm min-w-0 overflow-hidden">
+      <MealPhoto name={meal.name} />
+
       {/* Header row */}
       <div className="flex items-center gap-1.5 text-muted-foreground">
         {MEAL_ICONS[meal.meal_type]}
@@ -140,7 +272,7 @@ function DayColumn({
     dayDate.getFullYear() === today.getFullYear()
 
   return (
-    <div className="flex flex-col gap-2 min-w-[220px]">
+    <div className="flex flex-col gap-2 w-[220px] shrink-0 min-h-0">
       {/* Day header */}
       <div
         className={`flex items-center justify-between px-2 py-1.5 rounded-lg ${
@@ -212,7 +344,7 @@ function PlanSkeleton() {
     <div className="overflow-x-auto pb-4">
       <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
         {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="flex flex-col gap-2 min-w-[220px]">
+          <div key={i} className="flex flex-col gap-2 w-[220px] shrink-0">
             <Skeleton className="h-12 rounded-lg" />
             {Array.from({ length: 4 }).map((__, j) => (
               <Skeleton key={j} className="h-32 rounded-lg" />
