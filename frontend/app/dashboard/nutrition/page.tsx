@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, MessageSquare, Activity } from 'lucide-react'
+import { MessageSquare, Activity } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -76,11 +76,10 @@ export default function NutritionPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Tabs defaultValue="nutrition" className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 sm:h-10 sm:grid-cols-4 sm:gap-0">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 sm:h-10 sm:grid-cols-3 sm:gap-0">
           <TabsTrigger value="nutrition">Nutrition</TabsTrigger>
           <TabsTrigger value="exercise">Exercise</TabsTrigger>
           <TabsTrigger value="ai-coach">AI Coach</TabsTrigger>
-          <TabsTrigger value="meal-planner">Meal Planner</TabsTrigger>
         </TabsList>
 
         <TabsContent value="nutrition" className="space-y-4">
@@ -102,6 +101,7 @@ export default function NutritionPage() {
               <NutritionAnalysisModal disabled={!isPatient && !canAssistLogging} />
             </CardContent>
           </Card>
+          <MealPlannerTabContent patientId={patientId || undefined} isPatient={isPatient} />
         </TabsContent>
 
         <TabsContent value="exercise" className="space-y-4">
@@ -136,10 +136,6 @@ export default function NutritionPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="meal-planner" className="space-y-4">
-          <MealPlannerTabContent patientId={patientId || undefined} isPatient={isPatient} />
         </TabsContent>
 
         <TabsContent value="ai-coach" className="space-y-4">
