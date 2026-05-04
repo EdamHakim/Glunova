@@ -7,7 +7,6 @@ import re
 import requests
 from typing import List, Dict, Any, Optional
 from PIL import Image as PILImage
-from ultralytics import YOLOWorld
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -106,18 +105,80 @@ def _resolve_yolo_weights_path() -> str:
     return str(candidate)
 
 
+def _nutrition_yolo_backend() -> str:
+    """ultralytics | roboflow | groq_only — see PipelineNutrition docstring."""
+    raw = (os.environ.get("NUTRITION_YOLO_BACKEND") or os.environ.get("YOLO_WORLD_BACKEND") or "ultralytics").strip().lower()
+    if raw in ("local", "ultralytics", "yolo", ""):
+        return "ultralytics"
+    if raw in ("roboflow", "serverless", "remote", "inference"):
+        return "roboflow"
+    if raw in ("groq_only", "groq", "vision_only", "skip_yolo"):
+        return "groq_only"
+    raise ValueError(
+        f"Unknown NUTRITION_YOLO_BACKEND={raw!r}. Use ultralytics, roboflow, or groq_only."
+    )
+
+
+def _parse_roboflow_yolo_world(result: dict, vocab: list[str]) -> list[dict]:
+    """Map Roboflow /yolo_world/infer JSON to the same list shape as local YOLO."""
+    out: list[dict] = []
+    for p in result.get("predictions") or []:
+        try:
+            x = float(p["x"])
+            y = float(p["y"])
+            w = float(p["width"])
+            h = float(p["height"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        x1, y1 = int(x - w / 2), int(y - h / 2)
+        x2, y2 = int(x1 + w), int(y1 + h)
+        idx = int(p.get("class_id", -1))
+        if 0 <= idx < len(vocab):
+            label = vocab[idx]
+        else:
+            label = str(p.get("class", "")).strip()
+        if not label:
+            continue
+        conf = round(float(p.get("confidence", 0.0)), 3)
+        out.append({"ingredient": label, "confiance": conf, "bbox": [x1, y1, x2, y2]})
+    return out
+
+
 class PipelineNutrition:
+    """Nutrition pipeline; see ``NUTRITION_YOLO_BACKEND`` (ultralytics | roboflow | groq_only)."""
+
     def __init__(self, groq_api_key: Optional[str] = None):
         self.groq_api_key = groq_api_key or os.environ.get("GROQ_API_KEY")
         if not self.groq_api_key:
             raise EnvironmentError("GROQ_API_KEY is not set. Add it to your .env file.")
-        
-        print("Chargement de YOLO-World...")
-        yolo_model_path = _resolve_yolo_weights_path()
-        self.yolo_model = YOLOWorld(yolo_model_path)
-        # YOLO-World stays on CPU for compatibility or as configured
-        self.yolo_model.to("cpu")
-        print("✅ YOLO-World chargé")
+
+        self._yolo_backend = _nutrition_yolo_backend()
+        self.yolo_model = None
+        self._rf_client = None
+        self._rf_yolo_version = (os.environ.get("ROBOFLOW_YOLO_WORLD_VERSION") or "v2-s").strip()
+
+        if self._yolo_backend == "roboflow":
+            from inference_sdk import InferenceHTTPClient
+
+            rf_key = (os.environ.get("ROBOFLOW_API_KEY") or "").strip()
+            if not rf_key:
+                raise EnvironmentError(
+                    "NUTRITION_YOLO_BACKEND=roboflow requires ROBOFLOW_API_KEY in the environment."
+                )
+            api_url = (os.environ.get("ROBOFLOW_SERVERLESS_URL") or "https://serverless.roboflow.com").strip().rstrip("/")
+            self._rf_client = InferenceHTTPClient(api_url=api_url, api_key=rf_key)
+            print(f"✅ YOLO-World via Roboflow serverless ({api_url}, model={self._rf_yolo_version!r}) — no local CLIP download.")
+        elif self._yolo_backend == "groq_only":
+            print("✅ Nutrition YOLO: groq_only (no local YOLO/CLIP).")
+        else:
+            from ultralytics import YOLOWorld
+
+            print("Chargement de YOLO-World (Ultralytics)…")
+            print("  ℹ️  First detection will download CLIP ViT-B/32 (~338MB) once; use NUTRITION_YOLO_BACKEND=roboflow or groq_only to skip.")
+            yolo_model_path = _resolve_yolo_weights_path()
+            self.yolo_model = YOLOWorld(yolo_model_path)
+            self.yolo_model.to("cpu")
+            print("✅ YOLO-World chargé (local weights + CLIP on first set_classes).")
 
     def _charger_image_base64(self, image_path: str) -> tuple:
         if image_path.startswith("http"):
@@ -193,6 +254,19 @@ Instructions:
     def _predict_once(self, image_path: str, vocab: list, seuil: float) -> list:
         if not vocab:
             return []
+        if self._yolo_backend == "groq_only":
+            return []
+        if self._yolo_backend == "roboflow" and self._rf_client is not None:
+            raw_list = self._rf_client.infer_from_yolo_world(
+                inference_input=image_path,
+                class_names=vocab,
+                model_version=self._rf_yolo_version,
+                confidence=seuil,
+            )
+            raw = raw_list[0] if raw_list else {}
+            return _parse_roboflow_yolo_world(raw, vocab)
+        if self.yolo_model is None:
+            return []
         self.yolo_model.set_classes(vocab)
         rs = self.yolo_model.predict(image_path, conf=seuil, verbose=False, device="cpu")
         out = []
@@ -213,6 +287,17 @@ Instructions:
         ingredients = [str(i).strip() for i in ingredients if str(i).strip()]
         if not ingredients:
             return []
+
+        if self._yolo_backend == "groq_only":
+            return [
+                {
+                    "ingredient": ing,
+                    "confiance": 0.0,
+                    "bbox": [0, 0, 0, 0],
+                    "detecte_par": "groq_vision_only",
+                }
+                for ing in ingredients
+            ]
 
         # Passe 1
         dets_p1 = self._predict_once(image_path, ingredients, seuil_confiance)
