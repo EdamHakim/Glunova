@@ -3,7 +3,10 @@ import logging
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from core.rbac import require_roles
-from monitoring.services.triggers import record_screening_and_refresh
+from monitoring.services.triggers import (
+    merge_screening_metadata_only,
+    record_screening_and_refresh,
+)
 from screening.schemas import (
     TongueGradcamResponse,
     TongueInferenceResponse,
@@ -166,6 +169,12 @@ async def tongue_gradcam(
             detail="Grad-CAM generation failed unexpectedly.",
         ) from exc
 
+    merge_screening_metadata_only(
+        patient_id,
+        "tongue",
+        {"heatmap_base64": data["heatmap_base64"]},
+    )
+
     return TongueGradcamResponse(
         patient_id=patient_id,
         heatmap_base64=data["heatmap_base64"],
@@ -230,6 +239,10 @@ async def infer_voice_diabetes(
             "ood_mahal_score": float(prediction.ood_mahal_score),
             "ood_flag": bool(prediction.ood_flag),
             "shap_ready": bool(prediction.shap_ready),
+            "shap_message": prediction.shap_message,
+            "shap_base_value": prediction.shap_base_value,
+            "shap_segments": prediction.shap_segments,
+            "shap_plot_base64": prediction.shap_plot_base64,
         },
     )
 
@@ -395,6 +408,12 @@ async def cataract_gradcam(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Grad-CAM generation failed unexpectedly.",
         ) from exc
+
+    merge_screening_metadata_only(
+        patient_id,
+        "cataract",
+        {"heatmap_base64": data["heatmap_base64"]},
+    )
 
     return CataractGradcamResponse(
         patient_id=patient_id,

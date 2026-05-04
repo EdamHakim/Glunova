@@ -9,8 +9,15 @@ import { useAuth } from '@/components/auth-context'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
-export function NutritionAnalysisModal({ disabled }: { disabled?: boolean }) {
+export function NutritionAnalysisModal({
+  disabled,
+  triggerClassName,
+}: {
+  disabled?: boolean
+  triggerClassName?: string
+}) {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [file, setFile] = useState<File | null>(null)
@@ -63,9 +70,16 @@ export function NutritionAnalysisModal({ disabled }: { disabled?: boolean }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="w-full justify-start" variant="outline" disabled={disabled}>
-          <Plus className="h-4 w-4 mr-2" />
-          Photo Upload
+        <Button
+          className={cn(
+            'h-12 w-full justify-center gap-2 text-base font-semibold shadow-sm sm:justify-start',
+            triggerClassName,
+          )}
+          variant="default"
+          disabled={disabled}
+        >
+          <Plus className="h-5 w-5 shrink-0" />
+          Analyze a meal photo
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
@@ -121,7 +135,7 @@ export function NutritionAnalysisModal({ disabled }: { disabled?: boolean }) {
           {result && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               {/* Header Card */}
-              <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-background to-muted/30 p-6 shadow-sm">
+              <div className="relative overflow-hidden rounded-2xl border border-border bg-linear-to-br from-background to-muted/30 p-6 shadow-sm">
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <Badge variant="outline" className="mb-2 uppercase tracking-wider text-[10px]">

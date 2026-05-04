@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { fetchWithAuthRefresh, getApiUrls } from '@/lib/auth'
+import { getScreeningHistory, type ScreeningScan } from '@/lib/monitoring-api'
 import RoleGuard from '@/components/auth/role-guard'
 
 type TongueResult = {
@@ -52,6 +53,81 @@ type CataractResult = {
   p_cataract: number
   probabilities: Record<string, number>
   heatmapBase64?: string
+}
+
+function numFromMeta(v: unknown, fallback: number): number {
+  if (typeof v === 'number' && !Number.isNaN(v)) return v
+  if (typeof v === 'string') {
+    const n = parseFloat(v)
+    if (!Number.isNaN(n)) return n
+  }
+  return fallback
+}
+
+function numOrNullFromMeta(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === 'number' && !Number.isNaN(v)) return v
+  if (typeof v === 'string') {
+    const n = parseFloat(v)
+    return Number.isNaN(n) ? null : n
+  }
+  return null
+}
+
+function mapTongueFromScan(scan: ScreeningScan): TongueResult {
+  const md = scan.metadata || {}
+  return {
+    probability: scan.score,
+    prediction_label: scan.risk_label,
+    threshold_used: numFromMeta(md.threshold_used, 0.5),
+    heatmapBase64: typeof md.heatmap_base64 === 'string' ? md.heatmap_base64 : undefined,
+  }
+}
+
+function mapVoiceFromScan(scan: ScreeningScan): VoiceResult {
+  const md = scan.metadata || {}
+  const hasStoredShap =
+    (Array.isArray(md.shap_segments) && md.shap_segments.length > 0) ||
+    typeof md.shap_plot_base64 === 'string' ||
+    (typeof md.shap_message === 'string' && md.shap_message.length > 0)
+  const segments = Array.isArray(md.shap_segments) ? md.shap_segments : []
+  return {
+    probability: scan.score,
+    raw_probability: numFromMeta(md.raw_probability, scan.score),
+    prediction_label: scan.risk_label,
+    threshold_used: numFromMeta(md.threshold_used, 0.5),
+    ood_flag: Boolean(md.ood_flag),
+    shap_ready: Boolean(md.shap_ready),
+    shap_message: hasStoredShap
+      ? String(md.shap_message ?? '')
+      : `Saved screening (${scan.relative_time}) — run again for full SHAP charts.`,
+    shap_base_value: numOrNullFromMeta(md.shap_base_value),
+    shap_segments: segments as VoiceShapSegment[],
+    shap_plot_base64: typeof md.shap_plot_base64 === 'string' ? md.shap_plot_base64 : null,
+  }
+}
+
+function mapCataractFromScan(scan: ScreeningScan): CataractResult {
+  const md = scan.metadata || {}
+  const raw = md.probabilities
+  const probabilities: Record<string, number> = {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof v === 'number' && !Number.isNaN(v)) probabilities[k] = v
+      else if (typeof v === 'string') {
+        const n = parseFloat(v)
+        if (!Number.isNaN(n)) probabilities[k] = n
+      }
+    }
+  }
+  return {
+    prediction_label: scan.risk_label,
+    prediction_index: Math.round(numFromMeta(md.prediction_index, numFromMeta(md.cataract_grade, 0))),
+    confidence: numFromMeta(md.cataract_confidence, 0),
+    p_cataract: numFromMeta(md.p_cataract, scan.score),
+    probabilities,
+    heatmapBase64: typeof md.heatmap_base64 === 'string' ? md.heatmap_base64 : undefined,
+  }
 }
 
 import { useAuth } from '@/components/auth-context'
@@ -153,12 +229,12 @@ export default function ScreeningPage() {
   }
 
   const riskPercent = useMemo(() => {
-    const probs = [tongueResult?.probability, voiceResult?.probability].filter(
+    const probs = [tongueResult?.probability, voiceResult?.probability, cataractResult?.p_cataract].filter(
       (v): v is number => typeof v === 'number',
     )
     if (!probs.length) return 0
     return Math.round((probs.reduce((sum, v) => sum + v, 0) / probs.length) * 100)
-  }, [tongueResult, voiceResult])
+  }, [tongueResult, voiceResult, cataractResult])
 
   useEffect(() => {
     if (!voiceRecording) return
@@ -182,6 +258,33 @@ export default function ScreeningPage() {
       if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl)
     }
   }, [voicePreviewUrl])
+
+  // Restore latest screening scores from Django (survives logout / new session).
+  useEffect(() => {
+    if (sessionLoading) return
+    if (!sessionUser || sessionUser.role !== 'patient' || sessionUser.userId == null) return
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const { modalities } = await getScreeningHistory()
+        if (cancelled) return
+        for (const block of modalities) {
+          const scan = block.latest
+          if (!scan) continue
+          if (block.modality === 'tongue') setTongueResult(mapTongueFromScan(scan))
+          if (block.modality === 'voice') setVoiceResult(mapVoiceFromScan(scan))
+          if (block.modality === 'cataract') setCataractResult(mapCataractFromScan(scan))
+        }
+      } catch {
+        // DB or API unavailable — keep empty UI
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionLoading, sessionUser])
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null
@@ -657,17 +760,29 @@ export default function ScreeningPage() {
                     style={{ width: `${riskPercent}%` }}
                   />
                 </div>
-                {tongueResult ? (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Tongue result: <span className="font-medium">{tongueResult.prediction_label}</span> (threshold {tongueResult.threshold_used})
-                  </p>
-                ) : voiceResult ? (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Voice result: <span className="font-medium">{voiceResult.prediction_label}</span> (threshold {voiceResult.threshold_used})
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground mt-2">Submit a voice clip or tongue image to get model prediction.</p>
-                )}
+                <div className="text-xs text-muted-foreground mt-2 space-y-1">
+                  {tongueResult ? (
+                    <p>
+                      Tongue: <span className="font-medium text-foreground">{tongueResult.prediction_label}</span>{' '}
+                      (threshold {tongueResult.threshold_used})
+                    </p>
+                  ) : null}
+                  {voiceResult ? (
+                    <p>
+                      Voice: <span className="font-medium text-foreground">{voiceResult.prediction_label}</span>{' '}
+                      (threshold {voiceResult.threshold_used})
+                    </p>
+                  ) : null}
+                  {cataractResult ? (
+                    <p>
+                      Cataract: <span className="font-medium text-foreground">{cataractResult.prediction_label}</span>{' '}
+                      (P(cataract) {Math.round(cataractResult.p_cataract * 100)}%)
+                    </p>
+                  ) : null}
+                  {!tongueResult && !voiceResult && !cataractResult ? (
+                    <p>Submit voice, tongue, or eye screening to populate predictions.</p>
+                  ) : null}
+                </div>
               </div>
 
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -697,6 +812,21 @@ export default function ScreeningPage() {
                 </div>
               ) : null}
 
+              {cataractResult ? (
+                <div className="rounded-lg border p-3">
+                  <p className="text-sm text-muted-foreground">Latest Cataract Result</p>
+                  <p className="font-semibold mt-1">
+                    {cataractResult.prediction_label} (confidence {Math.round(cataractResult.confidence * 100)}%)
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    P(cataract) {Math.round(cataractResult.p_cataract * 100)}% · severity index {cataractResult.prediction_index}
+                  </p>
+                  <Button variant="link" className="px-0 h-auto mt-1" onClick={() => setIsCataractModalOpen(true)}>
+                    View full details
+                  </Button>
+                </div>
+              ) : null}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">Voice Analysis</p>
@@ -721,9 +851,26 @@ export default function ScreeningPage() {
                   </p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground">Eye Examination</p>
-                  <p className="font-semibold text-muted-foreground">Not available here</p>
-                  <p className="text-xs text-muted-foreground mt-1">Use the clinical retinopathy tool for eye analysis</p>
+                  <p className="text-sm text-muted-foreground">Eye (Cataract)</p>
+                  <p
+                    className={`font-semibold ${
+                      cataractResult ? 'text-health-success' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {cataractResult
+                      ? `${Math.round(cataractResult.p_cataract * 100)}% · ${cataractResult.prediction_label}`
+                      : 'Not analyzed yet'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {cataractResult
+                      ? 'MobileNet severity · Grad-CAM in explainability below'
+                      : 'Upload an eye image and run cataract screening'}
+                  </p>
+                  {cataractResult ? (
+                    <Button variant="link" className="px-0 h-auto mt-1" onClick={() => setIsCataractModalOpen(true)}>
+                      Open result
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -798,7 +945,25 @@ export default function ScreeningPage() {
                   </div>
                 )}
               </div>
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-2">
+                <p className="font-medium text-sm">Eye (Cataract)</p>
+                {cataractResult?.heatmapBase64 ? (
+                  <div className="bg-muted rounded-lg p-2 aspect-square">
+                    <img
+                      src={`data:image/jpeg;base64,${cataractResult.heatmapBase64}`}
+                      alt="Cataract Grad-CAM heatmap"
+                      className="h-full w-full rounded object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="bg-muted rounded-lg p-3 aspect-square flex items-center justify-center">
+                    <p className="text-xs text-center text-muted-foreground">
+                      Run cataract screening to generate Grad-CAM heatmap
+                    </p>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2 md:col-span-3">
                 <p className="font-medium text-sm">Feature Importance (SHAP)</p>
                 {voiceResult?.shap_ready && voiceResult.shap_plot_base64 ? (
                   <div className="bg-muted rounded-lg p-2">

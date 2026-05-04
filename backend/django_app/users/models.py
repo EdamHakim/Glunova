@@ -32,7 +32,6 @@ class SmokingStatusChoices(models.TextChoices):
 class DiabetesTypeChoices(models.TextChoices):
     TYPE_1      = "Type 1",      "Type 1"
     TYPE_2      = "Type 2",      "Type 2"
-    GESTATIONAL = "Gestational", "Gestational"
     PREDIABETES = "Prediabetes", "Prediabetes"
 
 
