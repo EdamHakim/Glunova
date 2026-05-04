@@ -1,9 +1,22 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, ArrowUpRight, CheckCircle2, Clock, FileText, Info, Pill } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowUpRight,
+  Bell,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Info,
+  Pill,
+  ScanSearch,
+  TrendingUp,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -228,16 +241,16 @@ export default function MonitoringPage() {
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
-      <div>
+      <div className="border-b border-border/60 pb-6">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Monitoring & Analytics</h1>
-        <p className="text-muted-foreground mt-2">{intro}</p>
+        <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed sm:text-base">{intro}</p>
       </div>
 
       {/* Patient context selector (doctor / caregiver only) — drives ALL fetches below. */}
       {user?.role !== 'patient' && (
-        <Card className="border-primary/30 bg-primary/5">
+        <Card className="border-primary/25 bg-primary/5 shadow-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Patient context</CardTitle>
+            <CardTitle className="text-base font-semibold">Patient context</CardTitle>
             <CardDescription>
               {patientId
                 ? `Viewing patient #${patientId}. All sections below load this patient's data.`
@@ -258,13 +271,9 @@ export default function MonitoringPage() {
                 />
               </div>
               {patientId ? (
-                <button
-                  type="button"
-                  className="rounded-md border px-3 py-2 text-sm hover:bg-muted transition-colors"
-                  onClick={() => setPatientId('')}
-                >
+                <Button type="button" variant="outline" size="sm" onClick={() => setPatientId('')}>
                   Clear
-                </button>
+                </Button>
               ) : null}
             </div>
           </CardContent>
@@ -273,10 +282,13 @@ export default function MonitoringPage() {
 
       {/* Empty-state hint when doctor/caregiver hasn't selected a patient yet. */}
       {user?.role !== 'patient' && !patientId ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Select a patient above to view their risk assessment, screening history, alerts, and
-            disease progression.
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
+            <Info className="h-8 w-8 text-muted-foreground/60" aria-hidden />
+            <p className="max-w-md leading-relaxed">
+              Select a patient above to view their risk assessment, screening history, alerts, and
+              disease progression.
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -529,10 +541,19 @@ export default function MonitoringPage() {
       </Card>
 
       <Tabs defaultValue="alerts" className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 sm:h-10 sm:grid-cols-3 sm:gap-0">
-          <TabsTrigger value="alerts">Alerts</TabsTrigger>
-          <TabsTrigger value="screening">Screening History</TabsTrigger>
-          <TabsTrigger value="progression">Progression</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-1.5 rounded-lg p-1 sm:h-11 sm:grid-cols-3 sm:gap-0">
+          <TabsTrigger value="alerts" className="gap-2 data-[state=active]:shadow-sm">
+            <Bell className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+            Alerts
+          </TabsTrigger>
+          <TabsTrigger value="screening" className="gap-2 data-[state=active]:shadow-sm">
+            <ScanSearch className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+            Screening history
+          </TabsTrigger>
+          <TabsTrigger value="progression" className="gap-2 data-[state=active]:shadow-sm">
+            <TrendingUp className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+            Progression
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="alerts" className="space-y-4">
@@ -555,27 +576,39 @@ export default function MonitoringPage() {
               {alerts.map((alert) => {
                 const titleLower = alert.title.toLowerCase()
                 const isImprovement = titleLower.includes('improved')
-                const tierEmoji = isImprovement
-                  ? '✅'
+                const AlertStatusIcon = isImprovement
+                  ? CheckCircle2
                   : alert.severity === 'critical'
-                    ? '🚨'
+                    ? AlertCircle
                     : alert.severity === 'warning'
-                      ? '⚠️'
-                      : '🔔'
+                      ? AlertTriangle
+                      : Bell
+                const iconWrapClass = isImprovement
+                  ? 'bg-health-success/15 text-health-success ring-1 ring-health-success/25'
+                  : alert.severity === 'critical'
+                    ? 'bg-destructive/15 text-destructive ring-1 ring-destructive/25'
+                    : alert.severity === 'warning'
+                      ? 'bg-health-danger/10 text-health-danger ring-1 ring-health-danger/20'
+                      : 'bg-muted text-muted-foreground ring-1 ring-border'
                 return (
                   <div
                     key={alert.id}
-                    className={`p-4 border rounded-lg hover:bg-muted/50 transition-colors ${
+                    className={`rounded-xl border p-4 shadow-sm transition-colors hover:bg-muted/40 ${
                       alert.severity === 'critical'
-                        ? 'border-destructive/30 bg-destructive/5'
+                        ? 'border-destructive/35 bg-destructive/5'
                         : alert.severity === 'warning'
                           ? 'border-health-danger/30 bg-health-danger/5'
-                          : 'border-border'
+                          : 'border-border bg-card'
                     }`}
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <div className="flex gap-3 flex-1 min-w-0">
-                        <span className="text-xl shrink-0 leading-tight" aria-hidden>{tierEmoji}</span>
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconWrapClass}`}
+                          aria-hidden
+                        >
+                          <AlertStatusIcon className="h-5 w-5" strokeWidth={2} />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold">{alert.title}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">

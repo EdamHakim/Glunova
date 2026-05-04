@@ -1,14 +1,28 @@
 'use client'
 
-import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Info, Lightbulb, Target } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CheckCircle2,
+  Info,
+  Lightbulb,
+  OctagonAlert,
+  Target,
+  type LucideIcon,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { RiskStratification } from '@/lib/monitoring-api'
 
-const TIER_THEME: Record<string, { label: string; emoji: string; cardBg: string; tierBg: string; tierText: string; pulse: boolean }> = {
+const TIER_THEME: Record<
+  string,
+  { label: string; Icon: LucideIcon; cardBg: string; tierBg: string; tierText: string; pulse: boolean }
+> = {
   low: {
     label: 'LOW',
-    emoji: '🟢',
+    Icon: CheckCircle2,
     cardBg: 'bg-health-success/5 border-health-success/30',
     tierBg: 'bg-linear-to-br from-health-success to-health-success/70',
     tierText: 'text-white',
@@ -16,7 +30,7 @@ const TIER_THEME: Record<string, { label: string; emoji: string; cardBg: string;
   },
   high: {
     label: 'HIGH',
-    emoji: '🟠',
+    Icon: AlertTriangle,
     cardBg: 'bg-health-danger/5 border-health-danger/30',
     tierBg: 'bg-linear-to-br from-health-danger to-health-danger/70',
     tierText: 'text-white',
@@ -24,7 +38,7 @@ const TIER_THEME: Record<string, { label: string; emoji: string; cardBg: string;
   },
   critical: {
     label: 'CRITICAL',
-    emoji: '🔴',
+    Icon: OctagonAlert,
     cardBg: 'bg-destructive/5 border-destructive/40',
     tierBg: 'bg-linear-to-br from-destructive to-destructive/70',
     tierText: 'text-white',
@@ -108,6 +122,7 @@ export function RiskStratificationCard({
 
   const cur = data.current
   const theme = TIER_THEME[cur.tier] ?? TIER_THEME.low
+  const TierIcon = theme.Icon
   const probabilityPct = (cur.score * 100).toFixed(1)
   const confidencePct = (cur.confidence * 100).toFixed(0)
 
@@ -124,10 +139,10 @@ export function RiskStratificationCard({
         <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch">
           {/* Big tier badge */}
           <div
-            className={`relative flex h-40 w-40 shrink-0 flex-col items-center justify-center rounded-2xl shadow-lg ${theme.tierBg} ${theme.tierText} ${theme.pulse ? 'animate-pulse' : ''}`}
+            className={`relative flex h-44 w-44 shrink-0 flex-col items-center justify-center gap-2 rounded-2xl shadow-lg ring-2 ring-white/20 ${theme.tierBg} ${theme.tierText} ${theme.pulse ? 'animate-pulse' : ''}`}
           >
-            <span className="text-5xl drop-shadow" aria-hidden>{theme.emoji}</span>
-            <span className="mt-2 text-xl font-bold tracking-wide">{theme.label}</span>
+            <TierIcon className="h-14 w-14 drop-shadow-md opacity-95" strokeWidth={1.75} aria-hidden />
+            <span className="text-lg font-bold tracking-wide">{theme.label}</span>
           </div>
 
           {/* Metrics */}

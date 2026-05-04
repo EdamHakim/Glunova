@@ -204,7 +204,7 @@
 }
 
 .lab-document-item:hover {
-  background: var(--accent)/20;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .nested-lab-metric {

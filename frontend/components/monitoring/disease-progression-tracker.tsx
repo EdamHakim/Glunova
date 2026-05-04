@@ -6,9 +6,13 @@ import {
   ArrowRight,
   ArrowUp,
   Bell,
+  CircleDashed,
   Heart,
   Layers,
+  Minus,
+  TrendingDown,
   TrendingUp,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   CartesianGrid,
@@ -36,31 +40,34 @@ const TIER_LABEL: Record<string, string> = {
   critical: 'CRITICAL',
 }
 
-const TREND_THEME: Record<string, { label: string; emoji: string; cls: string; chartColor: string; description: string }> = {
+const TREND_THEME: Record<
+  string,
+  { label: string; Icon: LucideIcon; cls: string; chartColor: string; description: string }
+> = {
   worsening: {
     label: 'WORSENING',
-    emoji: '↗',
+    Icon: TrendingUp,
     cls: 'bg-destructive text-white',
     chartColor: '#dc2626',
     description: 'Patient condition is deteriorating — immediate clinical attention recommended.',
   },
   improving: {
     label: 'IMPROVING',
-    emoji: '↘',
+    Icon: TrendingDown,
     cls: 'bg-health-success text-white',
     chartColor: '#16a34a',
     description: 'Patient condition is improving — current management is effective.',
   },
   stable: {
     label: 'STABLE',
-    emoji: '→',
+    Icon: Minus,
     cls: 'bg-muted text-foreground',
     chartColor: 'hsl(var(--primary))',
     description: 'Patient condition is stable — continue current monitoring schedule.',
   },
   first: {
     label: 'FIRST',
-    emoji: '◯',
+    Icon: CircleDashed,
     cls: 'bg-muted text-muted-foreground',
     chartColor: 'hsl(var(--primary))',
     description: 'First assessment recorded — at least 2 are needed to establish a trend.',
@@ -106,6 +113,7 @@ export function DiseaseProgressionTracker({
   }
 
   const trendTheme = TREND_THEME[data.trend] ?? TREND_THEME.first
+  const TrendIcon = trendTheme.Icon
   const last = data.assessments[data.assessments.length - 1]
 
   // Build chart data — convert score to percent so the Y axis reads in %.
@@ -130,10 +138,10 @@ export function DiseaseProgressionTracker({
         {/* Hero: big trend flag + summary */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
           <div
-            className={`flex flex-col items-center justify-center rounded-2xl p-6 shadow-md ${trendTheme.cls}`}
+            className={`flex flex-col items-center justify-center gap-2 rounded-2xl p-6 shadow-md ring-2 ring-white/15 ${trendTheme.cls}`}
           >
-            <span className="text-5xl drop-shadow" aria-hidden>{trendTheme.emoji}</span>
-            <span className="mt-2 text-xl font-bold tracking-wide">{trendTheme.label}</span>
+            <TrendIcon className="h-14 w-14 drop-shadow-md opacity-95" strokeWidth={1.75} aria-hidden />
+            <span className="text-lg font-bold tracking-wide">{trendTheme.label}</span>
             <span className="mt-1 text-xs opacity-90">
               {data.n_assessments ?? 0} {(data.n_assessments ?? 0) === 1 ? 'assessment' : 'assessments'}
               {data.period_days && data.period_days > 0
