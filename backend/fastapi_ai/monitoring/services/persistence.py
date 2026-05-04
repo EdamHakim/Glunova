@@ -14,6 +14,27 @@ from core.db import get_connection_pool
 
 logger = logging.getLogger(__name__)
 
+# Guardrail for JSONField / payload size (base64 image blobs).
+_MAX_METADATA_BLOB_CHARS = 4_000_000
+_METADATA_BLOB_KEYS = frozenset({"heatmap_base64", "shap_plot_base64"})
+
+
+def _trim_screening_metadata_blobs(metadata: dict) -> dict:
+    """Drop oversized base64 blobs so INSERT/UPDATE does not explode row size."""
+    if not metadata:
+        return {}
+    out = dict(metadata)
+    for key in _METADATA_BLOB_KEYS:
+        val = out.get(key)
+        if isinstance(val, str) and len(val) > _MAX_METADATA_BLOB_CHARS:
+            logger.warning(
+                "Omitting oversized screening metadata key %r (%d chars)",
+                key,
+                len(val),
+            )
+            out.pop(key, None)
+    return out
+
 
 # ─── Encoding tables matching the LightGBM training (Kaggle vocab) ───────────
 # sklearn LabelEncoder sorts alphabetically on the unique input strings.
@@ -185,7 +206,7 @@ def persist_screening_result(
         return None
 
     captured_at = captured_at or datetime.now(timezone.utc)
-    metadata = metadata or {}
+    metadata = _trim_screening_metadata_blobs(metadata or {})
     now = datetime.now(timezone.utc)
 
     with pool.connection() as conn, conn.cursor() as cur:
@@ -203,6 +224,50 @@ def persist_screening_result(
         new_id = cur.fetchone()[0]
         conn.commit()
     return int(new_id)
+
+
+def merge_latest_screening_metadata(
+    user_id: int,
+    modality: str,
+    patch: dict,
+) -> bool:
+    """Merge ``patch`` into the newest ScreeningResult row for this patient + modality.
+
+    Uses PostgreSQL jsonb ``||`` (shallow merge at top-level keys). Returns True if a
+    row was updated. No-op when the DB pool is unavailable, ``patch`` is empty, or
+    JSON serialization fails.
+    """
+    pool = get_connection_pool()
+    if pool is None or not patch:
+        return False
+
+    patch = _trim_screening_metadata_blobs(patch)
+    if not patch:
+        return False
+
+    try:
+        dumped = json.dumps(patch)
+    except (TypeError, ValueError):
+        logger.warning("merge_latest_screening_metadata: patch not JSON-serializable")
+        return False
+
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE screening_screeningresult AS s
+               SET metadata = COALESCE(s.metadata, '{}'::jsonb) || %s::jsonb
+             WHERE s.id = (
+               SELECT id FROM screening_screeningresult
+                WHERE patient_id = %s AND modality = %s
+                ORDER BY captured_at DESC, created_at DESC
+                LIMIT 1
+             )
+            """,
+            (dumped, user_id, modality),
+        )
+        updated = cur.rowcount > 0
+        conn.commit()
+    return updated
 
 
 def persist_risk_assessment(user_id: int, fusion_result: dict) -> int | None:

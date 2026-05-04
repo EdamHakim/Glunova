@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { addDays, format, parseISO } from 'date-fns'
 import {
   Activity, AlertTriangle, Apple, ChevronDown, ChevronRight,
-  Clock, Dumbbell, Flame, Loader2, Moon, RefreshCw, Settings2,
-  Sparkles, Zap,
+  Clock, Dumbbell, Flame, Loader2, Moon, Package, RefreshCw, Settings2,
+  ShieldAlert, Sparkles, Timer, Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -36,6 +37,7 @@ import {
 } from '@/lib/wellness-api'
 import { MealPhoto } from '@/components/nutrition/meal-photo'
 import { ExerciseGif, SetTracker } from '@/components/nutrition/exercise-visual'
+import { cn } from '@/lib/utils'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -135,105 +137,228 @@ function GenerateSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Generate Wellness Plan
+      <SheetContent className="flex h-full w-full max-w-none flex-col gap-0 border-l border-border/80 p-0 sm:max-w-lg">
+        <SheetHeader className="shrink-0 space-y-2 border-b bg-linear-to-br from-muted/60 to-muted/20 px-6 py-6 text-left">
+          <SheetTitle className="flex items-center gap-2.5 pr-8 text-xl font-semibold tracking-tight">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/20">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            Generate wellness plan
           </SheetTitle>
-          <SheetDescription>
-            Personalize your weekly exercise + nutrition plan based on your diabetes profile.
+          <SheetDescription className="text-sm leading-relaxed text-muted-foreground">
+            Tune meals and workouts for the week. We use your diabetes profile from your account when building the plan.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-5 py-6">
-          <div className="space-y-2">
-            <Label>Cuisine style</Label>
-            <Select value={cuisine} onValueChange={v => setCuisine(v as CuisineOption)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mediterranean">Mediterranean</SelectItem>
-                <SelectItem value="maghreb">Maghreb / North African</SelectItem>
-                <SelectItem value="middle_eastern">Middle Eastern</SelectItem>
-                <SelectItem value="western">Western</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Fitness level</Label>
-            <Select value={fitnessLevel} onValueChange={v => setFitnessLevel(v as FitnessLevel)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="beginner">Beginner</SelectItem>
-                <SelectItem value="intermediate">Intermediate</SelectItem>
-                <SelectItem value="advanced">Advanced</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Fitness goal</Label>
-            <Select value={goal} onValueChange={v => setGoal(v as FitnessGoal)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="weight_loss">Weight loss</SelectItem>
-                <SelectItem value="muscle_gain">Muscle gain</SelectItem>
-                <SelectItem value="endurance">Endurance</SelectItem>
-                <SelectItem value="flexibility">Flexibility</SelectItem>
-                <SelectItem value="maintenance">Maintenance</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Sessions / week</Label>
-              <Input
-                type="number" min={1} max={7}
-                value={sessionsPerWeek}
-                onChange={e => setSessionsPerWeek(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Minutes / session</Label>
-              <Input
-                type="number" min={10} max={120} step={5}
-                value={minutesPerSession}
-                onChange={e => setMinutesPerSession(Number(e.target.value))}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Available equipment</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {EQUIPMENT_OPTIONS.map(opt => (
-                <div key={opt.id} className="flex items-center gap-2">
-                  <Checkbox
-                    id={opt.id}
-                    checked={equipment.includes(opt.id)}
-                    onCheckedChange={() => toggleEquipment(opt.id)}
-                  />
-                  <label htmlFor={opt.id} className="text-sm cursor-pointer">{opt.label}</label>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="space-y-8">
+            {/* Nutrition */}
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                  <Apple className="h-4 w-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold leading-none">Nutrition</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Cuisine style for suggested meals</p>
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wellness-cuisine" className="text-xs font-medium text-muted-foreground">
+                  Cuisine style
+                </Label>
+                <Select value={cuisine} onValueChange={v => setCuisine(v as CuisineOption)}>
+                  <SelectTrigger id="wellness-cuisine" className="h-11 bg-background">
+                    <SelectValue placeholder="Choose cuisine" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mediterranean">Mediterranean</SelectItem>
+                    <SelectItem value="maghreb">Maghreb / North African</SelectItem>
+                    <SelectItem value="middle_eastern">Middle Eastern</SelectItem>
+                    <SelectItem value="western">Western</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </section>
 
-          <div className="space-y-2">
-            <Label>Injuries / limits <span className="text-muted-foreground font-normal">(comma-separated)</span></Label>
-            <Input
-              placeholder="e.g. knee pain, no jumping"
-              value={injuriesText}
-              onChange={e => setInjuriesText(e.target.value)}
-            />
+            <Separator />
+
+            {/* Training */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Dumbbell className="h-4 w-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold leading-none">Training</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Level, goal, and weekly volume</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="wellness-level" className="text-xs font-medium text-muted-foreground">
+                    Fitness level
+                  </Label>
+                  <Select value={fitnessLevel} onValueChange={v => setFitnessLevel(v as FitnessLevel)}>
+                    <SelectTrigger id="wellness-level" className="h-11 bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="beginner">Beginner</SelectItem>
+                      <SelectItem value="intermediate">Intermediate</SelectItem>
+                      <SelectItem value="advanced">Advanced</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wellness-goal" className="text-xs font-medium text-muted-foreground">
+                    Primary goal
+                  </Label>
+                  <Select value={goal} onValueChange={v => setGoal(v as FitnessGoal)}>
+                    <SelectTrigger id="wellness-goal" className="h-11 bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weight_loss">Weight loss</SelectItem>
+                      <SelectItem value="muscle_gain">Muscle gain</SelectItem>
+                      <SelectItem value="endurance">Endurance</SelectItem>
+                      <SelectItem value="flexibility">Flexibility</SelectItem>
+                      <SelectItem value="maintenance">Maintenance</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="wellness-sessions" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Activity className="h-3 w-3" />
+                    Sessions / week
+                  </Label>
+                  <Input
+                    id="wellness-sessions"
+                    type="number"
+                    min={1}
+                    max={7}
+                    className="h-11 bg-background"
+                    value={sessionsPerWeek}
+                    onChange={e => setSessionsPerWeek(Number(e.target.value))}
+                  />
+                  <p className="text-[11px] text-muted-foreground">1–7 workout days</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wellness-minutes" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Timer className="h-3 w-3" />
+                    Minutes / session
+                  </Label>
+                  <Input
+                    id="wellness-minutes"
+                    type="number"
+                    min={10}
+                    max={120}
+                    step={5}
+                    className="h-11 bg-background"
+                    value={minutesPerSession}
+                    onChange={e => setMinutesPerSession(Number(e.target.value))}
+                  />
+                  <p className="text-[11px] text-muted-foreground">10–120 minutes</p>
+                </div>
+              </div>
+            </section>
+
+            <Separator />
+
+            {/* Equipment */}
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-400">
+                  <Package className="h-4 w-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold leading-none">Equipment</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">What you have access to this week</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {EQUIPMENT_OPTIONS.map(opt => {
+                  const checked = equipment.includes(opt.id)
+                  const inputId = `wellness-eq-${opt.id}`
+                  return (
+                    <label
+                      key={opt.id}
+                      htmlFor={inputId}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 transition-all',
+                        checked
+                          ? 'border-primary/45 bg-primary/6 shadow-sm ring-1 ring-primary/15'
+                          : 'border-border bg-card/80 hover:border-muted-foreground/25 hover:bg-muted/30',
+                      )}
+                    >
+                      <Checkbox
+                        id={inputId}
+                        checked={checked}
+                        onCheckedChange={() => toggleEquipment(opt.id)}
+                        className="shrink-0"
+                      />
+                      <span className="text-sm font-medium leading-snug">{opt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </section>
+
+            <Separator />
+
+            {/* Safety */}
+            <section className="space-y-3 rounded-xl border border-amber-500/25 bg-amber-500/6 p-4 dark:bg-amber-500/10">
+              <div className="flex items-start gap-2.5">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+                <div className="min-w-0 space-y-1">
+                  <h3 className="text-sm font-semibold text-foreground">Injuries & limits</h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Optional. Separate with commas so the model can avoid risky movements.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wellness-injuries" className="sr-only">
+                  Injuries and limits
+                </Label>
+                <Input
+                  id="wellness-injuries"
+                  placeholder="e.g. knee pain, no jumping, lower back sensitivity"
+                  className="h-11 border-amber-500/20 bg-background/90"
+                  value={injuriesText}
+                  onChange={e => setInjuriesText(e.target.value)}
+                />
+              </div>
+            </section>
           </div>
         </div>
 
-        <SheetFooter>
-          <Button className="w-full" onClick={handleSubmit} disabled={generating}>
-            {generating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating… (~60s)</> : <><Sparkles className="h-4 w-4 mr-2" />Generate Plan</>}
+        <SheetFooter className="shrink-0 gap-3 border-t bg-background/95 px-6 py-4 backdrop-blur supports-backdrop-filter:bg-background/80">
+          <p className="text-center text-[11px] text-muted-foreground leading-relaxed">
+            Generation runs on the server and usually takes <span className="font-medium text-foreground">about a minute</span>.
+            You can close this panel after starting — refresh the page if the plan does not appear.
+          </p>
+          <Button
+            className="h-11 w-full text-base font-semibold shadow-md shadow-primary/15"
+            size="lg"
+            onClick={handleSubmit}
+            disabled={generating}
+          >
+            {generating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating plan…
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-2 h-4 w-4" />
+                Generate weekly plan
+              </>
+            )}
           </Button>
         </SheetFooter>
       </SheetContent>

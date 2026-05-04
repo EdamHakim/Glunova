@@ -3,13 +3,14 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Mail, Lock, User as UserIcon, Eye, EyeOff, Check, ArrowRight } from 'lucide-react'
+import { Mail, Lock, User as UserIcon, Eye, EyeOff, Check, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { getApiUrls } from '@/lib/auth'
 import { useTheme } from '@/app/providers'
+import { cn } from '@/lib/utils'
 
 type Role = 'patient' | 'doctor' | 'caregiver'
 
@@ -40,6 +41,7 @@ export default function SignupPage() {
     smoking_status: '',
     hba1c_level: '',
     blood_glucose_level: '',
+    diabetes_type: '',
   })
 
   function updateField<K extends keyof typeof form>(field: K, value: (typeof form)[K]) {
@@ -77,6 +79,7 @@ export default function SignupPage() {
           smoking_status: form.smoking_status || null,
           hba1c_level: form.hba1c_level ? parseFloat(form.hba1c_level) : null,
           blood_glucose_level: form.blood_glucose_level ? parseInt(form.blood_glucose_level, 10) : null,
+          ...(form.diabetes_type ? { diabetes_type: form.diabetes_type } : {}),
         }),
       }
       const response = await fetch(`${django}/api/auth/register/`, {
@@ -100,31 +103,38 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12 relative overflow-hidden">
-      {/* Decorative background elements */}
-      <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-health-success/10 rounded-full blur-[120px] pointer-events-none" />
+    <div className="relative min-h-dvh bg-background">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-linear-to-b from-primary/10 via-primary/4 to-transparent"
+        aria-hidden
+      />
+      <div className="pointer-events-none absolute bottom-[-12%] left-[-12%] h-[42%] w-[42%] rounded-full bg-health-success/10 blur-[100px]" />
+      <div className="pointer-events-none absolute top-[15%] right-[-18%] h-[38%] w-[38%] rounded-full bg-primary/8 blur-[95px]" />
 
-      <div className="relative z-10 w-full max-w-lg">
-        {/* Logo Section */}
-        <Link href="/" className="text-center mb-8 block hover:opacity-80 transition-opacity">
-          <img 
-            src={isDark ? "/glunova_dark_logo.png" : "/glunova_logo.png"} 
-            alt="Glunova Logo" 
-            className="h-20 w-auto mb-4 object-contain mx-auto" 
+      <div className="relative z-10 mx-auto w-full max-w-lg px-4 py-10 sm:px-6 sm:py-14">
+        <Link href="/" className="mb-8 block text-center transition-opacity hover:opacity-90">
+          <img
+            src={isDark ? '/glunova_dark_logo.png' : '/glunova_logo.png'}
+            alt="Glunova"
+            className="mx-auto mb-4 h-20 w-auto object-contain"
           />
-          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Glunova</h1>
-          <p className="text-muted-foreground mt-2 font-medium">Join our AI healthcare platform</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Glunova</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Create your account</h1>
+          <p className="mt-2 text-sm font-medium text-muted-foreground">Join the platform for AI-assisted diabetes care</p>
         </Link>
 
-        {/* Signup Card */}
-        <div className="bg-card/80 backdrop-blur-sm rounded-2xl shadow-xl border border-border/50 p-5 sm:p-8">
-          <div className="mb-8">
-            <h2 className="text-2xl font-semibold text-foreground">Create Account</h2>
-            <p className="text-muted-foreground mt-1.5 font-medium">Get started with personalized health insights</p>
+        <div
+          className={cn(
+            'rounded-2xl border border-border/70 bg-card/95 p-6 shadow-xl shadow-black/5',
+            'backdrop-blur-sm sm:p-8',
+          )}
+        >
+          <div className="mb-6 space-y-1">
+            <h2 className="text-lg font-semibold text-foreground">Registration</h2>
+            <p className="text-sm text-muted-foreground">Fill in your details. Patient accounts can add an optional health profile.</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* First Name */}
               <div className="space-y-2">
@@ -205,17 +215,19 @@ export default function SignupPage() {
 
             {/* Role Selection */}
             <div className="space-y-2">
-              <Label className="text-sm font-semibold ml-1 text-foreground">Account Type</Label>
+              <Label className="text-sm font-medium text-foreground">Account type</Label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {(['patient', 'doctor', 'caregiver'] as Role[]).map((r) => (
                   <button
                     key={r}
                     type="button"
                     onClick={() => updateField('role', r)}
-                    className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all ${form.role === r
-                        ? 'bg-primary/10 border-primary text-primary shadow-sm'
-                        : 'bg-background/50 border-muted text-muted-foreground hover:bg-muted'
-                      }`}
+                    className={cn(
+                      'rounded-xl border px-3 py-2.5 text-center text-xs font-semibold transition-all',
+                      form.role === r
+                        ? 'border-primary/50 bg-primary/10 text-primary shadow-sm ring-1 ring-primary/15'
+                        : 'border-border/80 bg-background/60 text-muted-foreground hover:border-muted-foreground/30 hover:bg-muted/40',
+                    )}
                   >
                     {r.charAt(0).toUpperCase() + r.slice(1)}
                   </button>
@@ -278,8 +290,8 @@ export default function SignupPage() {
             </div>
 
             {/* Password Requirements */}
-            <div className="bg-muted/30 rounded-xl p-4 space-y-2 border border-border/50">
-              <p className="text-xs font-semibold text-foreground">Password requirements:</p>
+            <div className="space-y-2 rounded-xl border border-border/60 bg-muted/25 p-4">
+              <p className="text-xs font-semibold text-foreground">Password requirements</p>
               <ul className="space-y-1.5 text-[11px] font-medium text-muted-foreground">
                 <li className="flex items-center gap-2">
                   <Check className={`h-3 w-3 ${form.password.length >= 8 ? 'text-health-success' : 'text-muted'}`} />
@@ -298,12 +310,15 @@ export default function SignupPage() {
 
             {/* Health profile — patient only */}
             {form.role === 'patient' && (
-              <div className="space-y-4 rounded-xl border border-border/50 bg-muted/20 p-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">Health profile</h3>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Optional but recommended — needed for AI-powered risk assessment.
-                  </p>
+              <div className="space-y-4 rounded-xl border border-primary/20 bg-primary/4 p-4 sm:p-5 dark:bg-primary/8">
+                <div className="flex flex-col gap-1 border-b border-border/50 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Health profile</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Optional — improves AI risk assessment and wellness planning.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">Patient only</span>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -330,6 +345,24 @@ export default function SignupPage() {
                       <option value="Female">Female</option>
                     </select>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="diabetes_type" className="text-sm font-semibold ml-1 text-foreground">
+                    Diabetes type{' '}
+                    <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <select
+                    id="diabetes_type"
+                    className="flex h-11 w-full rounded-md border border-muted bg-background/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                    value={form.diabetes_type}
+                    onChange={(e) => updateField('diabetes_type', e.target.value)}
+                  >
+                    <option value="">Not specified</option>
+                    <option value="Type 1">Type 1</option>
+                    <option value="Type 2">Type 2</option>
+                    <option value="Prediabetes">Prediabetes</option>
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -457,61 +490,45 @@ export default function SignupPage() {
             </div>
 
             {error && (
-              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium animate-in fade-in slide-in-from-top-1">
+              <div className="rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive">
                 {error}
               </div>
             )}
 
-            {/* Sign Up Button */}
             <Button
               type="submit"
-              className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold mt-6 shadow-md shadow-primary/20 transition-all active:scale-[0.98]"
+              className="mt-2 h-12 w-full gap-2 text-base font-semibold shadow-md shadow-primary/20"
+              size="lg"
               disabled={isLoading || !agreedToTerms}
             >
-              {isLoading ? 'Creating account...' : 'Create Account'}
+              {isLoading ? (
+                'Creating account…'
+              ) : (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Create account
+                </>
+              )}
             </Button>
           </form>
 
-          {/* Divider */}
-          <div className="relative my-8">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground font-medium text-xs">Or continue with</span>
-            </div>
-          </div>
-
-          {/* Social Signup */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-            <Button variant="outline" className="h-10 bg-background/50 hover:bg-muted font-medium transition-all">
-              <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
-                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              Google
-            </Button>
-            <Button variant="outline" className="h-10 bg-background/50 hover:bg-muted font-medium transition-all">
-              <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v 3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-              </svg>
-              GitHub
-            </Button>
-          </div>
-
-          {/* Login Link */}
-          <p className="text-center text-sm text-muted-foreground mt-8 font-medium">
+          <p className="mt-8 text-center text-sm text-muted-foreground">
             Already have an account?{' '}
-            <Link
-              href="/login"
-              className="font-bold text-primary hover:text-primary/80 transition-colors"
-            >
+            <Link href="/login" className="font-semibold text-primary hover:text-primary/80">
               Sign in
             </Link>
           </p>
         </div>
+
+        <p className="mt-8 flex flex-wrap justify-center gap-x-4 gap-y-1 text-center text-xs text-muted-foreground">
+          <Link href="#" className="hover:text-foreground">
+            Terms of Service
+          </Link>
+          <span className="text-border">·</span>
+          <Link href="#" className="hover:text-foreground">
+            Privacy Policy
+          </Link>
+        </p>
       </div>
     </div>
   )

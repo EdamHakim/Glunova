@@ -83,6 +83,9 @@ class RegisterView(APIView):
         role = user.role
         if role == "patient":
             profile_data = {k: request.data[k] for k in _PATIENT_PROFILE_FIELDS if k in request.data}
+            # Optional signup fields: omit empties so model defaults apply (e.g. diabetes_type → Type 2).
+            if not profile_data.get("diabetes_type"):
+                profile_data.pop("diabetes_type", None)
             PatientProfile.objects.create(user=user, **profile_data)
             _trigger_fusion_refresh(int(user.id))
         elif role == "doctor":
