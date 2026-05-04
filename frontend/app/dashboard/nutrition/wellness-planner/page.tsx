@@ -35,6 +35,7 @@ import {
   regenerateWellnessDay,
 } from '@/lib/wellness-api'
 import { MealPhoto } from '@/components/nutrition/meal-photo'
+import { ExerciseGif, SetTracker } from '@/components/nutrition/exercise-visual'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -348,6 +349,10 @@ function SessionCard({ s }: { s: WellnessExerciseSession }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+      {/* Animated exercise GIF + how-to steps */}
+      <ExerciseGif name={s.name} exerciseType={s.exercise_type} />
+
+      {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1">
           <p className="font-medium text-sm">{s.name}</p>
@@ -358,14 +363,20 @@ function SessionCard({ s }: { s: WellnessExerciseSession }) {
         </span>
       </div>
 
+      {/* Duration + intensity */}
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{s.duration_minutes} min</span>
         <span className={`flex items-center gap-1 font-medium ${intensityColor(s.intensity)} px-1.5 py-0.5 rounded-full`}>
           <Flame className="h-3 w-3" />{s.intensity}
         </span>
-        {s.sets && <span>{s.sets} sets × {s.reps} reps</span>}
       </div>
 
+      {/* Interactive set tracker */}
+      {s.sets && s.sets > 0 && (
+        <SetTracker sets={s.sets} reps={s.reps} />
+      )}
+
+      {/* Equipment */}
       {s.equipment?.length > 0 && (
         <div className="flex gap-1 flex-wrap">
           {s.equipment.map(e => (
@@ -374,6 +385,7 @@ function SessionCard({ s }: { s: WellnessExerciseSession }) {
         </div>
       )}
 
+      {/* Glucose check warning */}
       {s.pre_exercise_glucose_check && (
         <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
           <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -381,10 +393,12 @@ function SessionCard({ s }: { s: WellnessExerciseSession }) {
         </div>
       )}
 
+      {/* Post-workout snack tip */}
       {s.post_exercise_snack_tip && (
         <p className="text-xs text-muted-foreground border-l-2 border-primary/40 pl-2">{s.post_exercise_snack_tip}</p>
       )}
 
+      {/* Diabetes rationale */}
       {s.diabetes_rationale && (
         <Collapsible open={open} onOpenChange={setOpen}>
           <CollapsibleTrigger className="flex items-center gap-1 text-xs text-primary hover:underline">

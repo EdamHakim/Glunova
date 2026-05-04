@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime
 from statistics import fmean
@@ -563,9 +564,26 @@ class PsychologyService:
             stored_memory_items=stored_n,
         )
 
+    # Shared executor for parallel HF inference calls inside _fusion (capped to avoid thread storms).
+    _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="psych_hf")
+
     def _fusion(self, payload: MessageRequest) -> FusionOutput:
         entries: list[tuple[EmotionLabel, float, Modality]] = []
-        text_label, text_confidence, text_sentiment = self._text_emotion(payload.text)
+
+        # Run text emotion and speech emotion in parallel; cap total wait at 3 s so
+        # a failing/slow HF model never blocks the therapy reply.
+        has_audio = bool(payload.speech_audio_base64)
+        text_future = self._executor.submit(self._text_emotion, payload.text)
+        speech_future = (
+            self._executor.submit(self._infer_speech_emotion_emotion2vec, payload.speech_audio_base64)
+            if has_audio
+            else None
+        )
+
+        try:
+            text_label, text_confidence, text_sentiment = text_future.result(timeout=3.0)
+        except (FuturesTimeoutError, Exception):
+            text_label, text_confidence, text_sentiment = EmotionLabel.neutral, 0.6, 0.1
         entries.append((text_label, text_confidence, Modality.text))
 
         face_result = None
@@ -597,8 +615,11 @@ class PsychologyService:
             entries.append((face_result[0], face_result[1], Modality.face))
 
         speech_result = None
-        if payload.speech_audio_base64:
-            speech_result = self._infer_speech_emotion_emotion2vec(payload.speech_audio_base64)
+        if speech_future is not None:
+            try:
+                speech_result = speech_future.result(timeout=0.1)  # already had 3 s total above
+            except (FuturesTimeoutError, Exception):
+                speech_result = None
         if speech_result is None and payload.speech_emotion and payload.speech_confidence is not None:
             speech_result = (payload.speech_emotion, payload.speech_confidence)
         if speech_result is not None:

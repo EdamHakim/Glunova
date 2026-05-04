@@ -49,43 +49,6 @@ type PreferredSessionLang = 'mixed' | 'en' | 'fr' | 'ar'
 
 const SANADI_PREF_LANG_KEY = 'sanadi_pref_lang'
 
-/** Prefer a female-presenting system voice for Sanadi when service TTS is unavailable (vendor names vary by OS). */
-function pickFemaleBrowserVoice(langTag: string): SpeechSynthesisVoice | null {
-  if (typeof window === 'undefined' || typeof speechSynthesis === 'undefined') return null
-  const voices = speechSynthesis.getVoices()
-  if (!voices.length) return null
-  const short = (langTag.split('-')[0] || 'en').toLowerCase()
-  const langMatch = (v: SpeechSynthesisVoice) => {
-    const l = v.lang.toLowerCase()
-    return l === langTag.toLowerCase() || l.startsWith(`${short}-`) || l === short
-  }
-  const pool = voices.filter(langMatch)
-  const usePool = pool.length > 0 ? pool : voices
-  const femaleRe =
-    /\b(female|woman)\b|zira|samantha|tessa|karen|victoria|fiona|martha|serena|veena|google\s+[\w\s-]*female|microsoft\s+[\w\s-]*\s-\s*female|aria\s*neural|sara/i
-  const maleRe = /\b(male|man)\b|\bfred\b|\bdavid\b|\bdaniel\b|\bjames\b|google\s+[\w\s-]*male|microsoft\s+[\w\s-]*\s-\s*male|\bguy\b/i
-  const scored = [...usePool].sort((a, b) => {
-    const af = femaleRe.test(a.name) ? 1 : 0
-    const bf = femaleRe.test(b.name) ? 1 : 0
-    return bf - af
-  })
-  for (const v of scored) {
-    if (maleRe.test(v.name)) continue
-    if (femaleRe.test(v.name)) return v
-  }
-  for (const v of scored) {
-    if (!maleRe.test(v.name)) return v
-  }
-  return scored[0] ?? null
-}
-
-function browserSpeechRecognitionLang(pref: PreferredSessionLang): string {
-  if (typeof navigator === 'undefined') return 'en-US'
-  if (pref === 'ar') return 'ar-SA'
-  if (pref === 'fr') return 'fr-FR'
-  if (pref === 'mixed') return navigator.language || 'en-US'
-  return 'en-US'
-}
 
 function coercePreferredLang(raw: string | null): PreferredSessionLang {
   if (raw === 'en' || raw === 'fr' || raw === 'ar' || raw === 'mixed') return raw
@@ -233,7 +196,7 @@ export default function PsychologyPage() {
   const captureTimerRef = useRef<number | null>(null)
   const wsReconnectTimerRef = useRef<number | null>(null)
   const keepCameraAliveRef = useRef(false)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const dictationRecorderRef = useRef<MediaRecorder | null>(null)
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const chatScrollRef = useRef<HTMLDivElement | null>(null)
   const lastEmotionUpdateMsRef = useRef<number>(0)
@@ -533,32 +496,51 @@ export default function PsychologyPage() {
   }, [latestResult])
 
   const toggleMic = useCallback(() => {
-    const SR = typeof window !== 'undefined' && (window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition)
-    if (!SR) return
     if (micListening) {
-      recognitionRef.current?.stop()
-      recognitionRef.current = null
-      setMicListening(false)
+      dictationRecorderRef.current?.stop()
       return
     }
-    const rec = new SR()
-    rec.lang = browserSpeechRecognitionLang(preferredSessionLang)
-    rec.interimResults = false
-    rec.continuous = false
-    rec.onresult = (event) => {
-      const text = event.results[0]?.[0]?.transcript?.trim()
-      if (text) {
-        setLatestSpeechTranscript(text)
-        setInput((prev) => (prev ? `${prev} ${text}` : text))
+    void (async () => {
+      if (!navigator.mediaDevices?.getUserMedia) return
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        })
+        const mime = pickVoiceRecorderMime()
+        const chunks: BlobPart[] = []
+        const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+        dictationRecorderRef.current = recorder
+        recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop())
+          dictationRecorderRef.current = null
+          setMicListening(false)
+          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+          if (blob.size < 400) return
+          void (async () => {
+            try {
+              const fd = new FormData()
+              const ext = blob.type.includes('mp4') ? 'mp4' : 'webm'
+              fd.append('audio', blob, `dictation.${ext}`)
+              const lang = preferredSessionLang !== 'mixed' ? preferredSessionLang : null
+              if (lang) fd.append('language_hint', lang)
+              const tr = await transcribePsychologyVoice(fd)
+              const text = tr.text.trim()
+              if (text) {
+                setLatestSpeechTranscript(text)
+                setInput((prev) => (prev ? `${prev} ${text}` : text))
+              }
+            } catch {
+              /* transcription failed — user can type manually */
+            }
+          })()
+        }
+        recorder.start(240)
+        setMicListening(true)
+      } catch {
+        /* microphone permission denied */
       }
-    }
-    rec.onend = () => {
-      setMicListening(false)
-      recognitionRef.current = null
-    }
-    recognitionRef.current = rec
-    rec.start()
-    setMicListening(true)
+    })()
   }, [micListening, preferredSessionLang])
 
   const onTalkingHeadAnalyserNode = useCallback((node: AnalyserNode | null) => {
@@ -583,44 +565,10 @@ export default function PsychologyPage() {
     voiceAnalyserRef.current = null
   }, [])
 
-  const fallbackBrowserTts = useCallback((text: string, lang: PsychologyMessageResult['language_detected']) => {
-    if (typeof window === 'undefined' || typeof speechSynthesis === 'undefined') {
-      setAvatarPhase('idle')
-      return
-    }
-    speechSynthesis.cancel()
-    const u = new SpeechSynthesisUtterance(text)
-    const map: Record<PsychologyMessageResult['language_detected'], string> = {
-      en: 'en-US',
-      fr: 'fr-FR',
-      ar: 'ar-SA',
-      darija: 'ar-MA',
-      mixed: typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US',
-    }
-    u.lang = map[lang] ?? 'en-US'
-    const applyVoice = () => {
-      const v = pickFemaleBrowserVoice(u.lang)
-      if (v) u.voice = v
-    }
-    applyVoice()
-    if (!speechSynthesis.getVoices().length) {
-      const onVoices = () => {
-        applyVoice()
-        speechSynthesis.removeEventListener('voiceschanged', onVoices)
-      }
-      speechSynthesis.addEventListener('voiceschanged', onVoices)
-    }
-    u.onend = () => setAvatarPhase('idle')
-    u.onerror = () => setAvatarPhase('idle')
-    speechSynthesis.speak(u)
-  }, [])
 
   const speakAssistantReply = useCallback(
     async (reply: string, lang: PsychologyMessageResult['language_detected']) => {
       stopAssistantTts()
-      if (typeof window !== 'undefined' && typeof speechSynthesis !== 'undefined') {
-        speechSynthesis.cancel()
-      }
       setAvatarPhase('speaking')
       try {
         void recordingAudioCtxRef.current?.close()
@@ -656,7 +604,7 @@ export default function PsychologyPage() {
         }
         audio.onerror = () => {
           stopAssistantTts()
-          fallbackBrowserTts(reply, lang)
+          setAvatarPhase('idle')
         }
         try {
           const AC = typeof window !== 'undefined'
@@ -679,15 +627,16 @@ export default function PsychologyPage() {
         await audio.play()
       } catch {
         stopAssistantTts()
-        fallbackBrowserTts(reply, lang)
+        setAvatarPhase('idle')
       }
     },
-    [stopAssistantTts, fallbackBrowserTts, voiceModeActive],
+    [stopAssistantTts, voiceModeActive],
   )
 
   useEffect(() => {
     return () => {
       stopAssistantTts()
+      dictationRecorderRef.current?.stop()
       voiceRecorderRef.current?.stop()
       voiceStreamRef.current?.getTracks().forEach((t) => t.stop())
     }
@@ -909,9 +858,6 @@ export default function PsychologyPage() {
   const startVoiceRecordingTurn = useCallback(async () => {
     discardVoiceRecordingRef.current = false
     stopAssistantTts()
-    if (typeof window !== 'undefined' && typeof speechSynthesis !== 'undefined') {
-      speechSynthesis.cancel()
-    }
     if (!patientId || !voiceModeActive) return
     if (!navigator.mediaDevices?.getUserMedia) {
       setChatError('Microphone is not available in this browser.')
@@ -1056,6 +1002,7 @@ export default function PsychologyPage() {
     } finally {
       stopCamera()
       stopAssistantTts()
+      dictationRecorderRef.current?.stop()
       void recordingAudioCtxRef.current?.close()
       recordingAudioCtxRef.current = null
       voiceAnalyserRef.current = null

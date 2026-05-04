@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # `local` — always transformers / ModelScope locally.
     psychology_emotion_inference_mode: str = "auto"
     psychology_hf_api_token: str = ""
-    psychology_hf_inference_timeout_s: float = 60.0
+    psychology_hf_inference_timeout_s: float = 8.0
     # HF repo for speech emotion via Inference API (`audio_classification`). Default enables speech in `inference_api` mode when a token is set. Set empty to skip HF speech (then `auto`/`local` use ModelScope `psychology_speech_emotion_model` only).
     psychology_speech_emotion_hf_model: str = "superb/hubert-large-superb-er"
 

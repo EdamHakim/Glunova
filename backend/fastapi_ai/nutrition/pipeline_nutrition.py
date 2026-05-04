@@ -73,6 +73,39 @@ SYNONYMES = {
     "yogurt"    : ["greek yogurt", "white cream"],
 }
 
+
+def _resolve_yolo_weights_path() -> str:
+    """
+    Ultralytics downloads ~330MB from the hub if the path string is not an existing file.
+    A bare env value like YOLO_MODEL=yolov8s-worldv2.pt is resolved against cwd, not
+    nutrition/models/, so we fall back to the bundled weights next to this package.
+    """
+    _pkg = Path(__file__).resolve().parent
+    _models_dir = _pkg / "models"
+    _default = _models_dir / "yolov8s-worldv2.pt"
+    raw = (os.environ.get("YOLO_MODEL") or "").strip()
+    if not raw:
+        return str(_default)
+    candidate = Path(raw).expanduser()
+    if candidate.is_file():
+        return str(candidate.resolve())
+    # Same filename / relative path under bundled models/ (typical .env mistake)
+    next_to_pkg = (_models_dir / candidate.name)
+    if next_to_pkg.is_file():
+        if raw != str(next_to_pkg.resolve()):
+            print(
+                f"  ℹ️  YOLO_MODEL={raw!r} is not a file on disk; using bundled weights at {next_to_pkg}"
+            )
+        return str(next_to_pkg.resolve())
+    if _default.is_file():
+        print(
+            f"  ⚠️  YOLO_MODEL={raw!r} not found; using default {_default}. "
+            "Unset YOLO_MODEL or set it to an absolute path to avoid duplicate downloads."
+        )
+        return str(_default.resolve())
+    return str(candidate)
+
+
 class PipelineNutrition:
     def __init__(self, groq_api_key: Optional[str] = None):
         self.groq_api_key = groq_api_key or os.environ.get("GROQ_API_KEY")
@@ -80,8 +113,7 @@ class PipelineNutrition:
             raise EnvironmentError("GROQ_API_KEY is not set. Add it to your .env file.")
         
         print("Chargement de YOLO-World...")
-        _default_yolo = Path(__file__).resolve().parent / "models" / "yolov8s-worldv2.pt"
-        yolo_model_path = os.environ.get("YOLO_MODEL") or str(_default_yolo)
+        yolo_model_path = _resolve_yolo_weights_path()
         self.yolo_model = YOLOWorld(yolo_model_path)
         # YOLO-World stays on CPU for compatibility or as configured
         self.yolo_model.to("cpu")

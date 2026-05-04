@@ -41,7 +41,7 @@ def classify_text(
     text: str,
     timeout_s: float,
     *,
-    retries: int = 3,
+    retries: int = 2,
     max_input_chars: int = 1024,
 ) -> tuple[str, float] | None:
     """Text classification (emotion labels) via HF Inference.
@@ -53,7 +53,7 @@ def classify_text(
         trimmed = trimmed[:max_input_chars]
 
     token = api_token.strip()
-    attempts = max(1, min(int(retries), 6))
+    attempts = max(1, min(int(retries), 4))
     for attempt in range(attempts):
         try:
             client = InferenceClient(token=token, timeout=timeout_s)
@@ -71,7 +71,7 @@ def classify_text(
                     exc,
                 )
                 return None
-            time.sleep(0.5 * (attempt + 1))
+            time.sleep(0.2 * (attempt + 1))
     return None
 
 
@@ -81,13 +81,13 @@ def classify_audio(
     audio_bytes: bytes,
     timeout_s: float,
     *,
-    retries: int = 3,
+    retries: int = 2,
 ) -> tuple[str, float] | None:
     """Audio classification via HF Inference (`audio_classification`). Retries help with cold-start 503s."""
     if not audio_bytes:
         return None
     token = api_token.strip()
-    attempts = max(1, min(int(retries), 6))
+    attempts = max(1, min(int(retries), 4))
     for attempt in range(attempts):
         try:
             client = InferenceClient(token=token, timeout=timeout_s)
@@ -105,7 +105,7 @@ def classify_audio(
                     exc,
                 )
                 return None
-            time.sleep(0.5 * (attempt + 1))
+            time.sleep(0.2 * (attempt + 1))
     return None
 
 
