@@ -3,12 +3,30 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
 from huggingface_hub import InferenceClient
 
 logger = logging.getLogger(__name__)
+
+
+def _inference_client(token: str, timeout_s: float) -> InferenceClient:
+    """Build InferenceClient with stable routing for Hub models that have no third-party inference mapping."""
+    raw = (os.getenv("PSYCHOLOGY_HF_INFERENCE_PROVIDER") or "").strip()
+    if not raw:
+        try:
+            from core.config import settings
+
+            raw = (getattr(settings, "psychology_hf_inference_provider", None) or "").strip()
+        except Exception:
+            raw = ""
+    if not raw:
+        raw = "hf-inference"
+    if raw.lower() == "auto":
+        return InferenceClient(token=token.strip(), timeout=timeout_s)
+    return InferenceClient(token=token.strip(), timeout=timeout_s, provider=raw)  # type: ignore[arg-type]
 
 
 def _scalar_label_score(item: Any) -> tuple[str, float]:
@@ -21,10 +39,19 @@ def _scalar_label_score(item: Any) -> tuple[str, float]:
     return str(label or "neutral"), float(score or 0.0)
 
 
+def _first_classification_item(ranked: Any) -> Any | None:
+    """Normalize HF Inference `text_classification` output (list vs single element across hub versions)."""
+    if ranked is None:
+        return None
+    if isinstance(ranked, (list, tuple)):
+        return ranked[0] if ranked else None
+    return ranked
+
+
 def classify_image(api_token: str, model_id: str, image_bytes: bytes, timeout_s: float) -> tuple[str, float] | None:
     """Image classification via HF Inference (`image_classification` pipeline semantics)."""
     try:
-        client = InferenceClient(token=api_token.strip(), timeout=timeout_s)
+        client = _inference_client(api_token, timeout_s)
         ranked = client.image_classification(image_bytes, model=model_id, top_k=1)
         if not ranked:
             return None
@@ -41,7 +68,7 @@ def classify_text(
     text: str,
     timeout_s: float,
     *,
-    retries: int = 2,
+    retries: int = 4,
     max_input_chars: int = 1024,
 ) -> tuple[str, float] | None:
     """Text classification (emotion labels) via HF Inference.
@@ -56,11 +83,12 @@ def classify_text(
     attempts = max(1, min(int(retries), 4))
     for attempt in range(attempts):
         try:
-            client = InferenceClient(token=token, timeout=timeout_s)
+            client = _inference_client(token, timeout_s)
             ranked = client.text_classification(trimmed, model=model_id, top_k=1)
-            if not ranked:
+            item = _first_classification_item(ranked)
+            if item is None:
                 return None
-            label, score = _scalar_label_score(ranked[0])
+            label, score = _scalar_label_score(item)
             return label, score
         except Exception as exc:
             if attempt + 1 >= attempts:
@@ -81,7 +109,7 @@ def classify_audio(
     audio_bytes: bytes,
     timeout_s: float,
     *,
-    retries: int = 2,
+    retries: int = 4,
 ) -> tuple[str, float] | None:
     """Audio classification via HF Inference (`audio_classification`). Retries help with cold-start 503s."""
     if not audio_bytes:
@@ -90,7 +118,7 @@ def classify_audio(
     attempts = max(1, min(int(retries), 4))
     for attempt in range(attempts):
         try:
-            client = InferenceClient(token=token, timeout=timeout_s)
+            client = _inference_client(token, timeout_s)
             ranked = client.audio_classification(audio_bytes, model=model_id, top_k=1)
             if not ranked:
                 return None
@@ -113,7 +141,7 @@ def embed_text(api_token: str, model_id: str, text: str, timeout_s: float) -> li
     """Sentence embedding via HF Inference API (`feature_extraction`). Returns a normalised 1-D float list."""
     import math
     try:
-        client = InferenceClient(token=api_token.strip(), timeout=timeout_s)
+        client = _inference_client(api_token, timeout_s)
         result = client.feature_extraction(text, model=model_id)
         # result may be np.ndarray with shape (1, dim) or (dim,)
         if hasattr(result, "tolist"):

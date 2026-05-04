@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     psychology_emotion_inference_mode: str = "auto"
     psychology_hf_api_token: str = ""
     psychology_hf_inference_timeout_s: float = 8.0
+    # Hugging Face InferenceClient routing: `auto` uses Hub provider mappings (empty mapping → client error).
+    # `hf-inference` uses HF's proxy; not every Hub model is deployed there—use a known-good classifier id in
+    # `psychology_text_emotion_model` (default j-hartmann) or set this to `auto` for router-based providers.
+    psychology_hf_inference_provider: str = "hf-inference"
     # HF repo for speech emotion via Inference API (`audio_classification`). Default enables speech in `inference_api` mode when a token is set. Set empty to skip HF speech (then `auto`/`local` use ModelScope `psychology_speech_emotion_model` only).
     psychology_speech_emotion_hf_model: str = "superb/hubert-large-superb-er"
 
