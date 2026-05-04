@@ -56,6 +56,26 @@ export function clearTokens() {
   // Backend's /logout clears cookies.
 }
 
+export async function fetchWithAuthRefresh(input: RequestInfo | URL, init: RequestInit = {}) {
+  const requestInit: RequestInit = {
+    ...init,
+    credentials: init.credentials ?? 'include',
+  }
+
+  let response = await fetch(input, requestInit)
+  if (response.status !== 401) return response
+
+  const { django } = getApiUrls()
+  const refreshResponse = await fetch(`${django}/api/auth/token/refresh/`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!refreshResponse.ok) return response
+
+  response = await fetch(input, requestInit)
+  return response
+}
+
 /**
  * Fetches the current session user from the backend.
  * This is the new source of truth for "logged in" state.

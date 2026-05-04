@@ -10,6 +10,7 @@ import {
   Apple,
   Brain,
   Users,
+  Baby,
   Stethoscope as Clinic,
   Settings,
   User,
@@ -57,6 +58,12 @@ const menuItems: MenuItem[] = [
     label: 'Care Circle',
     href: '/dashboard/care-circle',
     icon: Users,
+  },
+  {
+    label: 'Kids',
+    href: '/dashboard/kids',
+    icon: Baby,
+    allowedRoles: ['patient'],
   },
   {
     label: 'Clinical Support',

@@ -1,8 +1,11 @@
 .env
 .venv/
+.run-logs/
 __pycache__/
 *.py[cod]
+*.sqlite3
 **/models/
+backend/django_app/media/kids/
 /psychology data
 psychology_todo.md
 /.claude

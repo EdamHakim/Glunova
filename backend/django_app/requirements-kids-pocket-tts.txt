@@ -1,0 +1,2 @@
+# Optional: local parent-voice cloning (Kyutai). Gated on Hugging Face; most setups use Fish or ElevenLabs instead.
+pocket-tts>=2.0.0

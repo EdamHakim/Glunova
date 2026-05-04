@@ -141,4 +141,5 @@ SIMPLE_JWT = {
 
 CORS_ALLOWED_ORIGINS = _parse_frontend_origins()
 CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ["content-type", "x-voice-clone-provider", "x-voice-id"]
 CSRF_TRUSTED_ORIGINS = _parse_frontend_origins()

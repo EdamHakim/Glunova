@@ -15,6 +15,7 @@ urlpatterns = [
     path("api/v1/", include("monitoring.urls")),
     path("api/v1/", include("nutrition.urls")),
     path("api/v1/", include("carecircle.urls")),
+    path("api/v1/", include("kids.urls")),
 ]
 
 if settings.DEBUG:
