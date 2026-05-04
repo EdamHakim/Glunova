@@ -4,8 +4,8 @@ Wraps Groq llama-3.3-70b-versatile to turn a fusion result + tier transition
 into a patient-facing alert (title + plain-language explanation + next steps).
 
 Falls back gracefully (returns None) on any failure so the caller can use
-deterministic templates instead. Uses GROQ_MONITORING_API_KEY if set, else
-GROQ_API_KEY (team key) so the team's existing modules keep working.
+deterministic templates instead. Uses the shared GROQ_API_KEY (same key as
+the rest of the team's Groq modules — single key for the project).
 """
 from __future__ import annotations
 
@@ -27,13 +27,6 @@ _client_lock = Lock()
 _client_failed = False
 
 
-def _resolve_api_key() -> str:
-    """Prefer the monitoring-dedicated key; fall back to the team key."""
-    if settings.groq_monitoring_api_key:
-        return settings.groq_monitoring_api_key
-    return settings.groq_api_key or ""
-
-
 def _get_client():
     global _client, _client_failed
     if _client_failed:
@@ -43,7 +36,7 @@ def _get_client():
     with _client_lock:
         if _client is not None:
             return _client
-        api_key = _resolve_api_key()
+        api_key = settings.groq_api_key or ""
         if not api_key:
             logger.info("alert_generator: no Groq API key configured; skipping LLM")
             _client_failed = True
@@ -56,10 +49,7 @@ def _get_client():
             return None
         try:
             _client = Groq(api_key=api_key)
-            logger.info(
-                "alert_generator: Groq client initialized (monitoring key=%s)",
-                "yes" if settings.groq_monitoring_api_key else "no (using team key)",
-            )
+            logger.info("alert_generator: Groq client initialized")
             return _client
         except Exception:
             logger.exception("alert_generator: failed to initialize Groq client")

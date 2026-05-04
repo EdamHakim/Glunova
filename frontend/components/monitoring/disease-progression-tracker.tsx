@@ -148,17 +148,17 @@ export function DiseaseProgressionTracker({
             <p className="text-sm font-medium">{trendTheme.description}</p>
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div>
-                <p className="text-xs text-muted-foreground">Risk score change</p>
+                <p className="text-xs text-muted-foreground">Risk score change (vs previous)</p>
                 <p
                   className={`mt-0.5 text-base font-bold ${
-                    (data.delta_score ?? 0) > 0.05
+                    (data.recent_score_delta ?? data.delta_score ?? 0) > 0.05
                       ? 'text-destructive'
-                      : (data.delta_score ?? 0) < -0.05
+                      : (data.recent_score_delta ?? data.delta_score ?? 0) < -0.05
                         ? 'text-health-success'
                         : 'text-foreground'
                   }`}
                 >
-                  {formatDelta(data.delta_score ?? null, true)}
+                  {formatDelta(data.recent_score_delta ?? data.delta_score ?? null, true)}
                 </p>
               </div>
               <div>

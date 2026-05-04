@@ -459,6 +459,10 @@ class MonitoringRiskStratificationView(APIView):
         drivers = current.drivers if isinstance(current.drivers, dict) else {}
         recommendation = drivers.get("recommendation") or "No recommendation available."
         n_models_used = drivers.get("n_models_used", 0)
+        reasons = drivers.get("reasons") or []
+        if not isinstance(reasons, list):
+            reasons = []
+        override_reason = drivers.get("override_reason")
 
         trend = _trend_label(float(current.score), float(previous.score) if previous else None)
         delta_score = float(current.score) - float(previous.score) if previous else None
@@ -472,6 +476,8 @@ class MonitoringRiskStratificationView(APIView):
                 "score": float(current.score),
                 "confidence": float(current.confidence),
                 "recommendation": recommendation,
+                "reasons": [str(r) for r in reasons],
+                "override_reason": override_reason,
                 "n_models_used": int(n_models_used) if isinstance(n_models_used, int) else 0,
                 "assessed_at": current.assessed_at.isoformat(),
                 "relative_time": _format_relative_time(current.assessed_at),
@@ -591,23 +597,55 @@ class MonitoringDiseaseProgressionView(APIView):
 
         first = assessments[0]
         last = assessments[-1]
+        # delta_score / delta_confidence kept on first->last basis for KPI display
+        # ("how far the patient has drifted since the very first assessment"), but
+        # the trend label itself is computed on last vs PREVIOUS (clinical "right now").
         delta_score = last["score"] - first["score"]
         delta_confidence = last["confidence"] - first["confidence"]
 
+        # Trend reflects the patient's CURRENT trajectory (clinical "how is the
+        # patient doing now?"), not their full history. We compare the latest
+        # assessment to the immediately previous one:
+        #   - tier change always wins (a fresh escalation HIGH->CRITICAL is
+        #     immediately flagged WORSENING regardless of score, a de-escalation
+        #     CRITICAL->HIGH is IMPROVING even if score is still high)
+        #   - same tier -> use score delta with a 10% threshold as tie-breaker
+        # This keeps the label consistent with the Risk Stratification card and
+        # avoids freezing a patient as "WORSENING" forever because of an old
+        # escalation they have since recovered from.
+        _TIER_ORDER = {"low": 0, "moderate": 1, "high": 2, "critical": 3}
+
         if len(assessments) < 2:
             trend = "first"
-        elif delta_score > 0.10:
-            trend = "worsening"
-        elif delta_score < -0.10:
-            trend = "improving"
         else:
-            trend = "stable"
+            previous = assessments[-2]
+            prev_rank = _TIER_ORDER.get(previous["tier"], 0)
+            last_rank = _TIER_ORDER.get(last["tier"], 0)
+            recent_score_delta = last["score"] - previous["score"]
+
+            if last_rank > prev_rank:
+                trend = "worsening"
+            elif last_rank < prev_rank:
+                trend = "improving"
+            elif recent_score_delta > 0.10:
+                trend = "worsening"
+            elif recent_score_delta < -0.10:
+                trend = "improving"
+            else:
+                trend = "stable"
 
         # Tier journey = unique tiers in chronological order (e.g. low -> high -> critical).
         tier_journey: list[str] = []
         for a in assessments:
             if not tier_journey or tier_journey[-1] != a["tier"]:
                 tier_journey.append(a["tier"])
+
+        # Count only UPWARD tier transitions (low->high, high->critical, etc.).
+        # A round-trip low->high->low has 1 escalation, not 2.
+        tier_escalations = 0
+        for prev_tier, curr_tier in zip(tier_journey, tier_journey[1:]):
+            if _TIER_ORDER.get(curr_tier, 0) > _TIER_ORDER.get(prev_tier, 0):
+                tier_escalations += 1
 
         # Period in days (rough)
         period_seconds = (rows[-1].assessed_at - rows[0].assessed_at).total_seconds()
@@ -619,13 +657,18 @@ class MonitoringDiseaseProgressionView(APIView):
             status=HealthAlert.Status.ACTIVE,
         ).count()
 
+        recent_score_delta = (
+            last["score"] - assessments[-2]["score"] if len(assessments) >= 2 else None
+        )
+
         return Response({
             "assessments": assessments,
             "trend": trend,
             "delta_score": delta_score,
+            "recent_score_delta": recent_score_delta,
             "delta_confidence": delta_confidence,
             "tier_journey": tier_journey,
-            "tier_escalations": max(0, len(tier_journey) - 1),
+            "tier_escalations": tier_escalations,
             "n_assessments": len(assessments),
             "period_days": period_days,
             "modalities_evolution": {

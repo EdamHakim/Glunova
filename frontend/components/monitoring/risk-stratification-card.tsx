@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowDown, ArrowRight, ArrowUp, Lightbulb, Target } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Info, Lightbulb, Target } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { RiskStratification } from '@/lib/monitoring-api'
@@ -169,6 +169,30 @@ export function RiskStratificationCard({
               </p>
               <p className="mt-1 text-sm">{cur.recommendation}</p>
             </div>
+
+            {cur.override_reason ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 flex gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-semibold text-destructive">Clinical override active</p>
+                  <p className="mt-1 text-xs text-foreground/90">{cur.override_reason}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {cur.reasons && cur.reasons.length > 0 ? (
+              <div className="rounded-lg border bg-background/60 p-3">
+                <p className="flex items-center gap-2 text-xs font-semibold">
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                  Why this tier?
+                </p>
+                <ul className="mt-2 space-y-1 text-xs text-muted-foreground list-disc pl-5">
+                  {cur.reasons.map((reason, idx) => (
+                    <li key={idx}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         </div>
       </CardContent>

@@ -10,14 +10,19 @@ from screening.schemas import (
     TongueModelHealthResponse,
     VoiceInferenceResponse,
     VoiceModelHealthResponse,
+    CataractGradcamResponse,
+    CataractInferenceResponse,
+    CataractModelHealthResponse,
 )
 from screening.services.tongue_pt_service import TonguePtService
 from screening.services.voice_svm_service import VoiceSvmService
+from screening.services.cataract_pt_service import CataractPtService
 
 router = APIRouter(prefix="/screening", tags=["screening"])
 logger = logging.getLogger(__name__)
 _tongue_service = TonguePtService()
 _voice_service = VoiceSvmService()
+_cataract_service = CataractPtService()
 
 
 def _patient_id_from_claims(claims: dict) -> int:
@@ -262,4 +267,140 @@ def voice_model_health(
         model_path=_voice_service.model_path.as_posix(),
         byols_repo_exists=byols_repo_exists,
         byols_checkpoint_exists=byols_checkpoint_exists,
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# CATARACT ENDPOINTS
+# ─────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/cataract/infer",
+    response_model=CataractInferenceResponse,
+    summary="Cataract severity PyTorch inference",
+)
+async def infer_cataract_severity(
+    image: UploadFile = File(...),
+    claims: dict = Depends(require_roles("patient")),
+) -> CataractInferenceResponse:
+    patient_id = _patient_id_from_claims(claims)
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must be an image.",
+        )
+
+    raw_bytes = await image.read()
+    if not raw_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded image is empty.",
+        )
+
+    try:
+        prediction = _cataract_service.predict(raw_bytes)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Cataract inference failed unexpectedly.",
+        ) from exc
+
+    record_screening_and_refresh(
+        user_id=patient_id,
+        modality="cataract",
+        score=float(prediction.p_cataract),
+        risk_label=prediction.prediction_label,
+        model_version=f"{prediction.model_name}@{prediction.model_version}",
+        metadata={
+            "prediction_index": int(prediction.prediction_index),
+            "cataract_grade": int(prediction.prediction_index),
+            "cataract_confidence": float(prediction.confidence),
+            "p_cataract": float(prediction.p_cataract),
+            "probabilities": prediction.probabilities,
+        },
+    )
+
+    return CataractInferenceResponse(
+        patient_id=patient_id,
+        model_name=prediction.model_name,
+        model_version=prediction.model_version,
+        prediction_index=prediction.prediction_index,
+        prediction_label=prediction.prediction_label,
+        confidence=prediction.confidence,
+        p_cataract=prediction.p_cataract,
+        probabilities=prediction.probabilities,
+    )
+
+
+@router.get("/cataract/health", response_model=CataractModelHealthResponse)
+def cataract_model_health(
+    _claims: dict = Depends(require_roles("patient")),
+) -> CataractModelHealthResponse:
+    model_exists = _cataract_service.model_path.exists()
+    return CataractModelHealthResponse(
+        status="ok" if model_exists else "missing_model",
+        model_file_exists=model_exists,
+        model_loaded=_cataract_service.is_loaded,
+        model_path=_cataract_service.model_path.as_posix(),
+    )
+
+
+@router.post(
+    "/cataract/gradcam",
+    response_model=CataractGradcamResponse,
+    summary="Generate cataract Grad-CAM heatmap",
+)
+async def cataract_gradcam(
+    image: UploadFile = File(...),
+    claims: dict = Depends(require_roles("patient")),
+) -> CataractGradcamResponse:
+    patient_id = _patient_id_from_claims(claims)
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must be an image.",
+        )
+    raw_bytes = await image.read()
+    if not raw_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded image is empty.",
+        )
+
+    try:
+        data = _cataract_service.generate_gradcam(raw_bytes)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Grad-CAM generation failed unexpectedly.",
+        ) from exc
+
+    return CataractGradcamResponse(
+        patient_id=patient_id,
+        heatmap_base64=data["heatmap_base64"],
+        prediction_label=data["prediction_label"],
+        confidence=data["confidence"],
+        p_cataract=data["p_cataract"],
+        probabilities=data["probabilities"],
     )

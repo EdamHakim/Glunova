@@ -42,22 +42,65 @@ class TabularPredictor:
     # Champs sans lesquels la prediction est cliniquement absurde
     REQUIRED_FIELDS = ['age', 'HbA1c_level', 'blood_glucose_level']
 
+    # ---- Post-calibration clinique (ADA 2024 Standards of Care, Section 2) ----
+    # Le LightGBM v8 a ete entraine sur le dataset Kaggle binaire (sain / diabetique).
+    # Resultat : un patient pre-diabetique (HbA1c 5.7-6.4) est classe ~99% diabetique
+    # car il est "proche" de la classe positive du dataset. Cliniquement, ADA 2024
+    # est sans ambiguite : pre-diabete != diabete (surveillance, pas traitement).
+    #
+    # On rescale la sortie du modele en plafonnant p_tabular selon les vrais
+    # marqueurs cliniques du patient :
+    #   - HbA1c >= 6.5  OU glucose >= 126  -> diabete confirme  -> on garde le score
+    #   - HbA1c >= 5.7  OU glucose >= 100  -> pre-diabete       -> cap a 0.30
+    #   - sinon                            -> normal             -> cap a 0.10
+    # Avec un cap a 0.30 pour le pre-diabete, le tier reste sous le seuil HIGH (0.45),
+    # donc ces patients defaultent a LOW sauf complication imagerie reelle.
+    ADA_HBA1C_PREDIAB_LOW   = 5.7
+    ADA_HBA1C_DIAB_LOW      = 6.5
+    ADA_GLUCOSE_PREDIAB_LOW = 100
+    ADA_GLUCOSE_DIAB_LOW    = 126
+    PREDIAB_PTABULAR_CAP    = 0.30   # plafond pour pre-diabete (< HIGH 0.45)
+    NORMAL_PTABULAR_CAP     = 0.10   # plafond pour normal (clairement LOW)
+
     def __init__(self, model_path, features_path):
         self.model = joblib.load(model_path)
         with open(features_path) as f:
             self.feature_cols = json.load(f)
-        print(f" Tabular LightGBM — {len(self.feature_cols)} features")
+        print(f" Tabular LightGBM [v8 + ADA post-calibration] -- {len(self.feature_cols)} features")
+
+    def _ada_class(self, patient_data):
+        """Return ADA 2024 glycemic class from raw clinical values:
+            2 = Diabetes, 1 = Pre-diabetes, 0 = Normal.
+        """
+        hba1c = float(patient_data.get('HbA1c_level', 0) or 0)
+        glucose = float(patient_data.get('blood_glucose_level', 0) or 0)
+        if hba1c >= self.ADA_HBA1C_DIAB_LOW or glucose >= self.ADA_GLUCOSE_DIAB_LOW:
+            return 2
+        if hba1c >= self.ADA_HBA1C_PREDIAB_LOW or glucose >= self.ADA_GLUCOSE_PREDIAB_LOW:
+            return 1
+        return 0
 
     def predict(self, patient_data):
         # Validation : champs cliniques obligatoires (FIX v11)
         missing = [f for f in self.REQUIRED_FIELDS if f not in patient_data]
         if missing:
             raise ValueError(
-                f"Champs cliniques obligatoires manquants : {missing}. "
-                f"HbA1c et glycemie sont indispensables (criteres ADA 2024)."
+                f"Required clinical fields missing: {missing}. "
+                f"HbA1c and blood glucose are mandatory (ADA 2024 criteria)."
             )
         df = pd.DataFrame({col: [patient_data.get(col, 0)] for col in self.feature_cols})
-        return float(self.model.predict_proba(df)[0][1])
+        raw_proba = float(self.model.predict_proba(df)[0][1])
+
+        # Post-calibration clinique ADA 2024.
+        ada_class = self._ada_class(patient_data)
+        if ada_class == 2:
+            # Diabete confirme par les valeurs cliniques -> on garde la sortie brute.
+            return raw_proba
+        if ada_class == 1:
+            # Pre-diabete -> cap a 0.30 pour rester sous le seuil HIGH (0.45).
+            return min(raw_proba, self.PREDIAB_PTABULAR_CAP)
+        # Normal -> cap a 0.10.
+        return min(raw_proba, self.NORMAL_PTABULAR_CAP)
 
 
 # === MODELE 2 : DR V5.1 BINARY ===
@@ -491,6 +534,11 @@ TIER_HIGH_THRESHOLD = 0.45
 TABULAR_HIGH_THRESHOLD = 0.80
 DR_DETECTED_THRESHOLD = 0.50
 
+# Seuil override DFU : tout ulcere actif >= ce seuil force tier CRITICAL.
+# Aligne sur la formule du modele DFU (score plancher = 0.50 quand ulcere visible),
+# justifie par IWGDF 2023 (ulcere = urgence podologique).
+DFU_OVERRIDE_THRESHOLD = 0.50
+
 # Tier hierarchy pour comparaison
 TIER_RANK = {'LOW': 0, 'HIGH': 1, 'CRITICAL': 2}
 RANK_TO_TIER = {0: 'LOW', 1: 'HIGH', 2: 'CRITICAL'}
@@ -523,7 +571,7 @@ def late_fusion_robust(features_dict, dr_grade=0, dr_grade_confidence=0.0,
     if 'p_tabular' not in available_raw:
         return {
             'error': 'TABULAR_REQUIRED',
-            'message': 'Donnees cliniques (HbA1c, glucose) obligatoires.',
+            'message': 'Clinical data (HbA1c, glucose) is mandatory.',
             'tier': None,
         }
 
@@ -569,12 +617,12 @@ def late_fusion_robust(features_dict, dr_grade=0, dr_grade_confidence=0.0,
 
     if dr_grade == 4 and dr_grade_confidence >= OVERRIDE_CONFIDENCE_THRESHOLD:
         override_active = True
-        override_reason = f'Proliferative DR avec confidence {dr_grade_confidence:.2f}'
+        override_reason = f'Proliferative DR with confidence {dr_grade_confidence:.2f}'
         return {
             'p_finale': p_finale,
             'tier': 'CRITICAL',
-            'reasons': ['Proliferative DR detected — vision menacee'],
-            'recommendation': 'Consultation ophtalmologique URGENTE',
+            'reasons': ['Proliferative DR detected — vision-threatening'],
+            'recommendation': 'OPHTHALMIC EMERGENCY — Urgent retinal specialist referral within 24-48 hours; candidate for pan-retinal photocoagulation (PRP) or anti-VEGF therapy.',
             'contributions': contributions,
             'norm_weights': norm_weights,
             'confidence_factor': confidence_factor,
@@ -586,12 +634,59 @@ def late_fusion_robust(features_dict, dr_grade=0, dr_grade_confidence=0.0,
 
     if dr_grade == 3 and dr_grade_confidence >= OVERRIDE_CONFIDENCE_THRESHOLD:
         override_active = True
-        override_reason = f'Severe DR avec confidence {dr_grade_confidence:.2f}'
+        override_reason = f'Severe DR with confidence {dr_grade_confidence:.2f}'
         return {
             'p_finale': p_finale,
             'tier': 'CRITICAL',
             'reasons': ['Severe DR detected'],
-            'recommendation': 'Consultation ophtalmologique sous 1 mois',
+            'recommendation': 'Refer to a retinal specialist within 2-4 weeks; close monitoring every 1-3 months with assessment for PRP or anti-VEGF treatment.',
+            'contributions': contributions,
+            'norm_weights': norm_weights,
+            'confidence_factor': confidence_factor,
+            'n_models_used': n_models_raw,
+            'override_active': override_active,
+            'override_reason': override_reason,
+            'asymmetry_filtered': asymmetry_filtered,
+        }
+
+    # === ETAPE 6 ter : Override CRITICAL (Severe Cataract detectee) ===
+    # Justification AAO PPP 2024 (Cataract in the Adult Eye) : une cataracte
+    # severe (grade 3 = mature avec opacite importante, vision < 20/200) est
+    # une urgence ophtalmologique fonctionnelle (chute, perte d'autonomie).
+    # On exige confidence >= 0.75 pour eviter les faux positifs sur un modele
+    # MobileNet 4-classes dont la classe "severe" peut etre instable.
+    if cataract_grade == 3 and cataract_confidence >= OVERRIDE_CONFIDENCE_THRESHOLD:
+        override_active = True
+        override_reason = f'Severe cataract with confidence {cataract_confidence:.2f}'
+        return {
+            'p_finale': p_finale,
+            'tier': 'CRITICAL',
+            'reasons': ['Severe cataract detected — vision impairment, urgent surgical evaluation'],
+            'recommendation': 'OPHTHALMIC EMERGENCY (cataract) — Urgent referral to cataract surgeon for evaluation; mature cataract significantly impairs vision and increases fall/autonomy risk.',
+            'contributions': contributions,
+            'norm_weights': norm_weights,
+            'confidence_factor': confidence_factor,
+            'n_models_used': n_models_raw,
+            'override_active': override_active,
+            'override_reason': override_reason,
+            'asymmetry_filtered': asymmetry_filtered,
+        }
+
+    # === ETAPE 6 bis : Override CRITICAL (Diabetic Foot Ulcer detecte) ===
+    # Justification clinique IWGDF 2023 : un ulcere diabetique actif est une
+    # urgence par lui-meme, independamment des autres signaux. 19-34% de risque
+    # vie chez le diabetique, 85% des amputations sont precedees par un ulcere.
+    # Le modele DFU encode tout score >= 0.50 comme "ulcere detecte" (formule
+    # min(0.5 + ratio*20, 1.0)), donc on aligne le seuil override sur cette borne.
+    p_ulcer_value = available_raw.get('p_ulcer')
+    if p_ulcer_value is not None and p_ulcer_value >= DFU_OVERRIDE_THRESHOLD:
+        override_active = True
+        override_reason = f'Active diabetic foot ulcer (DFU score {p_ulcer_value:.2f})'
+        return {
+            'p_finale': p_finale,
+            'tier': 'CRITICAL',
+            'reasons': ['Active diabetic foot ulcer detected — IWGDF 2023 emergency'],
+            'recommendation': 'PODIATRIC EMERGENCY — Interdisciplinary evaluation required (sharp debridement, offloading, vascular assessment); hospitalize if severe or systemic infection is present.',
             'contributions': contributions,
             'norm_weights': norm_weights,
             'confidence_factor': confidence_factor,
@@ -606,13 +701,13 @@ def late_fusion_robust(features_dict, dr_grade=0, dr_grade_confidence=0.0,
 
     if p_finale >= TIER_CRITICAL_THRESHOLD:
         base_tier = 'CRITICAL'
-        reasons.append(f'P(diabete)={p_finale:.2f} - tres eleve')
+        reasons.append(f'P(diabetes)={p_finale:.2f} — very high')
     elif p_finale >= TIER_HIGH_THRESHOLD:
         base_tier = 'HIGH'
-        reasons.append(f'P(diabete)={p_finale:.2f}')
+        reasons.append(f'P(diabetes)={p_finale:.2f}')
     else:
         base_tier = 'LOW'
-        reasons.append(f'P(diabete)={p_finale:.2f}')
+        reasons.append(f'P(diabetes)={p_finale:.2f}')
 
     final_tier = base_tier
     boost_reasons = []
@@ -646,53 +741,54 @@ def late_fusion_robust(features_dict, dr_grade=0, dr_grade_confidence=0.0,
                 f'(diabete + complication oculaire)'
             )
 
-    # === ETAPE 11 : CAP CLINIQUE - jamais CRITICAL avec 1 seul modele ===
+    # === ETAPE 11 : CAP CLINIQUE - jamais CRITICAL avec 1 seul signal contribuant ===
+    # On utilise len(available) (= signaux EFFECTIVEMENT utilises dans la math,
+    # apres filtrage asymetrie), pas n_models_raw (qui compte aussi les modalites
+    # uploadees mais filtrees comme cliniquement neutres).
+    # Sans ca : un patient avec tabular eleve + cataract normale (filtree) finirait
+    # CRITICAL alors qu'il n'a qu'un seul signal qui contribue au calcul.
     # Justification clinique :
-    #  - 1 seul modele actif = confidence factor 50% (~pile-ou-face) -> incompatible
-    #    avec une recommandation "consultation immediate" (CRITICAL).
-    #  - ADA 2024 Section 2 (Diagnosis) : un diagnostic de diabete necessite
-    #    "a second test for confirmation" sauf urgence clinique evidente.
-    #  - HbA1c isolee peut etre faussement elevee (anemie ferriprive, IRC, transfusion)
-    #    ou faussement basse (hemolyse, hemoglobinopathie, saignement) -> Cohen 2003.
-    #  - Asymetrie cout : faux-positif CRITICAL (urgence inutile + anxiete + cout)
-    #    >> faux-positif HIGH (consultation specialiste sous 3-6 mois).
-    #  - Coherence design : la valeur ajoutee de Glunova = multimodalite ;
-    #    sans 2+ signaux concordants, on plafonne explicitement.
-    if n_models_raw == 1 and final_tier == 'CRITICAL':
+    #  - 1 seul signal contribuant = pas de confirmation multimodale
+    #  - ADA 2024 Section 2 : "second test for confirmation" sauf urgence evidente
+    #  - HbA1c isolee peut etre faussement elevee (anemie, IRC, transfusion -> Cohen 2003)
+    #  - Asymetrie cout : faux-positif CRITICAL > faux-positif HIGH (consultation 3-6 mois)
+    #  - Valeur ajoutee Glunova = multimodalite : sans 2+ signaux concordants -> cap HIGH.
+    n_models_active = len(available)
+    if n_models_active <= 1 and final_tier == 'CRITICAL':
         boost_reasons.append(
-            'Cap clinique : 1 seul modele actif -> tier maximum HIGH. '
-            'Consultation immediate necessite >= 2 signaux concordants '
-            '(ADA 2024 confirmation rule + multimodalite Glunova).'
+            'Clinical cap: only 1 contributing signal -> tier capped at HIGH. '
+            'CRITICAL requires >= 2 concordant signals '
+            '(ADA 2024 confirmation rule + Glunova multimodality).'
         )
         final_tier = 'HIGH'
 
     # === ETAPE 12 : Avertissements ===
     if dr_grade >= 3 and dr_grade_confidence < OVERRIDE_CONFIDENCE_THRESHOLD:
         reasons.append(
-            f'V8 a predit grade {dr_grade} mais confidence basse ({dr_grade_confidence:.2f}) '
-            f'-- override non declenche, examen ophtalmologique recommande'
+            f'V8 predicted grade {dr_grade} but low confidence ({dr_grade_confidence:.2f}) '
+            f'-- override not triggered, ophthalmologic examination recommended'
         )
 
     if 'p_dr_v51' not in available_raw:
-        reasons.append('Examen ophtalmologique (fundus) recommande')
+        reasons.append('Fundus eye exam recommended')
 
     if 'p_ulcer' not in available_raw and 'p_thermal' not in available_raw:
-        reasons.append('Examen pied (DFU + thermal) recommande')
+        reasons.append('Foot exam (DFU + thermal) recommended')
 
     if 'p_cataract' not in available_raw:
-        reasons.append('Examen cataracte (slit-lamp ou fundus) recommande')
+        reasons.append('Cataract exam (slit-lamp or fundus) recommended')
 
     reasons.extend(boost_reasons)
 
     if asymmetry_filtered:
         for f in asymmetry_filtered:
-            reasons.append(f'Asymetrie clinique : {f} (traite comme absent)')
+            reasons.append(f'Clinical asymmetry: {f} (treated as absent)')
 
     # === RECOMMANDATIONS 3 TIERS ===
     recommendations = {
-        'LOW':      'Suivi annuel standard',
-        'HIGH':     'Suivi 3-6 mois + specialiste',
-        'CRITICAL': 'Consultation immediate',
+        'LOW':      'Low risk — Maintain healthy lifestyle habits with annual HbA1c and fasting glucose screening.',
+        'HIGH':     'Elevated risk — Schedule a follow-up workup within 3 months, consult an endocrinologist, initiate lifestyle intervention, and confirm with a second diagnostic test.',
+        'CRITICAL': 'Critical risk — Immediate endocrinology consultation required; comprehensive clinical assessment within 7 days, with hospitalization if acute decompensation is suspected.',
     }
 
     return {

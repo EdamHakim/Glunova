@@ -19,9 +19,6 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     database_url: str = "postgresql+psycopg://glunova:glunova@localhost:5432/glunova"
     groq_api_key: str = ""
-    # Optional dedicated key used only by monitoring/services/alert_generator.
-    # Falls back to groq_api_key if empty so existing modules keep working.
-    groq_monitoring_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     groq_vision_model: str = "llama-3.2-11b-vision-preview"
     ocr_language: str = "eng"

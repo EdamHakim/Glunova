@@ -26,7 +26,8 @@
     "override_confidence": 0.75,
     "complication_asymmetry": 0.3,
     "tabular_high": 0.8,
-    "dr_detected": 0.5
+    "dr_detected": 0.5,
+    "dfu_override": 0.5
   },
   "model_paths": {
     "tabular_model": "/content/drive/MyDrive/Glunova/monitoring/risk_v8/tabular_diabetes_lgb.joblib",

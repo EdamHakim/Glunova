@@ -102,6 +102,8 @@ export type RiskStratification = {
     score: number
     confidence: number
     recommendation: string
+    reasons: string[]
+    override_reason: string | null
     n_models_used: number
     assessed_at: string
     relative_time: string
@@ -161,6 +163,7 @@ export type DiseaseProgression = {
   assessments: DiseaseProgressionAssessment[]
   trend: 'first' | 'worsening' | 'stable' | 'improving'
   delta_score?: number
+  recent_score_delta?: number | null
   delta_confidence?: number
   tier_journey?: string[]
   tier_escalations?: number

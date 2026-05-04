@@ -84,7 +84,8 @@ def _compute_bmi(height_cm, weight_kg) -> float | None:
 
 
 def fetch_patient_health_data(user_id: int) -> PatientHealthData | None:
-    """Read 9 health fields from users_user, convert to LightGBM-ready data.
+    """Read 9 health fields from users_patientprofile (linked to users_user via
+    user_id), convert to LightGBM-ready data.
 
     Returns None if patient is missing the 3 fields the fusion treats as required:
     age (date_of_birth), HbA1c_level, blood_glucose_level.
@@ -100,8 +101,8 @@ def fetch_patient_health_data(user_id: int) -> PatientHealthData | None:
             SELECT date_of_birth, gender, height_cm, weight_kg,
                    hypertension, heart_disease, smoking_status,
                    hba1c_level, blood_glucose_level
-              FROM users_user
-             WHERE id = %s
+              FROM users_patientprofile
+             WHERE user_id = %s
             """,
             (user_id,),
         )
