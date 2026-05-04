@@ -375,51 +375,59 @@ def _persist_wellness_plan(patient, plan_data: dict, profile: dict) -> WeeklyWel
         },
     )
 
+    days_in_payload = [day["day_index"] for day in plan_data.get("days", [])]
+
+    # Wipe stale rows for every day we're about to write so re-generation is clean.
+    Meal.objects.filter(wellness_plan=plan, day_index__in=days_in_payload).delete()
+    ExerciseSession.objects.filter(wellness_plan=plan, day_index__in=days_in_payload).delete()
+
+    meals_to_create:    list[Meal]            = []
+    sessions_to_create: list[ExerciseSession] = []
+
     for day in plan_data.get("days", []):
         day_idx = day["day_index"]
-        # Persist meals
+
         for m in day.get("meals", []):
-            Meal.objects.update_or_create(
+            meals_to_create.append(Meal(
+                wellness_plan=plan,
+                meal_plan=None,
+                day_index=day_idx,
+                meal_type=m.get("meal_type", "snack"),
+                name=m.get("name", ""),
+                description=m.get("description", ""),
+                ingredients=m.get("ingredients", []),
+                preparation_time_minutes=m.get("preparation_time_minutes", 20),
+                calories_kcal=m.get("calories_kcal", 0),
+                carbs_g=m.get("carbs_g", 0),
+                protein_g=m.get("protein_g", 0),
+                fat_g=m.get("fat_g", 0),
+                sugar_g=m.get("sugar_g", 0),
+                glycemic_index=m.get("glycemic_index", "medium"),
+                glycemic_load=m.get("glycemic_load", "medium"),
+                diabetes_rationale=m.get("diabetes_rationale", ""),
+            ))
+
+        for s in day.get("exercise_sessions", []):
+            sessions_to_create.append(ExerciseSession(
+                patient=patient,
                 wellness_plan=plan,
                 day_index=day_idx,
-                meal_type=m["meal_type"],
-                defaults={
-                    "meal_plan":                 None,
-                    "name":                      m["name"],
-                    "description":               m.get("description", ""),
-                    "ingredients":               m.get("ingredients", []),
-                    "preparation_time_minutes":  m.get("preparation_time_minutes", 20),
-                    "calories_kcal":             m["calories_kcal"],
-                    "carbs_g":                   m["carbs_g"],
-                    "protein_g":                 m["protein_g"],
-                    "fat_g":                     m["fat_g"],
-                    "sugar_g":                   m.get("sugar_g", 0),
-                    "glycemic_index":             m.get("glycemic_index", "medium"),
-                    "glycemic_load":              m.get("glycemic_load", "medium"),
-                    "diabetes_rationale":         m.get("diabetes_rationale", ""),
-                },
-            )
-        # Persist exercise sessions
-        for idx, s in enumerate(day.get("exercise_sessions", []), start=1):
-            ExerciseSession.objects.update_or_create(
-                wellness_plan=plan,
-                day_index=day_idx,
-                title=s.get("name", f"Session {idx}"),
-                defaults={
-                    "patient":                      patient,
-                    "exercise_type":                s.get("exercise_type", ""),
-                    "description":                  s.get("description", ""),
-                    "intensity":                    s.get("intensity", "moderate"),
-                    "duration_minutes":             s.get("duration_minutes", 30),
-                    "sets":                         s.get("sets"),
-                    "reps":                         s.get("reps"),
-                    "equipment":                    s.get("equipment", []),
-                    "pre_exercise_glucose_check":   s.get("pre_exercise_glucose_check", False),
-                    "post_exercise_snack_tip":      s.get("post_exercise_snack_tip", ""),
-                    "diabetes_rationale":           s.get("diabetes_rationale", ""),
-                    "scheduled_for":                timezone.now(),
-                },
-            )
+                title=s.get("name", "Session")[:255],
+                exercise_type=s.get("exercise_type", ""),
+                description=s.get("description", ""),
+                intensity=s.get("intensity", "moderate"),
+                duration_minutes=s.get("duration_minutes", 30),
+                sets=s.get("sets"),
+                reps=s.get("reps"),
+                equipment=s.get("equipment", []),
+                pre_exercise_glucose_check=s.get("pre_exercise_glucose_check", False),
+                post_exercise_snack_tip=s.get("post_exercise_snack_tip", ""),
+                diabetes_rationale=s.get("diabetes_rationale", ""),
+                scheduled_for=timezone.now(),
+            ))
+
+    Meal.objects.bulk_create(meals_to_create)
+    ExerciseSession.objects.bulk_create(sessions_to_create)
     return plan
 
 

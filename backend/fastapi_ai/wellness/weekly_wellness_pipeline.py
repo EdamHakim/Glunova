@@ -8,6 +8,7 @@ Both stages share the same patient clinical context.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any
@@ -15,6 +16,8 @@ from typing import Any
 from openai import OpenAI
 
 from .weekly_wellness_schema import WeeklyWellnessPlanRequest
+
+log = logging.getLogger(__name__)
 
 NAVY_BASE_URL = "https://api.navy/v1"
 NAVY_MODEL    = os.environ.get("OPENAI_MODEL", "gpt-4o")
@@ -36,16 +39,51 @@ def _get_client() -> OpenAI:
     return OpenAI(api_key=api_key, base_url=NAVY_BASE_URL)
 
 
+def _extract_json(raw: str) -> dict:
+    """Extract JSON object from LLM output that may contain preamble/postamble text."""
+    # Strip markdown fences first
+    raw = re.sub(r"```json\s*", "", raw)
+    raw = re.sub(r"```\s*", "", raw)
+    raw = raw.strip()
+    # Find the outermost JSON object
+    start = raw.find("{")
+    if start == -1:
+        raise ValueError(f"No JSON object found in LLM response. Raw (first 300): {raw[:300]}")
+    # Find matching closing brace
+    depth = 0
+    end = -1
+    for i, ch in enumerate(raw[start:], start=start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end == -1:
+        raise ValueError(f"Unbalanced braces in LLM response. Raw (first 300): {raw[:300]}")
+    return json.loads(raw[start : end + 1])
+
+
 def _call(client: OpenAI, prompt: str, *, max_tokens: int = 4000) -> dict:
-    resp = client.chat.completions.create(
-        model=NAVY_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.4,
-        max_tokens=max_tokens,
-    )
-    raw = resp.choices[0].message.content.strip()
-    raw = re.sub(r"```json\s*|```\s*", "", raw).strip()
-    return json.loads(raw)
+    try:
+        resp = client.chat.completions.create(
+            model=NAVY_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        log.exception("OpenAI API call failed")
+        raise RuntimeError(f"LLM API error: {exc}") from exc
+
+    raw = resp.choices[0].message.content or ""
+    log.debug("LLM raw response (first 500 chars): %s", raw[:500])
+    try:
+        return _extract_json(raw)
+    except (ValueError, json.JSONDecodeError) as exc:
+        log.error("JSON extraction failed. Raw response:\n%s", raw[:2000])
+        raise RuntimeError(f"JSON parse error: {exc}") from exc
 
 
 def _bmi_label(bmi: float) -> str:
@@ -124,7 +162,7 @@ Return ONLY valid JSON — no markdown fences:
           "session_order": 1,
           "exercise_type": "cardio|strength|flexibility|HIIT|mobility",
           "name": "<session name>",
-          "description": "<2-sentence description>",
+          "description": "<1-sentence description>",
           "duration_minutes": <int>,
           "intensity": "low|moderate|high",
           "sets": <int|null>,
@@ -202,7 +240,7 @@ Return ONLY valid JSON — no markdown fences:
         {{
           "meal_type": "breakfast|lunch|dinner|snack|pre_workout_snack|post_workout_snack",
           "name": "<meal name>",
-          "description": "<one sentence>",
+          "description": "<brief, one sentence>",
           "ingredients": ["<qty> <unit> <item>"],
           "preparation_time_minutes": <int>,
           "calories_kcal": <number>,
@@ -255,18 +293,52 @@ def _merge(exercise_data: dict, meal_data: dict) -> dict:
     }
 
 
+def _merge_meal_chunks(chunks: list[dict]) -> dict:
+    """Merge multiple partial meal_data dicts (each covering a subset of days)."""
+    merged_days: list[dict] = []
+    avg_fields = ["avg_daily_calories", "avg_daily_carbs_g", "avg_daily_protein_g", "avg_daily_fat_g"]
+    summary: dict = {}
+
+    for chunk in chunks:
+        merged_days.extend(chunk.get("days", []))
+        for field in avg_fields:
+            summary.setdefault(field, [])
+            val = chunk.get("meal_week_summary", {}).get(field)
+            if val is not None:
+                summary[field].append(val)
+
+    # Average the numeric summary fields across chunks
+    averaged: dict = {k: round(sum(v) / len(v), 1) for k, v in summary.items() if v}
+    # Take dietary_philosophy from the first chunk that has it
+    for chunk in chunks:
+        phil = chunk.get("meal_week_summary", {}).get("dietary_philosophy")
+        if phil:
+            averaged["dietary_philosophy"] = phil
+            break
+
+    return {"meal_week_summary": averaged, "days": merged_days}
+
+
 def generate_weekly_wellness_plan(req: WeeklyWellnessPlanRequest) -> dict:
     client      = _get_client()
     target_days = [req.day_index] if req.day_index is not None else list(range(7))
 
-    # Stage 1 — exercise schedule
-    exercise_data = _call(client, _exercise_prompt(req, target_days), max_tokens=3000)
+    # Stage 1 — exercise schedule (full week or single day)
+    exercise_data = _call(client, _exercise_prompt(req, target_days), max_tokens=4000)
 
-    # Stage 2 — meals informed by exercise load per day
-    meal_data = _call(
-        client,
-        _meal_prompt(req, exercise_data.get("days", []), target_days),
-        max_tokens=6000,
-    )
+    # Stage 2 — meals split into chunks of ≤4 days to stay within token limits
+    chunk_size  = 4
+    ex_days     = exercise_data.get("days", [])
+    meal_chunks = []
+    for i in range(0, len(target_days), chunk_size):
+        chunk_days = target_days[i : i + chunk_size]
+        chunk_data = _call(
+            client,
+            _meal_prompt(req, ex_days, chunk_days),
+            max_tokens=5000,
+        )
+        meal_chunks.append(chunk_data)
+
+    meal_data = _merge_meal_chunks(meal_chunks) if len(meal_chunks) > 1 else (meal_chunks[0] if meal_chunks else {})
 
     return _merge(exercise_data, meal_data)
