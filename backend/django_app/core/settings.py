@@ -103,7 +103,7 @@ UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "10"))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "medical-documents")
-# AI Service Integration — URL Django uses to call FastAPI (Groq, meal plan, etc.)
+# AI Service Integration — URL Django uses to call FastAPI (Groq, wellness plan, etc.)
 _ai_url = (os.getenv("AI_SERVICE_URL") or "http://127.0.0.1:8001").strip().rstrip("/")
 # backend/.env often uses http://fastapi_ai:8001 for Docker; that host does not resolve
 # when Django runs on your machine (e.g. runserver + uvicorn). Inside a container,

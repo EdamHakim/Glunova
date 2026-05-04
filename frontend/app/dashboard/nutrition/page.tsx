@@ -7,7 +7,6 @@ import { useAuth } from '@/components/auth-context'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NutritionAnalysisModal } from '@/components/nutrition/nutrition-analysis-modal'
-import { MealPlannerTabContent } from './meal-planner/page'
 import { WellnessPlannerTabContent } from './wellness-planner/page'
 
 export default function NutritionPage() {
@@ -18,10 +17,10 @@ export default function NutritionPage() {
   const isDoctor = role === 'doctor'
   const canAssistLogging = role === 'caregiver'
   const intro = isDoctor
-    ? 'Review nutrition plans and food analysis for assigned patients.'
+    ? 'Review wellness plans and food analysis for assigned patients.'
     : canAssistLogging
       ? 'Support AI food analysis and view wellness plans for linked patients.'
-      : 'Analyze meals with AI and manage your weekly nutrition and wellness plan.'
+      : 'Analyze meals with AI and manage your wellness plan.'
 
   useEffect(() => {
     if (user?.role === 'patient') setPatientId(user.id)
@@ -71,7 +70,6 @@ export default function NutritionPage() {
               <NutritionAnalysisModal disabled={!isPatient && !canAssistLogging} />
             </CardContent>
           </Card>
-          <MealPlannerTabContent patientId={patientId || undefined} isPatient={isPatient} />
         </TabsContent>
 
         <TabsContent value="wellness">

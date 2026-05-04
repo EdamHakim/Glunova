@@ -60,6 +60,10 @@ const cache = new Map<string, ExerciseGifResult>()
 
 // ── Name-similarity matching ──────────────────────────────────────────────────
 
+// Below this threshold the match is considered unreliable — return null so the
+// YouTube fallback is shown instead of a wrong exercise image.
+const MIN_SCORE = 0.25
+
 function words(s: string): string[] {
   return s.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length > 2)
 }
@@ -76,30 +80,43 @@ function score(dbName: string, query: string): number {
   return hits / (dw.length + qw.size)
 }
 
+function bestMatch(pool: LocalExercise[], name: string): [LocalExercise | null, number] {
+  let best: LocalExercise | null = null
+  let bestScore = -1
+  for (const ex of pool) {
+    const s = score(ex.name, name)
+    if (s > bestScore) { bestScore = s; best = ex }
+  }
+  return [best, bestScore]
+}
+
+function toResult(ex: LocalExercise): ExerciseGifResult {
+  return {
+    gifUrl:       GITHUB_BASE + ex.images[0],
+    target:       ex.primaryMuscles?.[0] ?? null,
+    instructions: ex.instructions?.slice(0, 5) ?? [],
+  }
+}
+
 function resolve(name: string, type: string): ExerciseGifResult | null {
   const all = getDb()
   const typeKey = type.trim().toLowerCase()
   const cats = new Set(TYPE_TO_CATEGORIES[typeKey] ?? [])
-
-  // Search within relevant categories first; fall back to entire dataset.
   const pool = cats.size > 0 ? all.filter(e => cats.has(e.category)) : all
-  const searchPool = pool.length > 0 ? pool : all
 
-  let best: LocalExercise | null = null
-  let bestScore = -1
+  const [best, bestScore] = bestMatch(pool.length > 0 ? pool : all, name)
 
-  for (const ex of searchPool) {
-    const s = score(ex.name, name)
-    if (s > bestScore) { bestScore = s; best = ex }
+  // Confident match within the category pool — use it.
+  if (best && bestScore >= MIN_SCORE && best.images?.length) return toResult(best)
+
+  // Poor match in category pool — widen search to the whole dataset.
+  if (pool.length > 0 && pool.length < all.length) {
+    const [globalBest, globalScore] = bestMatch(all, name)
+    if (globalBest && globalScore >= MIN_SCORE && globalBest.images?.length) return toResult(globalBest)
   }
 
-  if (!best || !best.images?.length) return null
-
-  return {
-    gifUrl:       GITHUB_BASE + best.images[0],
-    target:       best.primaryMuscles?.[0] ?? null,
-    instructions: best.instructions?.slice(0, 5) ?? [],
-  }
+  // No confident match anywhere → let the frontend show the YouTube fallback.
+  return null
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────

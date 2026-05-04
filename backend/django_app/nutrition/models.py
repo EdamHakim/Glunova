@@ -91,36 +91,6 @@ class RecoveryPlan(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class WeeklyMealPlan(models.Model):
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        READY   = "ready",   "Ready"
-        FAILED  = "failed",  "Failed"
-
-    class Cuisine(models.TextChoices):
-        MEDITERRANEAN = "mediterranean", "Mediterranean"
-        MAGHREB       = "maghreb",       "Maghreb / North African"
-        MIDDLE_EASTERN = "middle_eastern", "Middle Eastern"
-        WESTERN       = "western",       "Western"
-
-    patient           = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="meal_plans"
-    )
-    week_start        = models.DateField()
-    status            = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    cuisine           = models.CharField(max_length=30, choices=Cuisine.choices, default=Cuisine.MEDITERRANEAN)
-    generated_at      = models.DateTimeField(null=True, blank=True)
-    clinical_snapshot = models.JSONField(default=dict)
-    week_summary      = models.JSONField(default=dict)
-
-    class Meta:
-        ordering = ["-week_start"]
-        unique_together = [("patient", "week_start")]
-
-    def __str__(self):
-        return f"MealPlan({self.patient_id}, week={self.week_start})"
-
-
 class Meal(models.Model):
     class MealType(models.TextChoices):
         BREAKFAST           = "breakfast",           "Breakfast"
@@ -135,9 +105,6 @@ class Meal(models.Model):
         MEDIUM = "medium", "Medium"
         HIGH   = "high",   "High"
 
-    meal_plan                = models.ForeignKey(
-        WeeklyMealPlan, on_delete=models.CASCADE, related_name="meals", null=True, blank=True
-    )
     wellness_plan            = models.ForeignKey(
         WeeklyWellnessPlan, on_delete=models.CASCADE, related_name="meals", null=True, blank=True
     )
@@ -158,7 +125,7 @@ class Meal(models.Model):
 
     class Meta:
         ordering = ["day_index", "meal_type"]
-        unique_together = [("meal_plan", "day_index", "meal_type")]
+        unique_together = [("wellness_plan", "day_index", "meal_type")]
 
     def __str__(self):
         return f"{self.meal_type} day{self.day_index} — {self.name}"

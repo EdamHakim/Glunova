@@ -129,7 +129,7 @@ def run_deepeval_eval(
         nutritional_compliance = GEval(
             name="Nutritional Compliance",
             criteria=(
-                "Score whether the meal plan respects nutritional constraints. "
+                "Score whether the wellness week meals respect nutritional constraints. "
                 "Check: (1) no allergen from the allergies list appears in any meal ingredients, "
                 "(2) per-meal carbs_g does not exceed carb_limit_per_meal_g from patient context, "
                 "(3) daily totals are within ±15% of target_calories_kcal when set."

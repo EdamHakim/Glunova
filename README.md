@@ -34,7 +34,7 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 
 - **Non-invasive screening** — multimodal signals (e.g. voice, tongue, eye) and fusion pipelines for risk insight without routine blood tests where the stack supports it.
 - **Monitoring and alerts** — longitudinal history, risk tiers, health alerts, and progression-oriented views.
-- **Nutrition and activity** — glycemic-index–aware meal planning, exercise scheduling, and agentic nutrition guidance; ingredient and portion cues via **computer vision** (e.g. **YOLO-World** / **Ultralytics** in the nutrition pipeline).
+- **Nutrition and activity** — glycemic-index–aware weekly **wellness** planning (meals + exercise), exercise scheduling, and agentic nutrition guidance; ingredient and portion cues via **computer vision** (e.g. **YOLO-World** / **Ultralytics** in the nutrition pipeline).
 - **Psychology and engagement** — multimodal emotional support, therapeutic modes, pediatric engagement, and accessible UX patterns.
 - **Care circle and clinic** — family and caregiver coordination, **medical document OCR** and extraction orchestration, and clinical decision support surfaces.
 - **Security and governance** — **JWT** authentication, **RBAC**, and shared relational data between services.

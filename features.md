@@ -15,7 +15,7 @@ Living reference for **platform axes**, **sub-features**, **AI operations**, and
 | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Non-Invasive Screening        | Predict diabetes risk and complications using voice, tongue, and eye data (no blood tests required). |
 | Monitoring                    | Continuously monitored patient experience.                                                           |
-| Nutrition & Physical Activity | GI-aware meal planning and glucose-safe exercise scheduling via agentic AI.                          |
+| Nutrition & Physical Activity | GI-aware weekly wellness planning (meals + exercise) and glucose-safe scheduling via agentic AI.   |
 | Psychology                    | Emotional distress detection and mental health support via AI models.                                |
 | Kids Engagement               | Interactive AI-driven features designed for diabetic children.                                       |
 | Care Circle                   | AI-coordinated family updates, shared care plans, and caregiver support.                             |

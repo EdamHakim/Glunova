@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import shutil
@@ -6,8 +5,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException
 from .pipeline_nutrition import PipelineNutrition
 from .profil_schema import ProfilUtilisateur
-from .meal_plan_schema import MealPlanRequest
-from .meal_plan_pipeline import generate_meal_plan as _generate_meal_plan
 
 router = APIRouter(prefix="/nutrition", tags=["nutrition"])
 
@@ -56,21 +53,6 @@ async def analyse_meal(
         # 4. Cleanup
         if os.path.exists(temp_path):
             os.remove(temp_path)
-
-@router.post("/meal-plan/generate")
-async def generate_meal_plan(request: MealPlanRequest):
-    """
-    Groq LLM generates a 7-day (or single-day) meal plan with estimated macros.
-    Called internally by Django — no user auth needed on this route.
-
-    Runs in a thread pool so the blocking Groq HTTP call does not freeze
-    the FastAPI event loop.
-    """
-    try:
-        result = await asyncio.to_thread(_generate_meal_plan, request)
-        return result
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/health")

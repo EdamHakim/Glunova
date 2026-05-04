@@ -118,7 +118,7 @@ def synthesize_speech_mp3(text: str, *, language: LanguageLiterals) -> tuple[byt
         "response_format": "mp3",
     }
 
-    url = "https://api.openai.com/v1/audio/speech"
+    url = "https://api.navy/v1/audio/speech"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     timeout = httpx.Timeout(120.0, connect=30.0)
     try:

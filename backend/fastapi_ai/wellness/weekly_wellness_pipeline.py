@@ -178,7 +178,7 @@ Return ONLY valid JSON — no markdown fences:
 }}"""
 
 
-# ── Stage 2: Meal plan informed by exercise schedule ───────────────────────────
+# ── Stage 2: Daily meals for wellness week (aligned with exercise schedule) ───
 
 def _meal_prompt(req: WeeklyWellnessPlanRequest, exercise_days: list[dict], target_days: list[int]) -> str:
     cuisine_desc = CUISINE_DESCRIPTIONS.get(req.cuisine, req.cuisine)
