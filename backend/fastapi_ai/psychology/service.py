@@ -704,7 +704,7 @@ class PsychologyService:
         logger.warning("psychology.crisis.trigger patient_id=%s session_id=%s prob=%.3f", patient_id, session_id, probability)
 
     def _run_text_emotion_hf(self) -> bool:
-        """Use HF for text emotion if explicitly enabled, or when a remote inference token is configured (no local weights)."""
+        """Use HF text path (local pipeline and optional Inference API inside `_infer_text_emotion_hf`)."""
         if settings.psychology_text_emotion_use_hf:
             return True
         if self._emotion_inference_mode_norm() == "local":
@@ -1240,7 +1240,8 @@ class PsychologyService:
             )
             return self._infer_speech_emotion_emotion2vec_local(wav_bytes)
         if (
-            mode != "local"
+            settings.psychology_speech_emotion_use_hf_inference
+            and mode != "local"
             and token
             and hf_audio_model
         ):
@@ -1249,7 +1250,11 @@ class PsychologyService:
                 return api_out
             if mode == "inference_api":
                 return None
-        if mode == "local" or self._allow_local_inference_fallback():
+        if (
+            mode == "local"
+            or self._allow_local_inference_fallback()
+            or (mode == "inference_api" and not settings.psychology_speech_emotion_use_hf_inference)
+        ):
             local_out = self._infer_speech_emotion_emotion2vec_local(wav_bytes)
             if local_out is not None:
                 return local_out
@@ -1329,13 +1334,17 @@ class PsychologyService:
         if mode == "inference_api" and not token:
             logger.warning("psychology text emotion: inference_api mode but HF token missing")
             return None
-        if mode != "local" and token:
+        if mode != "local" and token and settings.psychology_text_emotion_use_hf_inference:
             api_out = self._infer_text_emotion_hf_api(text)
             if api_out is not None:
                 return api_out
             if mode == "inference_api":
                 return None
-        if mode == "local" or self._allow_local_inference_fallback():
+        if (
+            mode == "local"
+            or self._allow_local_inference_fallback()
+            or (mode == "inference_api" and not settings.psychology_text_emotion_use_hf_inference)
+        ):
             return self._infer_text_emotion_hf_local(text)
         return None
 

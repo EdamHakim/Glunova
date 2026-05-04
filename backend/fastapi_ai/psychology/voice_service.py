@@ -1,4 +1,4 @@
-"""Sanadi voice STT (Groq Whisper) and TTS (OpenAI Speech) proxied via FastAPI."""
+"""Sanadi voice STT (Groq Whisper) and TTS (Groq Orpheus / Groq speech API)."""
 
 from __future__ import annotations
 
@@ -6,17 +6,48 @@ import io
 import logging
 from typing import Literal
 
+import httpx
+
 from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 LanguageLiterals = Literal["en", "fr", "ar", "darija", "mixed"]
 
+GROQ_SPEECH_URL = "https://api.groq.com/openai/v1/audio/speech"
+
 
 class VoiceConfigurationError(RuntimeError):
     """Missing API credentials or disabled provider."""
 
     pass
+
+
+class GroqSpeechError(RuntimeError):
+    """Groq `/audio/speech` returned an error (e.g. model terms not accepted)."""
+
+    def __init__(self, message: str, *, status_code: int = 502) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _groq_speech_error_from_response(response: httpx.Response) -> GroqSpeechError:
+    """Map Groq JSON error body to a client-facing exception."""
+    detail = f"Groq speech HTTP error: {response.status_code}"
+    client_status = 502
+    try:
+        data = response.json()
+        err = data.get("error") or {}
+        groq_msg = (err.get("message") or "").strip()
+        code = err.get("code")
+        if groq_msg:
+            detail = groq_msg
+        if code == "model_terms_required":
+            # Org admin must accept model terms in Groq Console; not fixable from this API.
+            client_status = 503
+    except Exception:
+        pass
+    return GroqSpeechError(detail, status_code=client_status)
 
 
 def _groq_whisper_language(hint: str | None) -> str | None:
@@ -85,51 +116,72 @@ def transcribe_audio_bytes(
     return text, guessed
 
 
+def _groq_tts_model_and_voice(language: LanguageLiterals) -> tuple[str, str]:
+    """Return (model_id, voice_id) for Groq `audio/speech`."""
+    if language in ("ar", "darija"):
+        model = (settings.psychology_groq_tts_model_ar or "canopylabs/orpheus-arabic-saudi").strip()
+        voice = (settings.psychology_groq_tts_voice_ar or "noura").strip()
+        return model, voice
+    # en, fr, mixed — Orpheus English (no dedicated FR model; French text is read with English voice).
+    model = (settings.psychology_groq_tts_model_en or "canopylabs/orpheus-v1-english").strip()
+    voice = (settings.psychology_groq_tts_voice_en or "hannah").strip()
+    return model, voice
+
+
 def synthesize_speech_mp3(text: str, *, language: LanguageLiterals) -> tuple[bytes, str]:
     """
-    Generate MP3 speech bytes via OpenAI Audio Speech API.
+    Synthesize speech via Groq (`/openai/v1/audio/speech`).
+
+    Groq Orpheus returns WAV by default (see Groq TTS docs). The Sanadi client decodes the blob with
+    `decodeAudioData`, which supports WAV.
 
     Returns:
-        (mp3_bytes, content_type audio/mpeg).
+        (audio_bytes, content_type) — typically ``audio/wav``.
 
     Raises:
-        VoiceConfigurationError: Provider none or OPENAI_API_KEY missing.
-        RuntimeError: OpenAI HTTP or transport failure.
+        VoiceConfigurationError: Provider disabled or missing ``GROQ_API_KEY``.
+        RuntimeError: HTTP or transport failure.
     """
-    if (settings.psychology_tts_provider or "").strip().lower() == "none":
+    if (settings.psychology_tts_provider or "groq").strip().lower() == "none":
         raise VoiceConfigurationError("Psychology TTS provider is disabled (psychology_tts_provider=none)")
 
-    api_key = (settings.openai_api_key or "").strip().strip("'\"")
+    api_key = (settings.groq_api_key or "").strip().strip("'\"")
     if not api_key:
-        raise VoiceConfigurationError("OPENAI_API_KEY not configured")
+        raise VoiceConfigurationError("GROQ_API_KEY not configured (required for Groq TTS)")
 
     trimmed = text.strip()
     if not trimmed:
         raise ValueError("text is empty")
 
-    import httpx
+    # Groq Orpheus: max 200 characters per request; only WAV is supported.
+    clipped = trimmed[:200]
+    if len(trimmed) > 200:
+        logger.debug("tts groq: truncating input from %s to 200 chars (Orpheus limit)", len(trimmed))
 
-    logger.debug("tts openai lang=%s model=%s", language, settings.psychology_openai_tts_model)
-
+    model, voice = _groq_tts_model_and_voice(language)
     payload = {
-        "model": settings.psychology_openai_tts_model,
-        "input": trimmed[:4000],
-        "voice": settings.psychology_openai_tts_voice,
-        "response_format": "mp3",
+        "model": model,
+        "input": clipped,
+        "voice": voice,
+        "response_format": "wav",
     }
 
-    url = "https://api.navy/v1/audio/speech"
+    logger.debug("tts groq lang=%s model=%s voice=%s", language, model, voice)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     timeout = httpx.Timeout(120.0, connect=30.0)
     try:
         with httpx.Client(timeout=timeout) as client:
-            r = client.post(url, json=payload, headers=headers)
+            r = client.post(GROQ_SPEECH_URL, json=payload, headers=headers)
             if r.status_code >= 400:
-                logger.warning("OpenAI speech failed (%s): %s", r.status_code, r.text[:200])
-            r.raise_for_status()
-            return r.content, "audio/mpeg"
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(f"OpenAI speech HTTP error: {exc.response.status_code}") from exc
+                logger.warning("Groq speech failed (%s): %s", r.status_code, r.text[:500])
+                raise _groq_speech_error_from_response(r)
+            body = r.content
+    except GroqSpeechError:
+        raise
+    except httpx.HTTPError as exc:
+        raise GroqSpeechError(f"Groq speech request failed: {exc}", status_code=502) from exc
+
+    return body, "audio/wav"
 
 
 def is_groq_configured() -> bool:
@@ -139,4 +191,4 @@ def is_groq_configured() -> bool:
 def is_tts_configured() -> bool:
     if (settings.psychology_tts_provider or "").strip().lower() == "none":
         return False
-    return bool((settings.openai_api_key or "").strip())
+    return bool((settings.groq_api_key or "").strip())

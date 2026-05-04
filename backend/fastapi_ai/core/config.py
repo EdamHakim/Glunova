@@ -39,18 +39,19 @@ class Settings(BaseSettings):
     # If set, HF Inference will try this model when the primary text emotion model fails (cold start, 400, provider).
     # Set empty to disable. Use a known text-classification–friendly model (e.g. j-hartmann) as backup for multilingual hubs.
     psychology_text_emotion_hf_fallback_model: str = "j-hartmann/emotion-english-distilroberta-base"
-    # HF Inference API: remote inference via `huggingface_hub.InferenceClient` (no local model download).
-    # `auto` — use Inference API when `psychology_hf_api_token` or standard env `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` resolves; otherwise local checkpoints.
-    # `inference_api` — Inference API only (fails closed if token missing; speech still needs a HF audio repo id).
-    # `local` — always transformers / ModelScope locally.
+    # HF Inference API: `auto` — try remote inference when a token is set, with local fallbacks where configured.
+    # `inference_api` — remote only for modalities that use it; `local` — always on-device.
     psychology_emotion_inference_mode: str = "auto"
+    # Many text-classification / audio-classification Hub models are not on HF Inference; keep false and use local pipelines.
+    psychology_text_emotion_use_hf_inference: bool = False
+    psychology_speech_emotion_use_hf_inference: bool = False
     psychology_hf_api_token: str = ""
     psychology_hf_inference_timeout_s: float = 8.0
     # Hugging Face InferenceClient routing: `auto` uses Hub provider mappings (empty mapping → client error).
     # `hf-inference` uses HF's proxy; not every Hub model is deployed there—use a known-good classifier id in
     # `psychology_text_emotion_model` (default j-hartmann) or set this to `auto` for router-based providers.
     psychology_hf_inference_provider: str = "hf-inference"
-    # HF repo for speech emotion via Inference API (`audio_classification`). Default enables speech in `inference_api` mode when a token is set. Set empty to skip HF speech (then `auto`/`local` use ModelScope `psychology_speech_emotion_model` only).
+    # HF repo for speech emotion via Inference API when `psychology_speech_emotion_use_hf_inference` is true.
     psychology_speech_emotion_hf_model: str = "superb/hubert-large-superb-er"
 
     # Absolute path to KB assets; empty = `<repo>/psychology data` (Sanadi markdown; see `psychology/pdf_kb.py`).
@@ -99,13 +100,19 @@ class Settings(BaseSettings):
     # Mem0 optional spike (off by default)
     mem0_enabled: bool = False
 
-    # Sanadi voice (Groq Whisper STT + OpenAI Speech TTS proxy)
+    # Sanadi voice: Groq Whisper STT + Groq TTS (`https://api.groq.com/openai/v1/audio/speech`, same GROQ_API_KEY).
     psychology_voice_stt_model: str = "whisper-large-v3-turbo"
     psychology_voice_max_upload_bytes: int = 10 * 1024 * 1024
-    psychology_tts_provider: str = "openai"  # openai | none
+    psychology_tts_provider: str = "groq"  # groq | none
+    psychology_groq_tts_model_en: str = "canopylabs/orpheus-v1-english"
+    psychology_groq_tts_voice_en: str = "hannah"
+    psychology_groq_tts_model_ar: str = "canopylabs/orpheus-arabic-saudi"
+    psychology_groq_tts_voice_ar: str = "noura"
+    # Orpheus on Groq only supports WAV (see Groq TTS docs).
+    psychology_groq_tts_response_format: str = "wav"
     openai_api_key: str = ""
     psychology_openai_tts_model: str = "tts-1"
-    psychology_openai_tts_voice: str = "shimmer"  # female-presenting; matches Sanadi avatar
+    psychology_openai_tts_voice: str = "shimmer"
 
     # Azure Document Intelligence (OCR)
     azure_document_intelligence_endpoint: str = ""

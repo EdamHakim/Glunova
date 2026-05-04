@@ -619,11 +619,12 @@ class QdrantKnowledgeBase:
         }
 
     def _embed_text(self, text: str) -> list[float]:
-        # Prefer HF Inference API to avoid loading local weights when a token is available.
+        # Prefer HF Inference API for embeddings when a token is set and mode is not strictly local.
         token = (settings.psychology_hf_api_token or "").strip()
         mode = (settings.psychology_emotion_inference_mode or "auto").strip().lower()
         if token and mode != "local":
             from psychology.hf_emotion_inference import embed_text as _hf_embed
+
             vec = _hf_embed(token, self.embedding_model_name, text, settings.psychology_hf_inference_timeout_s)
             if vec is not None:
                 return vec
