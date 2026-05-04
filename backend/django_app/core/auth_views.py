@@ -28,14 +28,32 @@ def _trigger_fusion_refresh(patient_id: int) -> None:
 
     Failure is non-blocking: signup must succeed even if FastAPI is down or the
     patient skipped required health fields (HbA1c/glucose) — the route returns
-    PATIENT_INCOMPLETE which we just log.
+    PATIENT_INCOMPLETE which we just log. Non-2xx responses and connection errors
+    are logged so they show up in the Django terminal (silent failures hid an
+    earlier schema-split bug where the new RiskAssessment was never created).
     """
     base = os.environ.get("FASTAPI_INTERNAL_URL", "http://127.0.0.1:8001")
     url = f"{base.rstrip('/')}/monitoring/internal/refresh-tier/{patient_id}"
     try:
-        httpx.post(url, timeout=20.0)
+        response = httpx.post(url, timeout=20.0)
     except Exception as exc:
         logger.warning("Fusion refresh ping failed for patient %s: %s", patient_id, exc)
+        return
+
+    if response.status_code >= 400:
+        # Surface FastAPI errors (PATIENT_INCOMPLETE, model load failures, etc.)
+        # so silent regressions are visible in logs without blocking signup.
+        try:
+            body = response.json()
+        except Exception:
+            body = response.text
+        logger.warning(
+            "Fusion refresh returned %s for patient %s: %s",
+            response.status_code, patient_id, body,
+        )
+        return
+
+    logger.info("Fusion refresh succeeded for patient %s (HTTP %s)", patient_id, response.status_code)
 
 
 class RegisterSerializer(serializers.ModelSerializer):

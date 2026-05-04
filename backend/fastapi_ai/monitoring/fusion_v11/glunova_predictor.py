@@ -44,22 +44,32 @@ class TabularPredictor:
 
     # ---- Post-calibration clinique (ADA 2024 Standards of Care, Section 2) ----
     # Le LightGBM v8 a ete entraine sur le dataset Kaggle binaire (sain / diabetique).
-    # Resultat : un patient pre-diabetique (HbA1c 5.7-6.4) est classe ~99% diabetique
-    # car il est "proche" de la classe positive du dataset. Cliniquement, ADA 2024
-    # est sans ambiguite : pre-diabete != diabete (surveillance, pas traitement).
+    # Resultat : un patient pre-diabetique (HbA1c 5.7-6.4) est classe soit ~99%
+    # diabetique (s'il est "proche" cote positif) soit ~0% (s'il est "proche" cote
+    # negatif). Cliniquement, ADA 2024 est sans ambiguite : pre-diabete != diabete
+    # mais != normal non plus (5-10% conversion annuelle vers diabete, DPP/Tabak).
     #
-    # On rescale la sortie du modele en plafonnant p_tabular selon les vrais
+    # On rescale la sortie du modele en bracketant p_tabular selon les vrais
     # marqueurs cliniques du patient :
     #   - HbA1c >= 6.5  OU glucose >= 126  -> diabete confirme  -> on garde le score
-    #   - HbA1c >= 5.7  OU glucose >= 100  -> pre-diabete       -> cap a 0.30
+    #   - HbA1c >= 5.7  OU glucose >= 100  -> pre-diabete       -> bracket [0.15, 0.30]
     #   - sinon                            -> normal             -> cap a 0.10
-    # Avec un cap a 0.30 pour le pre-diabete, le tier reste sous le seuil HIGH (0.45),
-    # donc ces patients defaultent a LOW sauf complication imagerie reelle.
+    #
+    # Le FLOOR 0.15 pour pre-diabete est cliniquement justifie :
+    #   - DPP Study (NEJM 2002, Knowler et al.) : 11%/an progression placebo
+    #   - Tabak et al. (Lancet 2012)            : 5-10% conversion annuelle
+    #   - ADA 2024 Standards of Care           : "high-risk state for diabetes"
+    #   - Cumulatif 5 ans : 25-50% (hetero selon BMI, hypertension, ATCD familial)
+    # Floor 0.15 = ~1.5 x taux annuel = risque court-terme conservateur.
+    #
+    # Ceiling 0.30 garde le tier sous le seuil HIGH (0.45), donc pre-diabetique
+    # default a LOW sauf complication imagerie reelle (DR, DFU, cataract severe).
     ADA_HBA1C_PREDIAB_LOW   = 5.7
     ADA_HBA1C_DIAB_LOW      = 6.5
     ADA_GLUCOSE_PREDIAB_LOW = 100
     ADA_GLUCOSE_DIAB_LOW    = 126
-    PREDIAB_PTABULAR_CAP    = 0.30   # plafond pour pre-diabete (< HIGH 0.45)
+    PREDIAB_PTABULAR_FLOOR  = 0.15   # plancher pre-diabete (DPP 5-10%/an x ~1.5)
+    PREDIAB_PTABULAR_CAP    = 0.30   # plafond pre-diabete (< HIGH 0.45)
     NORMAL_PTABULAR_CAP     = 0.10   # plafond pour normal (clairement LOW)
 
     def __init__(self, model_path, features_path):
@@ -97,8 +107,10 @@ class TabularPredictor:
             # Diabete confirme par les valeurs cliniques -> on garde la sortie brute.
             return raw_proba
         if ada_class == 1:
-            # Pre-diabete -> cap a 0.30 pour rester sous le seuil HIGH (0.45).
-            return min(raw_proba, self.PREDIAB_PTABULAR_CAP)
+            # Pre-diabete -> bracket [0.15, 0.30].
+            # Floor 0.15 : reflete le risque clinique reel (DPP 11%/an, Tabak 5-10%/an).
+            # Ceiling 0.30 : reste sous le seuil HIGH (0.45) -> tier LOW.
+            return min(max(raw_proba, self.PREDIAB_PTABULAR_FLOOR), self.PREDIAB_PTABULAR_CAP)
         # Normal -> cap a 0.10.
         return min(raw_proba, self.NORMAL_PTABULAR_CAP)
 
@@ -712,12 +724,25 @@ def late_fusion_robust(features_dict, dr_grade=0, dr_grade_confidence=0.0,
     final_tier = base_tier
     boost_reasons = []
 
-    # === ETAPE 8 : BOOST 1 - Override Grade=2 (vers HIGH) ===
+    # === ETAPE 8 : BOOST 1 - Override Grade=2 DR (vers HIGH) ===
     if dr_grade == 2 and dr_grade_confidence >= OVERRIDE_CONFIDENCE_THRESHOLD:
         if TIER_RANK[final_tier] < TIER_RANK['HIGH']:
             final_tier = 'HIGH'
             boost_reasons.append(
-                f'Boost LOW->HIGH : Moderate DR confirme par V8 (confidence {dr_grade_confidence:.2f})'
+                f'Boost LOW->HIGH: Moderate DR confirmed by V8 (confidence {dr_grade_confidence:.2f})'
+            )
+
+    # === ETAPE 8 bis : BOOST - Moderate Cataract (grade=2) ===
+    # Symetrie avec le boost Moderate DR. AAO PPP 2024 (Cataract in the Adult Eye) :
+    # cataract grade=2 = vision 20/40-20/80, impact qualite de vie + risque chute
+    # multiplie par 2.4 chez le diabetique age (Pelletier et al., Br J Ophthalmol 2018).
+    # -> Justifie un suivi ophtalmologique 3-6 mois (HIGH), pas une urgence chirurgicale
+    # (CRITICAL reserve au grade=3 severe).
+    if cataract_grade == 2 and cataract_confidence >= OVERRIDE_CONFIDENCE_THRESHOLD:
+        if TIER_RANK[final_tier] < TIER_RANK['HIGH']:
+            final_tier = 'HIGH'
+            boost_reasons.append(
+                f'Boost LOW->HIGH: Moderate cataract confirmed (confidence {cataract_confidence:.2f})'
             )
 
     # === ETAPE 9 : BOOST 2 - Co-occurrence Tabular + DR V5.1 (vers HIGH) ===
