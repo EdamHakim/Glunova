@@ -84,7 +84,7 @@ class Command(BaseCommand):
                     patient=patient,
                     modality=modality,
                     score=score,
-                    risk_label="high" if score >= 0.7 else "moderate" if score >= 0.4 else "low",
+                    risk_label="high" if score >= 0.7 else "low",
                     model_version="synthetic-v1",
                     metadata={"sample_id": f"{patient.pk}-{day_offset}", "source": "synthetic"},
                     captured_at=captured_at,

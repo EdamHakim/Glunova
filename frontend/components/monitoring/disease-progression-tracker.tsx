@@ -26,14 +26,12 @@ import type { DiseaseProgression } from '@/lib/monitoring-api'
 
 const TIER_COLOR: Record<string, string> = {
   low: '#16a34a',       // green-600
-  moderate: '#ca8a04',  // yellow-600
   high: '#ea580c',      // orange-600
   critical: '#dc2626',  // red-600
 }
 
 const TIER_LABEL: Record<string, string> = {
   low: 'LOW',
-  moderate: 'MODERATE',
   high: 'HIGH',
   critical: 'CRITICAL',
 }

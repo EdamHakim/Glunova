@@ -14,14 +14,6 @@ const TIER_THEME: Record<string, { label: string; emoji: string; cardBg: string;
     tierText: 'text-white',
     pulse: false,
   },
-  moderate: {
-    label: 'MODERATE',
-    emoji: '🟡',
-    cardBg: 'bg-health-warning/5 border-health-warning/30',
-    tierBg: 'bg-linear-to-br from-health-warning to-health-warning/70',
-    tierText: 'text-white',
-    pulse: false,
-  },
   high: {
     label: 'HIGH',
     emoji: '🟠',

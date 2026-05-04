@@ -204,7 +204,7 @@ class MonitoringProgressionSummaryView(APIView):
         counts = {row["tier"]: row["count"] for row in latest_qs.values("tier").annotate(count=Count("id"))}
         avg_scores = {row["tier"]: row["avg"] for row in latest_qs.values("tier").annotate(avg=Avg("score"))}
         total = len(patient_ids)
-        tiers_order = ["low", "moderate", "high", "critical"]
+        tiers_order = ["low", "high", "critical"]
         tiers = [
             {
                 "tier": tier,
@@ -406,7 +406,7 @@ class PatientLabResultsView(APIView):
         return Response({"items": payload, "total": len(payload)})
 
 
-_TIER_RANK = {"low": 0, "moderate": 1, "high": 2, "critical": 3}
+_TIER_RANK = {"low": 0, "high": 1, "critical": 2}
 _MODALITY_LABELS = {
     "retinopathy": "Diabetic Retinopathy",
     "infrared": "Thermal Foot",
@@ -613,7 +613,7 @@ class MonitoringDiseaseProgressionView(APIView):
         # This keeps the label consistent with the Risk Stratification card and
         # avoids freezing a patient as "WORSENING" forever because of an old
         # escalation they have since recovered from.
-        _TIER_ORDER = {"low": 0, "moderate": 1, "high": 2, "critical": 3}
+        _TIER_ORDER = {"low": 0, "high": 1, "critical": 2}
 
         if len(assessments) < 2:
             trend = "first"

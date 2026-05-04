@@ -11,8 +11,11 @@ class MonitoringLog(models.Model):
 
 class RiskAssessment(models.Model):
     class Tier(models.TextChoices):
+        # Glunova fusion v11 outputs only 3 tiers: LOW / HIGH / CRITICAL.
+        # MODERATE was removed because the late_fusion_robust predictor never
+        # emits it (cf. TIER_RANK in glunova_predictor.py) and clinical guidelines
+        # (ADA 2024) align on a 3-level decision: monitor / refer / urgent.
         LOW = "low", "Low"
-        MODERATE = "moderate", "Moderate"
         HIGH = "high", "High"
         CRITICAL = "critical", "Critical"
 

@@ -35,7 +35,7 @@ export type MonitoringTimelineItem = {
 }
 
 export type MonitoringTierSummary = {
-  tier: 'low' | 'moderate' | 'high' | 'critical'
+  tier: 'low' | 'high' | 'critical'
   count: number
   avg_score: number
   percentage: number
@@ -98,7 +98,7 @@ export type RiskStratification = {
     id: number
     patient_id: number
     patient_username: string
-    tier: 'low' | 'moderate' | 'high' | 'critical'
+    tier: 'low' | 'high' | 'critical'
     score: number
     confidence: number
     recommendation: string
@@ -151,7 +151,7 @@ export async function getScreeningHistory(patientId?: string) {
 
 export type DiseaseProgressionAssessment = {
   id: number
-  tier: 'low' | 'moderate' | 'high' | 'critical'
+  tier: 'low' | 'high' | 'critical'
   score: number
   confidence: number
   n_models_used: number
