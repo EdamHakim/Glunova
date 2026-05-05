@@ -148,7 +148,7 @@ def get_nutrition_summary(
                     """
                     SELECT COUNT(*)
                     FROM nutrition_exercisesession
-                    WHERE patient_id = %s AND status = 'SKIPPED'
+                    WHERE patient_id = %s AND status = 'skipped'
                       AND scheduled_for >= NOW() - INTERVAL '7 days'
                     """,
                     (patient_id,),

@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from psycopg.rows import dict_row
@@ -432,18 +432,183 @@ def list_psychology_session_history(pool: Any, patient_id: int, limit: int) -> l
     return list(rows)
 
 
+def _week_start_monday_utc() -> date:
+    today = datetime.now(timezone.utc).date()
+    return today - timedelta(days=today.weekday())
+
+
+def _integrated_care_compact(conn: Any, patient_id: int, *, max_chars: int = 780) -> str:
+    """Token-safe summary of fusion risk, alerts, nutrition goal, meal/exercise adherence for therapy prompts."""
+    lines: list[str] = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT tier, score, confidence, drivers, assessed_at
+                FROM monitoring_riskassessment
+                WHERE patient_id = %s
+                ORDER BY assessed_at DESC
+                LIMIT 1
+                """,
+                (patient_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                tier = str(row[0] or "").strip().upper() or "UNKNOWN"
+                score_v = row[1]
+                conf_v = row[2]
+                drivers_raw = row[3]
+                assessed = row[4]
+                score_s = f"{float(score_v):.2f}" if score_v is not None else "n/a"
+                conf_s = f"{float(conf_v):.2f}" if conf_v is not None else "n/a"
+                driver_bits: list[str] = []
+                if isinstance(drivers_raw, list):
+                    for d in drivers_raw[:4]:
+                        if isinstance(d, str) and d.strip():
+                            driver_bits.append(d.strip()[:80])
+                        elif isinstance(d, dict):
+                            label = str(d.get("label") or d.get("name") or d.get("modality") or "").strip()
+                            if label:
+                                driver_bits.append(label[:80])
+                driver_txt = f"; drivers: {', '.join(driver_bits)}" if driver_bits else ""
+                lines.append(
+                    f"Diabetes monitoring: risk tier {tier} (score {score_s}, confidence {conf_s}){driver_txt}. "
+                    f"Assessed: {assessed}."
+                )
+
+            cur.execute(
+                """
+                SELECT title, severity
+                FROM monitoring_healthalert
+                WHERE patient_id = %s AND status = 'active'
+                ORDER BY triggered_at DESC
+                LIMIT 3
+                """,
+                (patient_id,),
+            )
+            alert_rows = cur.fetchall()
+            if alert_rows:
+                bits = [f"{str(t[0])[:100]} ({str(t[1])})" for t in alert_rows]
+                lines.append("Active alerts: " + "; ".join(bits) + ".")
+
+            cur.execute(
+                """
+                SELECT DISTINCT ON (indicator) indicator, value, trend
+                FROM monitoring_diseaseprogression
+                WHERE patient_id = %s
+                ORDER BY indicator, recorded_at DESC
+                LIMIT 4
+                """,
+                (patient_id,),
+            )
+            prog = cur.fetchall()
+            if prog:
+                pb = []
+                for ind, val, tr in prog:
+                    pb.append(f"{str(ind)[:48]}={val} ({tr})")
+                lines.append("Disease progression (latest): " + "; ".join(pb) + ".")
+
+            ws = _week_start_monday_utc()
+            cur.execute(
+                """
+                SELECT id, status, fitness_level, goal, week_start, clinical_snapshot
+                FROM nutrition_weeklywellnessplan
+                WHERE patient_id = %s AND week_start >= %s::date - INTERVAL '7 days'
+                ORDER BY week_start DESC
+                LIMIT 1
+                """,
+                (patient_id, str(ws)),
+            )
+            plan_row = cur.fetchone()
+            plan_id: int | None = None
+            if plan_row:
+                plan_id_raw, st, fit, goal, wstart, snap = plan_row
+                if plan_id_raw is not None:
+                    plan_id = int(plan_id_raw)
+                extra = ""
+                if isinstance(snap, dict):
+                    run = snap.get("last_agent_run")
+                    if run:
+                        extra = f" Last plan update: {str(run)[:80]}."
+                lines.append(
+                    f"Weekly wellness plan: status {st}, week_start {wstart}, goal {goal or '—'}, "
+                    f"fitness_level {fit or '—'}.{extra}"
+                )
+
+            if plan_id is not None:
+                cur.execute(
+                    """
+                    SELECT
+                      COUNT(*) FILTER (WHERE status = 'completed') AS done_m,
+                      COUNT(*) FILTER (WHERE status = 'skipped') AS skip_m
+                    FROM nutrition_meal
+                    WHERE wellness_plan_id = %s
+                    """,
+                    (plan_id,),
+                )
+                mrow = cur.fetchone()
+                if mrow and (mrow[0] or mrow[1]):
+                    lines.append(
+                        f"Planned meals this week: {int(mrow[0] or 0)} completed, {int(mrow[1] or 0)} skipped."
+                    )
+
+            cur.execute(
+                """
+                SELECT target_calories_kcal, target_carbs_g, target_protein_g, target_fat_g
+                FROM nutrition_nutritiongoal
+                WHERE patient_id = %s
+                ORDER BY valid_from DESC NULLS LAST, created_at DESC
+                LIMIT 1
+                """,
+                (patient_id,),
+            )
+            g = cur.fetchone()
+            if g:
+                lines.append(
+                    f"Nutrition targets (active goal): ~{int(g[0])} kcal/d, carbs {g[1]} g, protein {g[2]} g, fat {g[3]} g."
+                )
+
+            cur.execute(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE status = 'completed') AS done_e,
+                  COUNT(*) FILTER (WHERE status = 'skipped') AS skip_e,
+                  COUNT(*) FILTER (WHERE status = 'planned') AS plan_e
+                FROM nutrition_exercisesession
+                WHERE patient_id = %s AND scheduled_for >= NOW() - INTERVAL '7 days'
+                """,
+                (patient_id,),
+            )
+            ex = cur.fetchone()
+            if ex and any(ex):
+                lines.append(
+                    f"Physical activity (7d): {int(ex[0] or 0)} completed, {int(ex[1] or 0)} skipped, "
+                    f"{int(ex[2] or 0)} still planned."
+                )
+    except Exception as exc:
+        logger.warning("integrated care context query failed for patient %s: %s", patient_id, exc)
+        return ""
+
+    out = " ".join(lines).strip()
+    if len(out) > max_chars:
+        return out[: max_chars - 3] + "..."
+    return out
+
+
 def get_patient_health_context(pool: Any, patient_id: int) -> dict[str, Any]:
     ensure_psychology_profile(pool, patient_id)
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT health_context_json, personality_notes, preferred_language, semantic_profile_json
+                SELECT health_context_json, personality_notes, preferred_language, semantic_profile_json,
+                       physician_review_required
                 FROM psychology_psychologyprofile WHERE user_id = %s
                 """,
                 (patient_id,),
             )
             row = cur.fetchone()
+        integrated = _integrated_care_compact(conn, patient_id)
     if row is None:
         return {}
     hc = row.get("health_context_json") or {}
@@ -451,12 +616,19 @@ def get_patient_health_context(pool: Any, patient_id: int) -> dict[str, Any]:
         hc = {}
     sem = row.get("semantic_profile_json")
     sem_dict = sem if isinstance(sem, dict) else {}
+    extras: list[str] = []
+    if integrated:
+        extras.append(integrated)
+    if bool(row.get("physician_review_required")):
+        extras.append("Flag: clinician/physician review has been requested for this patient.")
+    combined = " ".join(extras).strip()
     return {
         "health_context_json": hc,
         "personality_notes": str(row.get("personality_notes") or ""),
         "preferred_language": str(row.get("preferred_language") or "en"),
         "semantic_profile_compact": format_semantic_profile_compact(sem_dict),
         "semantic_profile_json": sem_dict,
+        "integrated_care_compact": combined,
     }
 
 

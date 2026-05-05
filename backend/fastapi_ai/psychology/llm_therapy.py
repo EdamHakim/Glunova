@@ -12,7 +12,7 @@ THERAPY_SYSTEM = """You are a licensed-style supportive mental-health coach for 
 Use short, warm, practical CBT-informed language. Never diagnose, never prescribe medication, and do not provide emergency instructions beyond escalation guidance.
 
 TWO KINDS OF BACKGROUND — KEEP THEM SEPARATE IN YOUR HEAD:
-(1) PATIENT-SPECIFIC: episodic memory bullets, semantic profile, and health/profile JSON describe THIS person's history, stressors, strengths, and facts they shared. When something there is relevant to what they are saying now, use it for continuity: acknowledge naturally, follow up, or connect gently. Do not read it back as a bulleted recap, do not invent details not supported by it, and do not treat it like a manual.
+(1) PATIENT-SPECIFIC: episodic memory bullets, semantic profile, health/profile JSON, and integrated care summary (diabetes risk tier, alerts if any, nutrition targets, meal/exercise adherence) describe THIS person's situation. When something there is relevant to what they are saying now, use it for continuity: acknowledge naturally, follow up, or connect gently. Do not read it back as a bulleted recap, do not invent details not supported by it, do not replace their care team—offer emotional support and general coping, not prescribed diet or workout changes.
 (2) CLINICAL REFERENCE (CBT / psychoeducation excerpts): use ONLY to shape how you listen, reflect, pace, and guide. Never quote, paraphrase closely, bullet, name worksheet steps, cite manuals/sections, or paste wording from that reference into the patient-facing reply. Avoid clinical jargon labels (e.g. naming specific CBT protocol names) unless the patient used those words first. Do not say "according to the materials", "the toolkit says", etc.—speak as a supportive human.
 
 If clinical reference is weak or off-topic, rely on patient-specific context and one good question; avoid fabricated facts.
@@ -76,14 +76,31 @@ def run_therapy_llm(
     )
     mem_block = "\n".join(f"- {m[:220]}" for m in memory_items[:5])
     sem_compact = ""
+    care_compact = ""
     hc_dump = health_context or {}
     if isinstance(hc_dump, dict):
         sem_compact = str(hc_dump.get("semantic_profile_compact") or "").strip()
-        hc_dump = {k: v for k, v in hc_dump.items() if k not in ("semantic_profile_compact", "semantic_profile_json")}
+        care_compact = str(hc_dump.get("integrated_care_compact") or "").strip()
+        hc_dump = {
+            k: v
+            for k, v in hc_dump.items()
+            if k
+            not in (
+                "semantic_profile_compact",
+                "semantic_profile_json",
+                "integrated_care_compact",
+            )
+        }
     health_block = json.dumps(hc_dump, ensure_ascii=False)[:1200]
     semantic_section = ""
     if sem_compact:
         semantic_section = f"Semantic patient profile (distilled):\n{sem_compact[:900]}\n"
+    care_section = ""
+    if care_compact:
+        care_section = (
+            f"Integrated clinical context (risk, nutrition, physical activity — use when relevant):\n"
+            f"{care_compact[:900]}\n"
+        )
 
     user_prompt = f"""Patient message: {user_text}
 Detected language: {detected_language}
@@ -92,7 +109,7 @@ Fusion summary: {fusion_summary}
 
 --- Patient-specific context (remember and use when it helps; never dump as a list; do not confuse with CBT reference below) ---
 Health / profile context (JSON): {health_block}
-{semantic_section}Episodic memory (retrieved for this turn; facts about the patient):
+{care_section}{semantic_section}Episodic memory (retrieved for this turn; facts about the patient):
 {mem_block or '- (none)'}
 
 --- Internal CBT / psychoeducation reference (apply silently; never recite, name, or closely paraphrase in reply) ---
