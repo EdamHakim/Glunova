@@ -1260,6 +1260,7 @@ export default function PsychologyPage() {
           <SanadiMoodRing
             emotion={displayEmotion?.label ?? null}
             distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+            confidence={displayEmotion?.confidence ?? null}
             className="h-9 w-9 shrink-0 rounded-full shadow-md ring-2 ring-border/35 md:h-10 md:w-10"
           />
           <span className="truncate text-sm font-semibold tracking-tight text-primary sm:text-base md:text-lg">Sanadi</span>
@@ -1319,6 +1320,7 @@ export default function PsychologyPage() {
                     <SanadiMoodRing
                       emotion={displayEmotion?.label ?? null}
                       distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                      confidence={displayEmotion?.confidence ?? null}
                       className="h-20 w-20 rounded-full shadow-lg ring-4 ring-primary/15"
                     />
                   </div>
