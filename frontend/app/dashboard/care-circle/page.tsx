@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bell, FileText, MessageSquare, Plus, Stethoscope, Trash2, UserCheck, Users } from 'lucide-react'
+import { Bell, Bot, FileText, MessageSquare, Plus, Stethoscope, Trash2, UserCheck, Users } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -43,7 +43,7 @@ import {
 function LinkStatusBadge({ status }: { status: string }) {
   const variants: Record<string, string> = {
     accepted: 'bg-green-500/10 text-green-600 border-green-500/20',
-    pending:  'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
+    pending: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
     rejected: 'bg-red-500/10 text-red-600 border-red-500/20',
   }
   return (
@@ -161,11 +161,10 @@ function ManageCareTeam() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-1.5 text-sm font-medium rounded-t transition-colors capitalize ${
-                tab === t
+              className={`px-4 py-1.5 text-sm font-medium rounded-t transition-colors capitalize ${tab === t
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
-              }`}
+                }`}
             >
               {t}
             </button>
@@ -501,52 +500,6 @@ export default function CareCirclePage() {
       {/* Caregiver: pending invitations inbox */}
       {role === 'caregiver' && <PendingInvitationsCard />}
 
-      {/* Care team display */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Care Team
-          </CardTitle>
-          <CardDescription>Family members and healthcare providers</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {loading && <p className="text-sm text-muted-foreground">Loading care team...</p>}
-          {!loading && members.length === 0 && (
-            <p className="text-sm text-muted-foreground">No linked team members for this patient scope.</p>
-          )}
-          {members.map((member, idx) => (
-            <div
-              key={`${member.id}-${idx}`}
-              className="flex flex-col gap-3 border border-border p-4 rounded-lg transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="flex items-center gap-4">
-                <Avatar className="h-10 w-10">
-                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(member.name)}`} />
-                  <AvatarFallback>{member.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="font-medium">{member.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {member.role}
-                    {member.specialization ? ` · ${member.specialization}` : ''}
-                    {member.relationship ? ` · ${member.relationship}` : ''}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 self-end sm:self-auto">
-                <Badge variant="outline" className="bg-health-success/10 text-health-success border-health-success/20">
-                  {member.status}
-                </Badge>
-                <Button size="icon" variant="ghost">
-                  <MessageSquare className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
       <MedicalDocumentsSection />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -630,7 +583,15 @@ export default function CareCirclePage() {
             )}
             {updates.map(update => (
               <div key={update.id} className="p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
-                <p className="font-medium text-sm">{update.from_name}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium text-sm">{update.from_name}</p>
+                  {update.source === 'agent' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-600 border border-violet-500/20">
+                      <Bot className="h-3 w-3" />
+                      AI
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground mt-1">{update.summary}</p>
                 <p className="text-xs text-muted-foreground mt-2">{new Date(update.created_at).toLocaleString()}</p>
               </div>

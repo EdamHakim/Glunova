@@ -58,6 +58,7 @@ export type CareCircleUpdate = {
   from_name: string
   summary: string
   created_at: string
+  source: 'human' | 'agent'
 }
 
 export type CareCircleTask = {

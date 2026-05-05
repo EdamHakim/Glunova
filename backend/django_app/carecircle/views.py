@@ -197,6 +197,7 @@ class CareCircleUpdatesView(APIView):
                 "from_name": _user_display(update.caregiver) if update.caregiver else "System",
                 "summary": update.summary,
                 "created_at": update.created_at.isoformat(),
+                "source": update.source,
             }
             for update in updates
         ]

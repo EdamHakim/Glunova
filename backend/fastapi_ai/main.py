@@ -55,6 +55,7 @@ def _warm_psychology_caches_sync() -> None:
 
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent.router import router as agent_router
 from clinic.router import router as clinic_router
 from kids.router import router as kids_router
 from monitoring.router import router as monitoring_router
@@ -97,6 +98,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(agent_router, prefix="/agent", tags=["agent"])
 app.include_router(screening_router)
 app.include_router(extraction_router)
 app.include_router(clinic_router)

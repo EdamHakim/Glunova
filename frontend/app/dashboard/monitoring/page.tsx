@@ -6,11 +6,13 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Bell,
+  Bot,
   CheckCircle2,
   Clock,
   FileText,
   Info,
   Pill,
+  RefreshCw,
   ScanSearch,
   TrendingUp,
 } from 'lucide-react'
@@ -100,6 +102,12 @@ export default function MonitoringPage() {
   const [screeningHistoryError, setScreeningHistoryError] = useState<string | null>(null)
   const [selectedDoc, setSelectedDoc] = useState<{ url: string; filename: string } | null>(null)
   const [previewError, setPreviewError] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshResult, setRefreshResult] = useState<{ tier: string; agent_triggered: boolean } | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [agentRunning, setAgentRunning] = useState(false)
+  const [agentResult, setAgentResult] = useState<{ status: string; messages_dispatched: number; risk_tier: string; skipped_reason?: string } | null>(null)
+  const [agentError, setAgentError] = useState<string | null>(null)
 
   // Reset preview error when modal opens with a new document
   useEffect(() => {
@@ -239,11 +247,122 @@ export default function MonitoringPage() {
     }
   }, [patientId])
 
+  async function handleTriggerAgent() {
+    setAgentRunning(true)
+    setAgentResult(null)
+    setAgentError(null)
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? `${window.location.protocol}//${window.location.hostname}:8000`
+      const prefix = process.env.NEXT_PUBLIC_API_PREFIX ?? '/api/v1'
+      const resp = await fetch(`${base}${prefix}/monitoring/trigger-agent`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!resp.ok) throw new Error(await resp.text())
+      const data = await resp.json() as { status: string; messages_dispatched: number; risk_tier: string; skipped_reason?: string }
+      setAgentResult(data)
+    } catch (e) {
+      setAgentError(e instanceof Error ? e.message : 'Agent call failed')
+    } finally {
+      setAgentRunning(false)
+    }
+  }
+
+  async function handleRefreshRisk() {
+    setRefreshing(true)
+    setRefreshResult(null)
+    setRefreshError(null)
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? `${window.location.protocol}//${window.location.hostname}:8000`
+      const prefix = process.env.NEXT_PUBLIC_API_PREFIX ?? '/api/v1'
+      const resp = await fetch(`${base}${prefix}/monitoring/refresh-risk`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!resp.ok) throw new Error(await resp.text())
+      const data = await resp.json() as { tier: string; agent_triggered: boolean }
+      setRefreshResult(data)
+    } catch (e) {
+      setRefreshError(e instanceof Error ? e.message : 'Refresh failed')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div className="border-b border-border/60 pb-6">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Monitoring & Analytics</h1>
-        <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed sm:text-base">{intro}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Monitoring & Analytics</h1>
+            <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed sm:text-base">{intro}</p>
+          </div>
+          {user?.role === 'patient' && (
+            <div className="flex gap-2 shrink-0 mt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefreshRisk}
+                disabled={refreshing}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'Refreshing…' : 'Refresh Risk'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleTriggerAgent}
+                disabled={agentRunning}
+                className="bg-violet-600 hover:bg-violet-700 text-white"
+              >
+                <Bot className={`h-4 w-4 mr-2 ${agentRunning ? 'animate-pulse' : ''}`} />
+                {agentRunning ? 'Running agent…' : 'Run Care Agent'}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {refreshError && (
+          <p className="mt-3 text-sm text-destructive">{refreshError}</p>
+        )}
+        {refreshResult && (
+          <div className={`mt-3 flex items-center gap-2 text-sm rounded-lg px-3 py-2 border ${
+            refreshResult.tier === 'critical'
+              ? 'bg-destructive/10 border-destructive/20 text-destructive'
+              : refreshResult.tier === 'high'
+                ? 'bg-orange-500/10 border-orange-500/20 text-orange-600'
+                : 'bg-green-500/10 border-green-500/20 text-green-600'
+          }`}>
+            <span className="font-semibold capitalize">{refreshResult.tier} risk</span>
+            <span className="text-muted-foreground">·</span>
+            <span>Assessment updated.</span>
+            {refreshResult.agent_triggered && (
+              <span className="inline-flex items-center gap-1 ml-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-600 border border-violet-500/20">
+                <Bot className="h-3 w-3" />
+                Care agent notified
+              </span>
+            )}
+          </div>
+        )}
+        {agentError && (
+          <p className="mt-3 text-sm text-destructive">{agentError}</p>
+        )}
+        {agentResult && (
+          <div className={`mt-3 flex items-center gap-2 text-sm rounded-lg px-3 py-2 border ${
+            agentResult.messages_dispatched > 0
+              ? 'bg-violet-500/10 border-violet-500/20 text-violet-700'
+              : 'bg-muted border-border text-muted-foreground'
+          }`}>
+            <Bot className="h-4 w-4 shrink-0" />
+            {agentResult.messages_dispatched > 0 ? (
+              <span>
+                Care agent dispatched <strong>{agentResult.messages_dispatched}</strong> message{agentResult.messages_dispatched !== 1 ? 's' : ''}.
+                Check your <strong>Care Circle</strong> for the AI-tagged updates.
+              </span>
+            ) : (
+              <span>{agentResult.skipped_reason ?? 'Agent ran but no messages were dispatched.'}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Patient context selector (doctor / caregiver only) — drives ALL fetches below. */}

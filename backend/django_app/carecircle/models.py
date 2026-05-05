@@ -10,6 +10,10 @@ class CarePlan(models.Model):
 
 
 class FamilyUpdate(models.Model):
+    class Source(models.TextChoices):
+        HUMAN = "human", "Human"
+        AGENT = "agent", "Agent"
+
     patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="family_updates")
     caregiver = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -19,6 +23,7 @@ class FamilyUpdate(models.Model):
         related_name="received_family_updates",
     )
     summary = models.TextField()
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.HUMAN)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
