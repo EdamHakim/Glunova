@@ -30,6 +30,8 @@ from psychology.schemas import (
     MessageResponse,
     Modality,
     SessionEndResponse,
+    SessionHistoryItem,
+    SessionHistoryResponse,
     SessionSnapshotResponse,
     SessionStartResponse,
     TherapyMessageInput,
@@ -348,6 +350,45 @@ class PsychologyService:
             slope=self._trend_slope(patient_id),
             points=points,
         )
+
+    def list_session_history(self, patient_id: int, limit: int = 25) -> SessionHistoryResponse:
+        if self._pool is None:
+            return SessionHistoryResponse(patient_id=patient_id, items=[])
+        from psychology.repositories import list_psychology_session_history
+
+        rows = list_psychology_session_history(self._pool, patient_id, limit)
+        items: list[SessionHistoryItem] = []
+        for r in rows:
+            ended_at = r.get("ended_at")
+            started_at = r.get("started_at")
+            if ended_at is None or started_at is None:
+                continue
+            summary_raw = r.get("session_summary_json")
+            summary = summary_raw if isinstance(summary_raw, dict) else {}
+            excerpt = str(summary.get("last_patient_message_excerpt") or "").strip()
+            techs_raw = summary.get("techniques_used") or []
+            techniques: list[str] = []
+            if isinstance(techs_raw, list):
+                for t in techs_raw:
+                    if isinstance(t, str) and (s := t.strip()):
+                        techniques.append(s)
+            techniques = techniques[:12]
+            risk = summary.get("risk_flags") or []
+            has_risk = isinstance(risk, list) and len(risk) > 0
+            ls = r.get("last_state")
+            items.append(
+                SessionHistoryItem(
+                    session_id=str(r["session_id"]),
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    preferred_language=str(r.get("preferred_language") or "en"),
+                    last_state=str(ls) if ls else None,
+                    excerpt=excerpt,
+                    techniques=techniques,
+                    has_risk_flags=has_risk,
+                ),
+            )
+        return SessionHistoryResponse(patient_id=patient_id, items=items)
 
     def list_crisis_events(self) -> list[CrisisEvent]:
         return self._crisis_events.list()

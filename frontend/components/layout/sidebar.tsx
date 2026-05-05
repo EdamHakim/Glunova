@@ -50,7 +50,7 @@ const menuItems: MenuItem[] = [
     icon: Apple,
   },
   {
-    label: 'Psychology',
+    label: 'Sanadi',
     href: '/dashboard/psychology',
     icon: Brain,
   },

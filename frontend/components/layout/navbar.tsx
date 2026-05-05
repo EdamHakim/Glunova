@@ -27,7 +27,7 @@ const mobileNavItems: NavItem[] = [
   { label: 'Screening', href: '/dashboard/screening', allowedRoles: ['patient'] },
   { label: 'Monitoring', href: '/dashboard/monitoring' },
   { label: 'Nutrition', href: '/dashboard/nutrition' },
-  { label: 'Psychology', href: '/dashboard/psychology' },
+  { label: 'Sanadi', href: '/dashboard/psychology' },
   { label: 'Care Circle', href: '/dashboard/care-circle' },
   { label: 'Clinical', href: '/dashboard/clinical', allowedRoles: ['doctor'] },
   { label: 'Settings', href: '/dashboard/settings' },

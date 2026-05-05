@@ -5,17 +5,18 @@ import { Noto_Sans_Arabic } from 'next/font/google'
 import {
   CameraOff,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Headphones,
+  HeartHandshake,
   Mic,
   SendHorizonal,
+  SlidersHorizontal,
   Sparkles,
   Video,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { useAuth } from '@/components/auth-context'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -36,8 +37,13 @@ import {
   type PsychologyTtsLang as SanadiPsychologyTtsLang,
 } from '@/components/psychology/sanadi-talkinghead'
 import { SanadiMoodRing } from '@/components/psychology/sanadi-mood-ring'
+import { SanadiBreathingCue } from '@/components/psychology/sanadi-breathing-cue'
+import { SanadiPastSessions } from '@/components/psychology/sanadi-past-sessions'
 import { SanadiVoiceWaveform, type WaveformSpeaker } from '@/components/psychology/sanadi-waveform'
 import { cn } from '@/lib/utils'
+import { getApiUrls } from '@/lib/auth'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Separator } from '@/components/ui/separator'
 
 const notoSansArabic = Noto_Sans_Arabic({
   subsets: ['arabic'],
@@ -97,6 +103,16 @@ type ThoughtRecord = {
   thought: string
   feeling: string
   reframe: string
+}
+
+function resolveProfilePhotoUrl(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null
+  const t = raw.trim()
+  if (t.startsWith('http://') || t.startsWith('https://')) return t
+  const { django } = getApiUrls()
+  const base = django.replace(/\/$/, '')
+  if (t.startsWith('/')) return `${base}${t}`
+  return `${base}/${t.replace(/^\/+/, '')}`
 }
 
 function getErrorMessage(error: unknown): string {
@@ -217,12 +233,28 @@ export default function PsychologyPage() {
   const ttsAudioCtxRef = useRef<AudioContext | null>(null)
   const talkingHeadRef = useRef<SanadiTalkingHeadHandle | null>(null)
 
-  const [railCollapsed, setRailCollapsed] = useState(true)
   const [visitOrdinal, setVisitOrdinal] = useState(1)
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [preferredSessionLang, setPreferredSessionLang] = useState<PreferredSessionLang>('mixed')
-  const [cameraPanelOpen, setCameraPanelOpen] = useState(false)
   const [recognitionDebugOpen, setRecognitionDebugOpen] = useState(false)
   const [lastRecognitionSentHints, setLastRecognitionSentHints] = useState<RecognitionSentHints | null>(null)
+  const [sessionToolsOpen, setSessionToolsOpen] = useState(false)
+  const [breathingCueDismissed, setBreathingCueDismissed] = useState(false)
+  const lastAssistantReplySigRef = useRef<string>('')
+
+  const displayNameLine = useMemo(() => {
+    const t = (user?.full_name || '').trim()
+    return t || 'You'
+  }, [user?.full_name])
+  const profilePhotoUrl = useMemo(() => resolveProfilePhotoUrl(user?.profile_picture), [user?.profile_picture])
+  const avatarInitials = useMemo(() => {
+    const parts = displayNameLine.split(/\s+/).filter(Boolean)
+    if (!parts.length) return '?'
+    if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+    const a = parts[0]![0]!
+    const b = parts[parts.length - 1]![0]!
+    return `${a}${b}`.toUpperCase()
+  }, [displayNameLine])
 
   const role = user?.role
   const isPatient = role === 'patient'
@@ -246,6 +278,28 @@ export default function PsychologyPage() {
     if (avatarPhase === 'speaking') return 'Sanadi is speaking'
     return 'Ready when you are'
   }, [avatarPhase])
+
+  const showVoiceBreathingCue = useMemo(() => {
+    if (!voiceModeActive || breathingCueDismissed) return false
+    if (voiceRecording || avatarPhase === 'speaking' || avatarPhase === 'thinking') return false
+    const lr = latestResult
+    if (!lr) return false
+    const d = lr.fusion?.distress_score ?? lr.distress_score
+    if (typeof d === 'number' && Number.isFinite(d) && d >= 0.54) return true
+    const lab = lr.fusion?.label ?? lr.emotion
+    if (lab === 'anxious' || lab === 'distressed') return true
+    return false
+  }, [voiceModeActive, breathingCueDismissed, voiceRecording, avatarPhase, latestResult])
+
+  useEffect(() => {
+    const reply = latestResult?.reply?.trim() ?? ''
+    if (!reply) return
+    const sig = `${latestResult?.session_id ?? ''}|${reply.length}|${reply.slice(0, 160)}`
+    if (sig !== lastAssistantReplySigRef.current) {
+      lastAssistantReplySigRef.current = sig
+      setBreathingCueDismissed(false)
+    }
+  }, [latestResult?.reply, latestResult?.session_id])
 
   const recognitionDebugText = useMemo(() => {
     const speechInFusion = !!latestResult?.fusion?.modalities_used?.includes('speech')
@@ -441,6 +495,19 @@ export default function PsychologyPage() {
   }, [captureFrameAndInferEmotion, isPatient, patientId])
 
   useEffect(() => () => stopCamera(), [stopCamera])
+
+  /** Bind MediaStream after floating `<video>` mounts (ref was null during `startCamera`). */
+  useEffect(() => {
+    if (!cameraOn) return
+    const stream = streamRef.current
+    const el = videoRef.current
+    if (!stream || !el) return
+    if (el.srcObject !== stream) {
+      el.srcObject = stream
+      void el.play().catch(() => {})
+    }
+  }, [cameraOn])
+
   useEffect(() => {
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [chat])
@@ -1017,6 +1084,7 @@ export default function PsychologyPage() {
       setLastRecognitionSentHints(null)
       setInput('')
       setLatestSpeechTranscript('')
+      setHistoryRefreshKey((k) => k + 1)
     }
   }
 
@@ -1052,16 +1120,34 @@ export default function PsychologyPage() {
 
   if (!isPatient) {
     return (
-      <div className="space-y-6 p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Sanadi Clinical Companion</CardTitle>
-            <CardDescription>Patient-facing session flow is now full-screen and safety-first. Clinical metrics remain available only in non-patient views.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">Open as a patient account to experience the Sanadi session UX.</p>
-          </CardContent>
-        </Card>
+      <div className="relative min-h-[calc(100dvh-6rem)]">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-linear-to-b from-primary/[0.07] via-primary/2 to-transparent"
+          aria-hidden
+        />
+        <div className="relative mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
+          <header className="mb-8 max-w-2xl space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Clinical companion</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Sanadi</h1>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              The patient-facing Sanadi session is built for privacy and emotional safety. Sign in as a patient to preview
+              voice mode, typed chat, and visit summaries.
+            </p>
+          </header>
+          <Card className="max-w-xl border-border/80 shadow-md shadow-black/5">
+            <CardHeader>
+              <CardTitle>Care team access</CardTitle>
+              <CardDescription>
+                Crisis events, emotion trends, and physician gates stay in monitoring and clinical tools for authorized roles.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Use a patient demo account to walk through the full Sanadi experience end to end.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     )
   }
@@ -1072,35 +1158,76 @@ export default function PsychologyPage() {
         lang={sessionLangAttr}
         dir={sessionDir}
         className={cn(
-          'flex h-full min-h-[calc(100vh-4rem)] items-center justify-center bg-[color:var(--sanadi-surface-warm)] p-6',
+          'relative min-h-[calc(100dvh-6rem)]',
           preferredSessionLang === 'ar' && notoSansArabic.className,
         )}
       >
-        <div className="w-full max-w-xl space-y-6 text-center">
-          <h1 className="text-4xl font-semibold tracking-tight">سنَدي</h1>
-          <p className="text-base text-muted-foreground">Your clinical companion for calm, guided support.</p>
-          <p className="mx-auto max-w-md text-sm text-muted-foreground/90">
-            This is a private, supportive space. You can talk freely, pause whenever you need, and move at your own pace.
-          </p>
-          <div className="mx-auto flex max-w-lg flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
-            <span className="rounded-full border bg-muted/30 px-3 py-1">CBT-guided support</span>
-            <span className="rounded-full border bg-muted/30 px-3 py-1">Clinically supervised safety</span>
-            <span className="rounded-full border bg-muted/30 px-3 py-1">Camera always optional</span>
-          </div>
-          <div className="mx-auto flex max-w-md flex-col items-center gap-2">
-            <p className="text-xs font-medium text-muted-foreground">Language</p>
-            <LanguagePicker value={preferredSessionLang} onChange={setPreferredSessionLang} />
-            <p className="text-[0.7rem] leading-snug text-muted-foreground">
-              Choose before you begin. Your selection applies to this session and cannot be changed until you end it.
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-linear-to-b from-primary/[0.07] via-primary/2 to-transparent"
+          aria-hidden
+        />
+        <div className="relative mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 sm:py-10">
+          <header className="max-w-2xl space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Mental wellness</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Sanadi</h1>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              Your calm companion for CBT-style support. Move at your own pace — camera and microphone are always optional.
             </p>
+          </header>
+
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.95fr)] lg:items-start">
+            <Card className="overflow-hidden border-border/80 shadow-md shadow-black/5">
+              <CardHeader className="space-y-0 border-b bg-linear-to-br from-muted/50 to-muted/10 pb-5 pt-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/20">
+                    <HeartHandshake className="h-6 w-6" aria-hidden />
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    <CardTitle className="text-xl sm:text-2xl">Begin a visit</CardTitle>
+                    <CardDescription className="text-sm leading-relaxed sm:text-base">
+                      سنَدي is a private space for reflection and skills practice. You can pause or end anytime; summaries
+                      help the next visit feel continuous.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6 p-5 sm:p-6">
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span className="rounded-full border border-border/60 bg-muted/30 px-3 py-1">CBT-guided support</span>
+                  <span className="rounded-full border border-border/60 bg-muted/30 px-3 py-1">Safety-aware routing</span>
+                  <span className="rounded-full border border-border/60 bg-muted/30 px-3 py-1">Camera optional</span>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Session language</p>
+                  <LanguagePicker value={preferredSessionLang} onChange={setPreferredSessionLang} />
+                  <p className="text-[0.7rem] leading-snug text-muted-foreground">
+                    Choose before you begin. Your selection applies until you end the session.
+                  </p>
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-muted/15 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Start with camera preview</p>
+                    <p className="text-[0.7rem] leading-snug text-muted-foreground">
+                      Optional face cues for Sanadi — you can turn the preview on or off anytime from Session tools during a visit.
+                    </p>
+                  </div>
+                  <Switch checked={cameraOptIn} onCheckedChange={setCameraOptIn} aria-label="Enable camera when session starts" />
+                </div>
+                <Button size="lg" className="w-full sm:w-auto sm:px-10" onClick={() => void beginSession()} disabled={startingSession}>
+                  {startingSession ? 'Starting…' : 'Begin session'}
+                </Button>
+                {chatError ? <p className="text-sm text-destructive">{chatError}</p> : null}
+              </CardContent>
+            </Card>
+
+            {patientId > 0 ? (
+              <SanadiPastSessions patientId={patientId} refreshKey={historyRefreshKey} className="lg:sticky lg:top-24" />
+            ) : (
+              <Card className="border-dashed border-border/80 bg-muted/20 p-6 text-sm text-muted-foreground shadow-sm">
+                Patient profile is still loading. Refresh if visit history does not appear.
+              </Card>
+            )}
           </div>
-          <Button size="lg" className="px-10" onClick={() => void beginSession()} disabled={startingSession}>
-            Begin session
-          </Button>
-          <div className="flex items-center justify-center gap-3 text-sm text-muted-foreground">
-            <span>Sanadi understands you better with camera on — always optional</span>
-          </div>
-          {chatError && <p className="text-sm text-destructive">{chatError}</p>}
         </div>
       </div>
     )
@@ -1119,7 +1246,7 @@ export default function PsychologyPage() {
         <div
           className={cn(
             'pointer-events-none fixed left-3 z-[120] flex items-center gap-2 rounded-full bg-black/50 px-2.5 py-1 text-[0.65rem] font-medium text-white md:left-4',
-            voiceModeActive ? 'top-[3.75rem]' : 'top-16',
+            voiceModeActive ? 'top-[9.5rem]' : 'top-[8.75rem]',
           )}
           role="status"
           aria-live="polite"
@@ -1130,174 +1257,208 @@ export default function PsychologyPage() {
         </div>
       )}
 
-      <header className="relative z-[70] flex h-14 max-h-14 shrink-0 items-center justify-between border-b border-border/30 bg-[color:var(--sanadi-shell-bg)] px-3 md:px-4">
-        <span className="text-base font-semibold tracking-tight text-primary md:text-lg">سنَدي Sanadi</span>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 md:gap-2">
-          <LanguagePicker value={preferredSessionLang} disabled onChange={() => {}} />
+      <header className="relative z-[70] flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b border-border/40 bg-[color:var(--sanadi-shell-bg)]/95 px-3 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-[color:var(--sanadi-shell-bg)]/85 md:px-4">
+        <div className="flex min-w-0 max-w-[72vw] flex-wrap items-center gap-2 sm:max-w-none">
+          <SanadiMoodRing
+            emotion={displayEmotion?.label ?? null}
+            distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+            className="h-9 w-9 shrink-0 rounded-full shadow-md ring-2 ring-border/35 md:h-10 md:w-10"
+          />
           <Button
             type="button"
+            variant={cameraOn ? 'secondary' : 'outline'}
             size="sm"
-            variant={voiceModeActive ? 'secondary' : 'outline'}
-            className="h-8 gap-1 rounded-full px-3 text-xs md:h-9 md:text-sm"
-            aria-label="Voice mode"
-            aria-pressed={voiceModeActive}
-            onClick={() => setVoiceModeActive((v) => !v)}
+            className="h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-xs md:h-9 md:px-3"
+            aria-pressed={cameraOn}
+            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+            onClick={() => (cameraOn ? stopCamera() : void startCamera())}
           >
-            <Headphones className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
-            Voice
+            {cameraOn ? <CameraOff className="h-3.5 w-3.5 md:h-4 md:w-4" aria-hidden /> : <Video className="h-3.5 w-3.5 md:h-4 md:w-4" aria-hidden />}
+            <span className="max-w-[5.5rem] truncate sm:max-w-none">{cameraOn ? 'Camera off' : 'Camera on'}</span>
           </Button>
+          <span className="truncate text-sm font-semibold tracking-tight text-primary sm:text-base md:text-lg">Sanadi</span>
+        </div>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 md:gap-2">
+          <Sheet open={sessionToolsOpen} onOpenChange={setSessionToolsOpen}>
+            <SheetTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 rounded-full px-2.5 text-xs md:h-9 md:px-3"
+                aria-label="Visit settings: camera and recognition debug"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="hidden sm:inline">Settings</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent
+              side="right"
+              className="flex h-full w-full max-w-full flex-col gap-0 overflow-hidden border-l border-border/80 bg-background p-0 sm:max-w-md"
+            >
+              <div className="shrink-0 bg-linear-to-br from-primary/[0.09] via-muted/40 to-background px-6 pb-6 pt-10">
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-primary">Sanadi</p>
+                <SheetTitle className="mt-1.5 text-left text-xl font-bold tracking-tight">Visit settings</SheetTitle>
+                <SheetDescription className="mt-2 text-left text-sm leading-relaxed text-muted-foreground">
+                  Mood, optional camera, and recognition diagnostics for this visit.
+                </SheetDescription>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto overscroll-contain px-4 pb-12 pt-1">
+                <div className="flex gap-4 rounded-2xl border border-border/80 bg-card p-4 shadow-md shadow-black/[0.04]">
+                  <Avatar className="h-14 w-14 shrink-0 border-2 border-background shadow-md ring-2 ring-primary/15">
+                    {profilePhotoUrl ? (
+                      <AvatarImage src={profilePhotoUrl} alt="" className="object-cover" />
+                    ) : null}
+                    <AvatarFallback className="text-base font-semibold">{avatarInitials}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <p className="text-lg font-semibold leading-snug tracking-tight">{displayNameLine}</p>
+                    <p className="mt-2 inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-[0.7rem] font-medium text-muted-foreground">
+                      Visit {visitOrdinal}
+                      <span className="mx-1.5 text-border">·</span>
+                      {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </p>
+                  </div>
+                </div>
+
+                <Separator className="my-5 bg-border/60" />
+
+                <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm">
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">Mood</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Blended from your last exchange and optional camera cues.
+                  </p>
+                  <div className="mt-4 flex justify-center">
+                    <SanadiMoodRing
+                      emotion={displayEmotion?.label ?? null}
+                      distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                      className="h-20 w-20 rounded-full shadow-lg ring-4 ring-primary/15"
+                    />
+                  </div>
+                </div>
+
+                <Separator className="my-5 bg-border/60" />
+
+                <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">Camera</p>
+                      <p className="mt-1.5 text-sm font-semibold leading-snug">Preview</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {cameraOn
+                          ? 'Live video is shown in the floating window. Turn it off here or with the button on the preview.'
+                          : 'Optional — when on, a small preview appears so you can see yourself and Sanadi can use gentle face cues.'}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={cameraOn}
+                      aria-label="Camera preview"
+                      onCheckedChange={(on) => {
+                        if (on) void startCamera()
+                        else stopCamera()
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <Separator className="my-5 bg-border/60" />
+
+                <div className="rounded-2xl border border-border/80 bg-muted/20 p-1 shadow-sm">
+                  <Collapsible open={recognitionDebugOpen} onOpenChange={setRecognitionDebugOpen}>
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="flex h-12 w-full items-center justify-between rounded-xl px-3 text-left text-sm font-medium hover:bg-muted/60"
+                      >
+                        <span>Recognition debug</span>
+                        <ChevronDown
+                          className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', recognitionDebugOpen && 'rotate-180')}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="px-3 pb-4 pt-0 data-[state=closed]:animate-none">
+                      <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+                        Face, speech, and fusion channels from the last message. Console logs mirror this view.
+                      </p>
+                      <pre className="max-h-[min(50vh,22rem)] overflow-auto rounded-xl border border-border/80 bg-background p-3 font-mono text-[0.65rem] leading-relaxed text-foreground whitespace-pre-wrap wrap-break-word">
+                        {recognitionDebugText}
+                      </pre>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-full px-3 text-xs md:h-9"
+            onClick={() => void closeSession()}
+          >
+            End
+          </Button>
+          <LanguagePicker value={preferredSessionLang} disabled onChange={() => {}} />
           <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-health-success/80" title="Live" aria-hidden />
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-row">
-        <aside
-          className={cn(
-            'hidden min-h-0 shrink-0 flex-col border-r border-border/30 bg-muted/30 transition-[width] duration-200 ease-out md:flex',
-            voiceModeActive && 'relative z-[65]',
-            railCollapsed ? 'h-full w-[60px] items-center px-0 py-3' : 'h-full min-h-0 w-64 overflow-hidden p-3',
-          )}
+      <div className="relative z-[65] flex shrink-0 justify-center border-b border-border/50 bg-linear-to-r from-primary/[0.07] via-muted/35 to-primary/[0.07] px-3 py-3">
+        <Button
+          type="button"
+          variant={voiceModeActive ? 'secondary' : 'default'}
+          className="flex h-auto min-h-12 w-full max-w-lg flex-col gap-1 rounded-2xl px-4 py-3 shadow-md sm:flex-row sm:items-center sm:justify-center sm:gap-3 sm:py-3.5"
+          aria-label="Voice mode"
+          aria-pressed={voiceModeActive}
+          onClick={() => setVoiceModeActive((v) => !v)}
         >
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn('shrink-0 rounded-full', !railCollapsed && 'mb-2')}
-            onClick={() => setRailCollapsed((c) => !c)}
-            aria-label={railCollapsed ? 'Expand session panel' : 'Collapse session panel'}
-          >
-            {railCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-          </Button>
-          {!railCollapsed ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-0">
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1 [scrollbar-gutter:stable]">
-                <div className="space-y-1 pb-4">
-                  <p className="text-sm font-semibold text-foreground">{user?.username ?? 'You'}</p>
-                  <p className="text-xs text-muted-foreground">Session {visitOrdinal}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
-                  </p>
-                </div>
-                <div className="mx-auto mb-5 flex flex-col items-center gap-2">
-                  <SanadiMoodRing
-                    emotion={displayEmotion?.label ?? null}
-                    distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-                    className="h-16 w-16 rounded-full shadow-md ring-4 ring-white/70 dark:ring-white/10"
-                  />
-                </div>
-                <Collapsible open={cameraPanelOpen} onOpenChange={setCameraPanelOpen} className="w-full shrink-0">
-                  <CollapsibleTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="mb-1 flex h-11 w-full items-center justify-between gap-2 rounded-2xl px-4 text-left text-xs font-medium shadow-sm"
-                    >
-                      <span>Camera (optional)</span>
-                      <ChevronDown className={cn('h-4 w-4 shrink-0 opacity-70 transition-transform', cameraPanelOpen && 'rotate-180')} />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-3 pb-4 data-[state=closed]:animate-none">
-                    <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
-                      Optional preview. You control when your camera runs; nothing is inferred from visuals here.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="w-full rounded-2xl shadow-sm"
-                      onClick={() => (cameraOn ? stopCamera() : void startCamera())}
-                    >
-                      {cameraOn ? (
-                        <>
-                          <CameraOff className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview off
-                        </>
-                      ) : (
-                        <>
-                          <Video className="mr-2 inline-block h-4 w-4 align-middle" aria-hidden /> Turn preview on
-                        </>
-                      )}
-                    </Button>
-                    <video ref={videoRef} className="mx-auto h-40 w-full max-w-[240px] rounded-xl bg-black object-cover shadow-inner" playsInline muted />
-                  </CollapsibleContent>
-                </Collapsible>
-                <Collapsible open={recognitionDebugOpen} onOpenChange={setRecognitionDebugOpen} className="w-full shrink-0 pb-6 pt-3">
-                  <CollapsibleTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="flex h-10 w-full items-center justify-between gap-2 rounded-2xl px-3 text-left text-[0.65rem] font-medium text-muted-foreground shadow-sm"
-                    >
-                      <span>Recognition debug</span>
-                      <ChevronDown
-                        className={cn(
-                          'h-3.5 w-3.5 shrink-0 opacity-70 transition-transform',
-                          recognitionDebugOpen && 'rotate-180',
-                        )}
-                      />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pb-1 pt-2 data-[state=closed]:animate-none">
-                  <p className="mb-2 text-[0.6rem] leading-snug text-muted-foreground">
-                    Console logs mirror this view. Speech appears when you use Voice/STT (`speech_transcript` + optional `speech_audio`); modalities_used lists which channels influenced the reply.
-                  </p>
-                    <pre className="max-h-72 overflow-auto rounded-xl border border-border bg-background/90 p-2.5 font-mono text-[0.6rem] leading-relaxed text-foreground whitespace-pre-wrap wrap-break-word">
-                      {recognitionDebugText}
-                    </pre>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-              {!voiceModeActive && (
-                <div className="shrink-0 border-t border-border/40 bg-muted/25 pt-3 dark:bg-muted/15">
-                  <Button type="button" variant="outline" className="w-full rounded-2xl" onClick={() => void closeSession()}>
-                    End session
-                  </Button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="mt-2 flex flex-1 flex-col items-center gap-3">
-              <SanadiMoodRing
-                emotion={displayEmotion?.label ?? null}
-                distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-                className="h-9 w-9 rounded-full shadow ring-2 ring-white/50 dark:ring-white/10"
-              />
-              {!voiceModeActive && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-auto rounded-full px-2 text-[0.65rem]"
-                  onClick={() => void closeSession()}
-                  aria-label="End session"
-                >
-                  End
-                </Button>
-              )}
-            </div>
-          )}
-        </aside>
+          <span className="flex items-center justify-center gap-2">
+            <Headphones className="h-5 w-5 shrink-0" aria-hidden />
+            <span className="text-base font-semibold tracking-tight">
+              {voiceModeActive ? 'Voice mode is on' : 'Voice mode'}
+            </span>
+          </span>
+          <span className="text-center text-[0.7rem] leading-snug text-muted-foreground sm:text-left sm:text-sm">
+            {voiceModeActive
+              ? 'Speak with Sanadi — switch off to type in chat instead.'
+              : 'Tap for hands-free conversation, waveform, and talking companion.'}
+          </span>
+        </Button>
+      </div>
 
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {cameraOn ? (
+        <div
+          className="pointer-events-auto fixed right-3 z-[60] w-[min(46vw,232px)] max-w-[232px] overflow-hidden rounded-2xl border border-border/90 bg-card shadow-2xl ring-1 ring-black/10 dark:ring-white/10 md:right-5"
+          style={{ top: 'max(9.5rem, calc(env(safe-area-inset-top, 0px) + 8.5rem))' }}
+        >
+          <div className="relative aspect-[4/3] bg-black">
+            <video ref={videoRef} className="h-full w-full object-cover object-top" playsInline muted />
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              className="absolute right-2 top-2 h-9 w-9 rounded-full border border-border/60 bg-background/95 shadow-md backdrop-blur-sm hover:bg-background"
+              onClick={() => stopCamera()}
+              aria-label="Turn camera off"
+            >
+              <CameraOff className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="border-t border-border/50 bg-muted/30 px-2 py-1.5 text-center text-[0.65rem] font-medium text-muted-foreground">
+            Camera preview
+          </p>
+        </div>
+      ) : null}
+
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-linear-to-b from-primary/[0.05] via-[color:var(--sanadi-shell-bg)] to-[color:var(--sanadi-shell-bg)]">
           {voiceModeActive ? (
             <>
-              <div className="flex shrink-0 items-center gap-3 border-b border-border/20 px-4 py-2 text-xs text-muted-foreground md:hidden">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-foreground">{user?.username ?? 'You'}</p>
-                  <p className="truncate text-[0.65rem]">
-                    Session {visitOrdinal} ·{' '}
-                    {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </p>
-                </div>
-                <SanadiMoodRing
-                  emotion={displayEmotion?.label ?? null}
-                  distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-                  className="h-10 w-10 shrink-0 rounded-full ring-2 ring-border/40"
-                />
-              </div>
-
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-3">
-                  <div className="flex w-full max-w-lg flex-col items-center justify-center gap-0">
-                    <div className="flex min-h-[min(52svh,480px)] max-h-[60svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
+                  <div className="flex w-full max-w-lg flex-col items-center justify-center gap-3">
+                    <div className="flex min-h-[min(48svh,440px)] max-h-[56svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
                       <SanadiTalkingHead
                         ref={talkingHeadRef}
                         active
@@ -1308,44 +1469,42 @@ export default function PsychologyPage() {
                         onAssistantAnalyser={onTalkingHeadAnalyserNode}
                       />
                     </div>
-                    <p className="mt-2 text-center text-sm font-medium text-muted-foreground">{voicePhaseLine}</p>
+                    <p className="text-center text-sm font-medium text-muted-foreground">{voicePhaseLine}</p>
 
-                    <div className="mt-2 w-full max-w-[480px] shrink-0 overflow-hidden rounded-3xl border border-border/50 bg-background/90">
+                    {showVoiceBreathingCue ? (
+                      <SanadiBreathingCue className="w-full max-w-[480px]" onDismiss={() => setBreathingCueDismissed(true)} />
+                    ) : null}
+
+                    <div className="w-full max-w-[480px] shrink-0 overflow-hidden rounded-2xl border border-border/80 bg-card/90 shadow-md shadow-black/5 backdrop-blur-sm">
+                      <div className="border-b border-border/50 bg-muted/20 px-3 py-2">
+                        <p className="text-center text-[0.7rem] font-medium text-muted-foreground">Your voice</p>
+                      </div>
                       <div className="px-3 pt-3 pb-1">
                         <SanadiVoiceWaveform
                           analyserRef={voiceAnalyserRef}
                           speaker={waveSpeaker}
-                          height={80}
+                          height={72}
                           className="opacity-95"
                         />
                       </div>
                       <Button
                         type="button"
-                        className="h-auto w-full rounded-none border-0 border-t border-border/40 py-6 text-base font-semibold shadow-none"
+                        className="h-auto w-full rounded-none border-0 border-t border-border/50 bg-primary py-6 text-base font-semibold text-primary-foreground shadow-none hover:bg-primary/90"
                         disabled={loading || startingSession}
                         onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
                       >
                         {voiceRecording ? 'Done speaking' : 'Tap to speak'}
                       </Button>
                     </div>
-                    <p className="mt-2 max-w-[480px] text-center text-[0.65rem] leading-snug text-muted-foreground">
-                      Groq transcribes your clip. Replies use calm voice when server TTS is on — turn Voice off to type in chat.
-                    </p>
                   </div>
                 </div>
               </div>
 
-              <footer className="shrink-0 border-t border-border/30 bg-[color:var(--sanadi-shell-bg)] px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full rounded-2xl py-6"
-                  onClick={() => void closeSession()}
-                >
-                  End session
-                </Button>
-                {chatError && <p className="mt-2 text-center text-xs text-muted-foreground">{chatError}</p>}
-              </footer>
+              {chatError ? (
+                <div className="shrink-0 border-t border-border/30 bg-destructive/5 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                  <p className="text-center text-xs text-muted-foreground">{chatError}</p>
+                </div>
+              ) : null}
             </>
           ) : (
             <>
@@ -1393,12 +1552,12 @@ export default function PsychologyPage() {
                   <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--sanadi-chat-assistant)] shadow-md ring-1 ring-border">
                     <Sparkles className="h-4 w-4 text-primary" />
                   </div>
-                  <div className="rounded-[1.65rem] border border-border bg-[color:var(--sanadi-chat-assistant)] px-5 py-3.5 text-left text-[1.02rem] leading-relaxed text-foreground shadow-md">
+                  <div className="rounded-[1.65rem] border border-border/80 bg-[color:var(--sanadi-chat-assistant)] px-5 py-3.5 text-left text-[1.02rem] leading-relaxed text-foreground shadow-md ring-1 ring-black/[0.03] dark:ring-white/[0.06]">
                     {entry.content}
                   </div>
                 </div>
               ) : (
-                <div className="max-w-[84%] rounded-[1.65rem] border border-border bg-[color:var(--sanadi-chat-patient)] px-4 py-3 text-left text-sm leading-relaxed text-foreground shadow-md">
+                <div className="max-w-[84%] rounded-[1.65rem] border border-border/80 bg-[color:var(--sanadi-chat-patient)] px-4 py-3 text-left text-sm leading-relaxed text-foreground shadow-md ring-1 ring-black/[0.03] dark:ring-white/[0.06]">
                   {entry.content}
                 </div>
               )}
@@ -1446,7 +1605,6 @@ export default function PsychologyPage() {
           </footer>
             </>
           )}
-        </div>
       </div>
     </div>
 

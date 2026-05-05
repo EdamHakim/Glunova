@@ -12,6 +12,43 @@ from huggingface_hub import InferenceClient
 logger = logging.getLogger(__name__)
 
 
+def _hf_http_status(exc: BaseException) -> int | None:
+    try:
+        from huggingface_hub.utils import HfHubHTTPError
+
+        if isinstance(exc, HfHubHTTPError) and getattr(exc, "response", None) is not None:
+            code = getattr(exc.response, "status_code", None)
+            return int(code) if code is not None else None
+    except Exception:
+        pass
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        code = getattr(resp, "status_code", None)
+        if code is not None:
+            try:
+                return int(code)
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def _hf_inference_error_should_retry(exc: BaseException) -> bool:
+    """429/5xx/408 may recover; most 4xx (e.g. 400 model not on provider) will not — avoid wasted retries."""
+    status = _hf_http_status(exc)
+    if status is not None:
+        if status in (408, 429):
+            return True
+        if 400 <= status < 500:
+            return False
+        if status >= 500:
+            return True
+        return False
+    low = str(exc).lower()
+    if "model not supported" in low or "not supported by provider" in low:
+        return False
+    return True
+
+
 def _inference_client(token: str, timeout_s: float) -> InferenceClient:
     """Build InferenceClient with stable routing for Hub models that have no third-party inference mapping."""
     raw = (os.getenv("PSYCHOLOGY_HF_INFERENCE_PROVIDER") or "").strip()
@@ -23,7 +60,7 @@ def _inference_client(token: str, timeout_s: float) -> InferenceClient:
         except Exception:
             raw = ""
     if not raw:
-        raw = "hf-inference"
+        raw = "auto"
     if raw.lower() == "auto":
         return InferenceClient(token=token.strip(), timeout=timeout_s)
     return InferenceClient(token=token.strip(), timeout=timeout_s, provider=raw)  # type: ignore[arg-type]
@@ -91,11 +128,12 @@ def classify_text(
             label, score = _scalar_label_score(item)
             return label, score
         except Exception as exc:
-            if attempt + 1 >= attempts:
+            last = attempt + 1 >= attempts or not _hf_inference_error_should_retry(exc)
+            if last:
                 logger.warning(
-                    "HF Inference text_classification failed for %s after %s attempts: %s",
+                    "HF Inference text_classification failed for %s after %s attempt(s): %s",
                     model_id,
-                    attempts,
+                    attempt + 1,
                     exc,
                 )
                 return None
@@ -125,11 +163,12 @@ def classify_audio(
             label, score = _scalar_label_score(ranked[0])
             return label, score
         except Exception as exc:
-            if attempt + 1 >= attempts:
+            last = attempt + 1 >= attempts or not _hf_inference_error_should_retry(exc)
+            if last:
                 logger.warning(
-                    "HF Inference audio_classification failed for %s after %s attempts: %s",
+                    "HF Inference audio_classification failed for %s after %s attempt(s): %s",
                     model_id,
-                    attempts,
+                    attempt + 1,
                     exc,
                 )
                 return None

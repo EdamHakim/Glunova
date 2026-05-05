@@ -152,7 +152,34 @@ export async function endPsychologySession(sessionId: string, patientId: number)
     credentials: 'include',
     body: JSON.stringify({ session_id: sessionId, patient_id: patientId }),
   })
-  return parseJson<{ session_id: string; summary_stored: boolean }>(response)
+  return parseJson<{ session_id: string; summary_stored: boolean; stored_memory_items?: number }>(response)
+}
+
+export type SessionHistoryItem = {
+  session_id: string
+  started_at: string
+  ended_at: string
+  preferred_language: string
+  last_state: string | null
+  excerpt: string
+  techniques: string[]
+  has_risk_flags: boolean
+}
+
+export type SessionHistoryResponse = {
+  patient_id: number
+  items: SessionHistoryItem[]
+}
+
+export async function getPsychologySessionHistory(patientId: number, limit = 25) {
+  const url = new URL(`${base()}${psychologyPrefix()}/sessions/history/${patientId}`)
+  url.searchParams.set('limit', String(limit))
+  const response = await fetchWithFallback(url.toString(), {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  })
+  return parseJson<SessionHistoryResponse>(response)
 }
 
 export async function getPsychologyTrends(patientId: number) {

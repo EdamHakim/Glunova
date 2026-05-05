@@ -19,6 +19,7 @@ from psychology.schemas import (
     PhysicianClearGateRequest,
     SessionEndRequest,
     SessionEndResponse,
+    SessionHistoryResponse,
     SessionSnapshotResponse,
     SessionStartRequest,
     SessionStartResponse,
@@ -40,6 +41,21 @@ router = APIRouter(prefix="/psychology", tags=["psychology"])
 service = create_psychology_service()
 knowledge_base = get_knowledge_base()
 logger = logging.getLogger(__name__)
+
+
+def _assert_session_history_access(claims: dict, patient_id: int) -> None:
+    role = str(claims.get("role") or "")
+    if role in {"doctor", "caregiver"}:
+        return
+    if role == "patient":
+        try:
+            claim_uid = int(claims.get("user_id") or claims.get("sub") or 0)
+        except (TypeError, ValueError):
+            claim_uid = 0
+        if claim_uid != patient_id:
+            raise HTTPException(status_code=403, detail="Patients may only view their own session history")
+        return
+    raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
 @router.post("/session/start", response_model=SessionStartResponse)
@@ -159,6 +175,16 @@ def get_session(
         return service.get_session(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
+
+
+@router.get("/sessions/history/{patient_id}", response_model=SessionHistoryResponse)
+def session_history(
+    patient_id: int,
+    limit: int = Query(25, ge=1, le=60),
+    claims: dict = Depends(require_roles("patient", "doctor", "caregiver")),
+) -> SessionHistoryResponse:
+    _assert_session_history_access(claims, patient_id)
+    return service.list_session_history(patient_id, limit)
 
 
 @router.get("/trends/{patient_id}", response_model=TrendResponse)

@@ -392,6 +392,26 @@ def count_completed_psychology_sessions(pool: Any, patient_id: int) -> int:
     return int(row[0])
 
 
+def list_psychology_session_history(pool: Any, patient_id: int, limit: int) -> list[dict[str, Any]]:
+    """Completed sessions only (`ended_at` set), newest first."""
+    cap = max(1, min(int(limit), 60))
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT session_id::text AS session_id, patient_id, preferred_language,
+                       started_at, ended_at, last_state, session_summary_json
+                FROM psychology_psychologysession
+                WHERE patient_id = %s AND ended_at IS NOT NULL
+                ORDER BY ended_at DESC
+                LIMIT %s
+                """,
+                (patient_id, cap),
+            )
+            rows = cur.fetchall()
+    return list(rows)
+
+
 def get_patient_health_context(pool: Any, patient_id: int) -> dict[str, Any]:
     ensure_psychology_profile(pool, patient_id)
     with pool.connection() as conn:

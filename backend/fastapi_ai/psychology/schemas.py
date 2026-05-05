@@ -182,3 +182,19 @@ class SessionEndResponse(BaseModel):
     session_id: str
     summary_stored: bool
     stored_memory_items: int
+
+
+class SessionHistoryItem(BaseModel):
+    session_id: str
+    started_at: datetime
+    ended_at: datetime
+    preferred_language: str = "en"
+    last_state: str | None = None
+    excerpt: str = ""
+    techniques: list[str] = Field(default_factory=list)
+    has_risk_flags: bool = False
+
+
+class SessionHistoryResponse(BaseModel):
+    patient_id: int
+    items: list[SessionHistoryItem]
