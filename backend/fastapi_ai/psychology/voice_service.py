@@ -1,4 +1,4 @@
-"""Sanadi voice STT (Groq Whisper) and TTS (Groq Orpheus / Groq speech API)."""
+"""Sanadi voice STT (Groq Whisper) and TTS (ElevenLabs / Groq Orpheus)."""
 
 from __future__ import annotations
 
@@ -25,6 +25,14 @@ class VoiceConfigurationError(RuntimeError):
 
 class GroqSpeechError(RuntimeError):
     """Groq `/audio/speech` returned an error (e.g. model terms not accepted)."""
+
+    def __init__(self, message: str, *, status_code: int = 502) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class ElevenLabsSpeechError(RuntimeError):
+    """ElevenLabs TTS returned an error."""
 
     def __init__(self, message: str, *, status_code: int = 502) -> None:
         super().__init__(message)
@@ -128,23 +136,144 @@ def _groq_tts_model_and_voice(language: LanguageLiterals) -> tuple[str, str]:
     return model, voice
 
 
+ELEVENLABS_TTS_TIMESTAMPS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
+
+
+def _elevenlabs_voice_id(language: LanguageLiterals) -> str:
+    if language in ("ar", "darija"):
+        return (settings.psychology_elevenlabs_voice_ar or "EXAVITQu4vr4xnSDxMaL").strip()
+    return (settings.psychology_elevenlabs_voice_en or "EXAVITQu4vr4xnSDxMaL").strip()
+
+
+def _chars_to_word_timestamps(
+    chars: list[str],
+    char_starts: list[float],
+    char_ends: list[float],
+) -> tuple[list[str], list[float], list[float]]:
+    """Convert ElevenLabs character-level alignment to word-level timestamps in milliseconds."""
+    words: list[str] = []
+    wtimes: list[float] = []
+    wdurations: list[float] = []
+    current = ""
+    word_start: float | None = None
+    word_end: float = 0.0
+    for i, ch in enumerate(chars):
+        if ch in (" ", "\n", "\t"):
+            if current:
+                words.append(current)
+                wtimes.append((word_start or 0.0) * 1000.0)
+                wdurations.append((word_end - (word_start or 0.0)) * 1000.0)
+                current = ""
+                word_start = None
+        else:
+            if word_start is None:
+                word_start = char_starts[i] if i < len(char_starts) else 0.0
+            word_end = char_ends[i] if i < len(char_ends) else 0.0
+            current += ch
+    if current:
+        words.append(current)
+        wtimes.append((word_start or 0.0) * 1000.0)
+        wdurations.append((word_end - (word_start or 0.0)) * 1000.0)
+    return words, wtimes, wdurations
+
+
+def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals) -> tuple[bytes, str]:
+    """Synthesize via ElevenLabs /with-timestamps.
+
+    Returns JSON bytes (content-type application/json) containing:
+      audio_b64   — base64 MP3
+      content_type — "audio/mpeg"
+      words       — word strings
+      wtimes      — word start times in ms (from normalizedAlignment)
+      wdurations  — word durations in ms
+    """
+    import base64
+    import json as _json
+
+    api_key = (settings.elevenlabs_api_key or "").strip()
+    if not api_key:
+        raise VoiceConfigurationError("ELEVENLABS_API_KEY not configured")
+
+    trimmed = text.strip()
+    if not trimmed:
+        raise ValueError("text is empty")
+
+    voice_id = _elevenlabs_voice_id(language)
+    model_id = (settings.psychology_elevenlabs_model or "eleven_multilingual_v2").strip()
+    url = ELEVENLABS_TTS_TIMESTAMPS_URL.format(voice_id=voice_id)
+    payload = {
+        "text": trimmed,
+        "model_id": model_id,
+        "output_format": "mp3_44100_128",
+    }
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    logger.debug("tts elevenlabs lang=%s voice=%s model=%s", language, voice_id, model_id)
+    timeout = httpx.Timeout(60.0, connect=15.0)
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            r = client.post(url, json=payload, headers=headers)
+            if r.status_code >= 400:
+                logger.warning("ElevenLabs TTS failed (%s): %s", r.status_code, r.text[:500])
+                detail = f"ElevenLabs TTS error {r.status_code}"
+                try:
+                    body = r.json()
+                    msg = (body.get("detail") or {})
+                    if isinstance(msg, dict):
+                        msg = msg.get("message") or ""
+                    if msg:
+                        detail = str(msg)
+                except Exception:
+                    pass
+                raise ElevenLabsSpeechError(detail, status_code=502)
+
+            data = r.json()
+    except ElevenLabsSpeechError:
+        raise
+    except httpx.HTTPError as exc:
+        raise ElevenLabsSpeechError(f"ElevenLabs TTS request failed: {exc}", status_code=502) from exc
+
+    audio_b64: str = data.get("audio_base64") or ""
+    alignment = data.get("normalized_alignment") or data.get("alignment") or {}
+    chars: list[str] = alignment.get("characters") or []
+    char_starts: list[float] = alignment.get("character_start_times_seconds") or []
+    char_ends: list[float] = alignment.get("character_end_times_seconds") or []
+    words, wtimes, wdurations = _chars_to_word_timestamps(chars, char_starts, char_ends)
+
+    result = _json.dumps({
+        "audio_b64": audio_b64,
+        "content_type": "audio/mpeg",
+        "words": words,
+        "wtimes": wtimes,
+        "wdurations": wdurations,
+    })
+    return result.encode(), "application/json"
+
+
 def synthesize_speech_mp3(text: str, *, language: LanguageLiterals) -> tuple[bytes, str]:
     """
-    Synthesize speech via Groq (`/openai/v1/audio/speech`).
-
-    Groq Orpheus returns WAV by default (see Groq TTS docs). The Sanadi client decodes the blob with
-    `decodeAudioData`, which supports WAV.
+    Synthesize speech for Sanadi replies. Routes to ElevenLabs or Groq based on
+    ``PSYCHOLOGY_TTS_PROVIDER`` (elevenlabs | groq | none).
 
     Returns:
-        (audio_bytes, content_type) — typically ``audio/wav``.
+        (audio_bytes, content_type)
 
     Raises:
-        VoiceConfigurationError: Provider disabled or missing ``GROQ_API_KEY``.
-        RuntimeError: HTTP or transport failure.
+        VoiceConfigurationError: Provider disabled or missing API key.
+        ElevenLabsSpeechError / GroqSpeechError: Upstream error.
     """
-    if (settings.psychology_tts_provider or "groq").strip().lower() == "none":
+    provider = (settings.psychology_tts_provider or "groq").strip().lower()
+
+    if provider == "none":
         raise VoiceConfigurationError("Psychology TTS provider is disabled (psychology_tts_provider=none)")
 
+    if provider == "elevenlabs":
+        return _synthesize_elevenlabs(text, language=language)
+
+    # groq (default)
     api_key = (settings.groq_api_key or "").strip().strip("'\"")
     if not api_key:
         raise VoiceConfigurationError("GROQ_API_KEY not configured (required for Groq TTS)")
@@ -189,6 +318,9 @@ def is_groq_configured() -> bool:
 
 
 def is_tts_configured() -> bool:
-    if (settings.psychology_tts_provider or "").strip().lower() == "none":
+    provider = (settings.psychology_tts_provider or "groq").strip().lower()
+    if provider == "none":
         return False
+    if provider == "elevenlabs":
+        return bool((settings.elevenlabs_api_key or "").strip())
     return bool((settings.groq_api_key or "").strip())

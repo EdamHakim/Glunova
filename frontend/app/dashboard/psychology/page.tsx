@@ -27,6 +27,7 @@ import {
   synthesizePsychologyVoice,
   transcribePsychologyVoice,
   type PsychologyMessageResult,
+  type SynthesizedSpeech,
 } from '@/lib/psychology-api'
 import type { AvatarPhase } from '@/components/psychology/sanadi-avatar'
 import {
@@ -574,7 +575,7 @@ export default function PsychologyPage() {
         void recordingAudioCtxRef.current?.close()
         recordingAudioCtxRef.current = null
         voiceAnalyserRef.current = null
-        const blob = await synthesizePsychologyVoice({ text: reply, language: lang })
+        const speech: SynthesizedSpeech = await synthesizePsychologyVoice({ text: reply, language: lang })
 
         if (voiceModeActive) {
           const deadline = Date.now() + 4000
@@ -586,7 +587,7 @@ export default function PsychologyPage() {
         const th = talkingHeadRef.current
         if (voiceModeActive && th?.isAvatarReady?.()) {
           const played = await th.speakFromServiceTts(
-            blob,
+            speech,
             reply,
             lang as SanadiPsychologyTtsLang,
             () => setAvatarPhase('idle'),
@@ -594,7 +595,7 @@ export default function PsychologyPage() {
           if (played) return
         }
 
-        const url = URL.createObjectURL(blob)
+        const url = URL.createObjectURL(speech.blob)
         ttsObjectUrlRef.current = url
         const audio = new Audio(url)
         ttsAudioRef.current = audio

@@ -11,6 +11,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { AvatarEmotion, AvatarPhase } from '@/components/psychology/sanadi-avatar'
+import type { SynthesizedSpeech } from '@/lib/psychology-api'
 
 /** Minimal surface for TalkingHead instance (no upstream .d.ts). */
 type TalkingHeadInstance = {
@@ -94,7 +95,7 @@ export type PsychologyTtsLang = 'en' | 'fr' | 'ar' | 'darija' | 'mixed'
 
 export type SanadiTalkingHeadHandle = {
   speakFromServiceTts: (
-    blob: Blob,
+    speech: SynthesizedSpeech,
     replyText: string,
     lang: PsychologyTtsLang,
     onEnded: () => void,
@@ -329,23 +330,30 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
         if (!headRef.current) return
         headRef.current.stopSpeaking()
       },
-      speakFromServiceTts: async (blob, replyText, lang, onEnded) => {
+      speakFromServiceTts: async (speech, replyText, lang, onEnded) => {
         const head = headRef.current
         if (!avatarReadyRef.current || !head) return false
         clearSpeechSafety()
         speechEndedOnceRef.current = false
         head.stopSpeaking()
 
-        let buffer: AudioBuffer
+        // Decode audio to find duration; TalkingHead receives the raw ArrayBuffer so it
+        // uses its own pcmToAudioBuffer / decodeAudioData path (array vs non-array in playAudio).
+        let decodedBuffer: AudioBuffer
         try {
-          const raw = await blob.arrayBuffer()
-          buffer = await decodeAudioBuffer(head.audioCtx, raw)
+          decodedBuffer = await decodeAudioBuffer(head.audioCtx, speech.audioBuf.slice(0))
         } catch {
           return false
         }
 
-        const durationMs = buffer.duration * 1000
-        const { words, wtimes, wdurations } = estimateWordTimeline(replyText, durationMs)
+        const durationMs = decodedBuffer.duration * 1000
+
+        // Use real ElevenLabs word timestamps when available; fall back to estimation.
+        const hasRealTimestamps = speech.words.length > 0
+        const { words, wtimes, wdurations } = hasRealTimestamps
+          ? { words: speech.words, wtimes: speech.wtimes, wdurations: speech.wdurations }
+          : estimateWordTimeline(replyText, durationMs)
+
         const lipsyncLang = lipsyncLanguage(lang)
 
         const finish = () => {
@@ -362,19 +370,42 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
 
         speechSafetyTimerRef.current = window.setTimeout(finish, Math.min(durationMs + 900, 120_000))
 
+        // Only pass word-level lipsync data when the lipsync processor is actually loaded.
+        // If head.lipsync is empty (module import race or webpack bundling issue), speakAudio
+        // would throw inside lipsyncPreProcessText (cannot read 'preProcessText' of undefined).
+        const lipsyncReady = head.lipsync && Object.keys(head.lipsync).length > 0
+        const mtimeFinal = [Math.max(120, durationMs - 40)]
+
+        // Try full lipsync call first; fall back to audio-only if it throws.
+        // Either way, audio routes through TalkingHead's graph (jaw driver + body lang work).
+        let speakQueued = false
         try {
           head.speakAudio(
             {
-              audio: buffer,
-              words,
-              wtimes,
-              wdurations,
+              audio: decodedBuffer,
+              words: lipsyncReady ? words : [],
+              wtimes: lipsyncReady ? wtimes : [],
+              wdurations: lipsyncReady ? wdurations : [],
               markers: [finish],
-              mtimes: [Math.max(120, durationMs - 40)],
+              mtimes: mtimeFinal,
             },
             { lipsyncLang },
           )
-        } catch {
+          speakQueued = true
+        } catch (primaryErr) {
+          console.error('[SanadiTalkingHead] speakAudio failed, retrying without word timing', primaryErr)
+          try {
+            head.speakAudio(
+              { audio: decodedBuffer, words: [], wtimes: [], wdurations: [], markers: [finish], mtimes: mtimeFinal },
+              {},
+            )
+            speakQueued = true
+          } catch (fallbackErr) {
+            console.error('[SanadiTalkingHead] speakAudio audio-only fallback also failed', fallbackErr)
+          }
+        }
+
+        if (!speakQueued) {
           clearSpeechSafety()
           return false
         }
@@ -384,7 +415,6 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(func
           /* optional */
         }
         startJawAudioDriver(durationMs)
-        // Library only rolls speakWithHands at 50% probability; force extra gestures so TTS feels alive.
         runSpeakWithHands(head, 0, 1)
         for (const at of [1100, 2400, 4000, 5800]) {
           if (at >= durationMs - 350) continue

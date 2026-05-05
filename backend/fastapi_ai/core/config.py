@@ -114,6 +114,12 @@ class Settings(BaseSettings):
     psychology_openai_tts_model: str = "tts-1"
     psychology_openai_tts_voice: str = "shimmer"
 
+    elevenlabs_api_key: str = ""
+    # eleven_multilingual_v2 handles EN/FR/AR; override per language via the voice IDs below.
+    psychology_elevenlabs_model: str = "eleven_multilingual_v2"
+    psychology_elevenlabs_voice_en: str = "EXAVITQu4vr4xnSDxMaL"
+    psychology_elevenlabs_voice_ar: str = "EXAVITQu4vr4xnSDxMaL"
+
     # Azure Document Intelligence (OCR)
     azure_document_intelligence_endpoint: str = ""
     azure_document_intelligence_key: str = ""

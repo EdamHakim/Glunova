@@ -58,7 +58,6 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 
 ### Other tools
 
-- **Docker** and **Docker Compose** for containerized backends ([docker-compose.yml](docker-compose.yml))
 - **GNU Make** and [Makefile](Makefile) for repeatable backend lifecycle commands
 - **`uv`** (Python) for fast local dependency installs in the provided Windows script
 - **Node.js 22+** for the frontend toolchain
@@ -86,7 +85,7 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 - **PostgreSQL** reachable via **`DATABASE_URL`**
 - **Node.js 22+** and [pnpm](https://pnpm.io/) (`npm install -g pnpm`)
 - **Docker** (optional) for Compose-based backends
-- **GNU Make** (optional); on Windows you can use `choco install make` or run the underlying **Docker** / **batch** commands directly
+- **GNU Make** (optional); on Windows you can use `choco install make` or run the underlying **batch** commands directly
 
 ### Environment variables
 
@@ -108,14 +107,6 @@ make backend-local
 ```
 
 This runs [scripts/start_backends_local.bat](scripts/start_backends_local.bat): creates **`.venv`** if needed, installs dependencies with **`uv`**, runs migrations, then starts **Django** on **8000** and **FastAPI** on **8001**. Requires **`backend/.env`**. You may run the **`.bat`** file directly without **Make**.
-
-**Docker:** from the repo root:
-
-```bash
-docker compose up --build
-```
-
-or use `make backend-up` / `make backend-rebuild` as documented in the [Makefile](Makefile) and [backend/README.md](backend/README.md).
 
 ### Frontend setup
 
@@ -159,8 +150,6 @@ Django owns identity, **RBAC**, and relational data; FastAPI serves **AI**- and 
 - [features.md](features.md) — objectives, platform axes, feature ownership
 - [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md) — **JWT**, **RBAC**, documents **OCR** pipeline, screening models
 - [backend/README.md](backend/README.md) — hybrid backend and Docker notes
-- [role_access_plan.md](role_access_plan.md) — role-based access model
-- [rbac_implementation_plan.md](rbac_implementation_plan.md) — **RBAC** implementation plan
 
 ---
 
