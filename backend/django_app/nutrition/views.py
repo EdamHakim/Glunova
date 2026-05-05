@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import threading
 from datetime import date, timedelta
 
 import httpx
@@ -8,6 +10,45 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+logger = logging.getLogger(__name__)
+
+_SKIP_THRESHOLD = 3  # skips in 7 days before the agent is triggered
+
+
+def _fire_nutrition_agent(patient_id: int) -> None:
+    ai_url = getattr(settings, "AI_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
+    try:
+        httpx.post(
+            f"{ai_url}/agent/coordinate",
+            json={"patient_id": int(patient_id), "trigger": "nutrition_skip"},
+            timeout=5.0,
+        )
+        logger.info("[nutrition.views] Agent triggered for patient %s (skips threshold)", patient_id)
+    except Exception as exc:
+        logger.warning("[nutrition.views] Agent trigger failed for patient %s: %s", patient_id, exc)
+
+
+def _maybe_trigger_agent_on_skip(patient_id: int) -> None:
+    """Fire agent if the patient has accumulated >= _SKIP_THRESHOLD skips this week."""
+    cutoff = timezone.now() - timedelta(days=7)
+    exercise_skips = ExerciseSession.objects.filter(
+        patient_id=patient_id, status="skipped", created_at__gte=cutoff
+    ).count()
+    week_cutoff = (timezone.now() - timedelta(days=7)).date()
+    meal_skips = Meal.objects.filter(
+        wellness_plan__patient_id=patient_id,
+        wellness_plan__week_start__gte=week_cutoff,
+        status="skipped",
+    ).count()
+    total_skips = exercise_skips + meal_skips
+    if total_skips >= _SKIP_THRESHOLD:
+        threading.Thread(
+            target=_fire_nutrition_agent,
+            args=(patient_id,),
+            daemon=True,
+        ).start()
+        logger.info("[nutrition.views] Skip threshold reached (%s) for patient %s — spawning agent", total_skips, patient_id)
 from rest_framework.views import APIView
 
 from carecircle.models import CarePlan
@@ -220,6 +261,7 @@ def _serialize_wellness_plan(plan: WeeklyWellnessPlan) -> dict:
 
     for m in meals_qs:
         day_meals.setdefault(m.day_index, []).append({
+            "id":                       m.id,
             "meal_type":                m.meal_type,
             "name":                     m.name,
             "description":              m.description,
@@ -233,6 +275,7 @@ def _serialize_wellness_plan(plan: WeeklyWellnessPlan) -> dict:
             "glycemic_index":           m.glycemic_index,
             "glycemic_load":            m.glycemic_load,
             "diabetes_rationale":       m.diabetes_rationale,
+            "status":                   m.status,
         })
 
     for s in sessions_qs:
@@ -381,3 +424,44 @@ class WellnessPlanDetailView(APIView):
         except WeeklyWellnessPlan.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(_serialize_wellness_plan(plan))
+
+
+_VALID_STATUSES = {"planned", "completed", "skipped"}
+
+
+class ExerciseStatusView(APIView):
+    """PATCH /api/v1/nutrition/exercise/<pk>/status"""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        new_status = request.data.get("status")
+        if new_status not in _VALID_STATUSES:
+            return Response({"detail": f"status must be one of {sorted(_VALID_STATUSES)}"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            session = ExerciseSession.objects.get(pk=pk, patient=request.user)
+        except ExerciseSession.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        session.status = new_status
+        session.save(update_fields=["status"])
+        if new_status == "skipped":
+            _maybe_trigger_agent_on_skip(request.user.pk)
+        return Response({"id": session.id, "status": session.status})
+
+
+class MealStatusView(APIView):
+    """PATCH /api/v1/nutrition/meal/<pk>/status"""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        new_status = request.data.get("status")
+        if new_status not in _VALID_STATUSES:
+            return Response({"detail": f"status must be one of {sorted(_VALID_STATUSES)}"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            meal = Meal.objects.select_related("wellness_plan").get(pk=pk, wellness_plan__patient=request.user)
+        except Meal.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        meal.status = new_status
+        meal.save(update_fields=["status"])
+        if new_status == "skipped":
+            _maybe_trigger_agent_on_skip(request.user.pk)
+        return Response({"id": meal.id, "status": meal.status})

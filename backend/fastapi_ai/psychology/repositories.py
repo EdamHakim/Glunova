@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import threading
 from datetime import datetime
 from typing import Any
 
@@ -9,6 +12,17 @@ from psycopg.types.json import Jsonb
 
 from psychology.schemas import CrisisEvent, TherapyMessageInput, TrendPoint
 from psychology.storage import CrisisStore, SessionRecord, SessionStore, TrendStore
+
+logger = logging.getLogger(__name__)
+
+
+def _fire_crisis_agent(patient_id: int) -> None:
+    try:
+        from agent.orchestrator import run_coordination
+        asyncio.run(run_coordination(patient_id, "crisis"))
+        logger.info("[psychology.repositories] Agent coordination completed for patient %s", patient_id)
+    except Exception as exc:
+        logger.warning("[psychology.repositories] Agent coordination failed for patient %s: %s", patient_id, exc)
 
 
 def _parse_dt(value: Any) -> datetime:
@@ -201,6 +215,12 @@ class PsqlCrisisStore(CrisisStore):
                     (event.id, event.patient_id, event.session_id, event.probability, event.action_taken),
                 )
             conn.commit()
+        threading.Thread(
+            target=_fire_crisis_agent,
+            args=(event.patient_id,),
+            daemon=True,
+        ).start()
+        logger.info("[psychology.repositories] Agent thread spawned for crisis patient %s", event.patient_id)
 
     def list(self, patient_id: int | None = None) -> list[CrisisEvent]:
         with self._pool.connection() as conn:

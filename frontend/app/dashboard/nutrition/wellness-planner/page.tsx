@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react'
 import { addDays, format, parseISO } from 'date-fns'
 import {
-  Activity, AlertTriangle, Apple, ChevronDown, ChevronRight,
+  Activity, AlertTriangle, Apple, Check, ChevronDown, ChevronRight,
   Clock, Dumbbell, Flame, Loader2, Moon, Package, RefreshCw, Settings2,
-  ShieldAlert, Sparkles, Timer, Zap,
+  ShieldAlert, SkipForward, Sparkles, Timer, Undo2, Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -27,6 +27,7 @@ import {
   type CuisineOption,
   type FitnessGoal,
   type FitnessLevel,
+  type ItemStatus,
   type WeeklyWellnessPlan,
   type WellnessDay,
   type WellnessExerciseSession,
@@ -34,6 +35,8 @@ import {
   generateWellnessPlan,
   getWellnessPlan,
   regenerateWellnessDay,
+  updateExerciseStatus,
+  updateMealStatus,
 } from '@/lib/wellness-api'
 import { MealPhoto } from '@/components/nutrition/meal-photo'
 import { ExerciseGif, SetTracker } from '@/components/nutrition/exercise-visual'
@@ -382,6 +385,10 @@ function DayColumn({
   const isRest   = !day.exercise_sessions || day.exercise_sessions.length === 0
   const totalKcal = day.meals.reduce((s, m) => s + m.calories_kcal, 0)
   const topSession = day.exercise_sessions[0]
+  const completedMeals     = day.meals.filter(m => m.status === 'completed').length
+  const completedExercises = day.exercise_sessions.filter(s => s.status === 'completed').length
+  const allMealsDone     = day.meals.length > 0 && completedMeals === day.meals.length
+  const allExerciseDone  = !isRest && completedExercises === day.exercise_sessions.length
 
   return (
     <div
@@ -395,7 +402,14 @@ function DayColumn({
       {/* Header */}
       <div className="p-3 border-b border-border">
         <div className="flex items-center justify-between mb-0.5">
-          <p className="font-semibold text-sm">{day.day_name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-semibold text-sm">{day.day_name}</p>
+            {(allMealsDone || allExerciseDone) && (
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-green-500/15">
+                <Check className="h-2.5 w-2.5 text-green-600 dark:text-green-400" />
+              </span>
+            )}
+          </div>
           <button
             onClick={e => { e.stopPropagation(); onRegen() }}
             disabled={regenLoading}
@@ -468,19 +482,101 @@ function DayColumn({
   )
 }
 
+// ── Completion toggle ─────────────────────────────────────────────────────────
+
+function CompletionToggle({
+  status, onComplete, onSkip, onUndo,
+}: {
+  status: ItemStatus
+  onComplete: () => void
+  onSkip: () => void
+  onUndo: () => void
+}) {
+  if (status === 'completed') {
+    return (
+      <button
+        onClick={onUndo}
+        className="flex items-center gap-1.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-700 dark:text-green-400 px-2.5 py-1 text-xs font-semibold hover:bg-green-500/25 transition-colors"
+        title="Mark as planned"
+      >
+        <Check className="h-3.5 w-3.5" />
+        Done
+      </button>
+    )
+  }
+  if (status === 'skipped') {
+    return (
+      <button
+        onClick={onUndo}
+        className="flex items-center gap-1.5 rounded-full bg-muted border border-border text-muted-foreground px-2.5 py-1 text-xs font-semibold hover:bg-muted/70 transition-colors"
+        title="Mark as planned"
+      >
+        <Undo2 className="h-3.5 w-3.5" />
+        Skipped
+      </button>
+    )
+  }
+  return (
+    <div className="flex gap-1.5">
+      <button
+        onClick={onComplete}
+        className="flex items-center gap-1 rounded-full border border-border text-muted-foreground px-2.5 py-1 text-xs font-medium hover:bg-green-500/10 hover:border-green-500/30 hover:text-green-700 dark:hover:text-green-400 transition-colors"
+        title="Mark as completed"
+      >
+        <Check className="h-3.5 w-3.5" />
+        Done
+      </button>
+      <button
+        onClick={onSkip}
+        className="flex items-center gap-1 rounded-full border border-border text-muted-foreground px-2 py-1 text-xs font-medium hover:bg-muted transition-colors"
+        title="Mark as skipped"
+      >
+        <SkipForward className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
 // ── Exercise session card ──────────────────────────────────────────────────────
 
-function SessionCard({ s }: { s: WellnessExerciseSession }) {
+function SessionCard({
+  s,
+  onStatusChange,
+}: {
+  s: WellnessExerciseSession
+  onStatusChange: (id: number, status: ItemStatus) => void
+}) {
   const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const changeStatus = async (next: ItemStatus) => {
+    if (!s.id || saving) return
+    setSaving(true)
+    try {
+      await updateExerciseStatus(s.id, next)
+      onStatusChange(s.id, next)
+    } catch {
+      toast.error('Could not save — try again')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isSkipped   = s.status === 'skipped'
+  const isCompleted = s.status === 'completed'
+
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className={`rounded-lg border bg-card p-4 space-y-3 transition-colors ${
+      isCompleted ? 'border-green-500/40 bg-green-500/5' :
+      isSkipped   ? 'border-border opacity-60' : 'border-border'
+    }`}>
       {/* Animated exercise GIF + how-to steps */}
       <ExerciseGif name={s.name} exerciseType={s.exercise_type} />
 
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1">
-          <p className="font-medium text-sm">{s.name}</p>
+          <p className={`font-medium text-sm ${isSkipped ? 'line-through text-muted-foreground' : ''}`}>{s.name}</p>
           <p className="text-xs text-muted-foreground">{s.description}</p>
         </div>
         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${exerciseTypeColor(s.exercise_type)}`}>
@@ -534,22 +630,60 @@ function SessionCard({ s }: { s: WellnessExerciseSession }) {
           </CollapsibleContent>
         </Collapsible>
       )}
+
+      {/* Completion toggle */}
+      <div className={`flex items-center justify-between pt-1 border-t border-border ${saving ? 'opacity-50 pointer-events-none' : ''}`}>
+        <span className="text-[11px] text-muted-foreground">Did you complete this session?</span>
+        <CompletionToggle
+          status={s.status}
+          onComplete={() => changeStatus('completed')}
+          onSkip={() => changeStatus('skipped')}
+          onUndo={() => changeStatus('planned')}
+        />
+      </div>
     </div>
   )
 }
 
 // ── Meal card ─────────────────────────────────────────────────────────────────
 
-function MealCard({ m }: { m: WellnessMealItem }) {
+function MealCard({
+  m,
+  onStatusChange,
+}: {
+  m: WellnessMealItem
+  onStatusChange: (id: number, status: ItemStatus) => void
+}) {
   const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
   const totalMacros = m.carbs_g + m.protein_g + m.fat_g || 1
 
+  const changeStatus = async (next: ItemStatus) => {
+    if (!m.id || saving) return
+    setSaving(true)
+    try {
+      await updateMealStatus(m.id, next)
+      onStatusChange(m.id, next)
+    } catch {
+      toast.error('Could not save — try again')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isSkipped   = m.status === 'skipped'
+  const isCompleted = m.status === 'completed'
+
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-3 min-w-0 overflow-hidden">
+    <div className={`rounded-lg border bg-card p-3 space-y-3 min-w-0 overflow-hidden transition-colors ${
+      isCompleted ? 'border-green-500/40 bg-green-500/5' :
+      isSkipped   ? 'border-border opacity-60' : 'border-border'
+    }`}>
       <MealPhoto name={m.name} />
+
       <div className="flex items-start justify-between gap-2">
-        <div className="space-y-0.5">
-          <p className="font-medium text-sm">{m.name}</p>
+        <div className="space-y-0.5 min-w-0">
+          <p className={`font-medium text-sm ${isSkipped ? 'line-through text-muted-foreground' : ''}`}>{m.name}</p>
           <p className="text-xs text-muted-foreground">{m.description}</p>
         </div>
         <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${mealTypeColor(m.meal_type)}`}>
@@ -592,16 +726,38 @@ function MealCard({ m }: { m: WellnessMealItem }) {
           )}
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Completion toggle */}
+      <div className={`flex items-center justify-between pt-1 border-t border-border ${saving ? 'opacity-50 pointer-events-none' : ''}`}>
+        <span className="text-[11px] text-muted-foreground">Did you eat this?</span>
+        <CompletionToggle
+          status={m.status}
+          onComplete={() => changeStatus('completed')}
+          onSkip={() => changeStatus('skipped')}
+          onUndo={() => changeStatus('planned')}
+        />
+      </div>
     </div>
   )
 }
 
 // ── Day detail panel ──────────────────────────────────────────────────────────
 
-function DayDetail({ day }: { day: WellnessDay }) {
+function DayDetail({
+  day,
+  onExerciseStatusChange,
+  onMealStatusChange,
+}: {
+  day: WellnessDay
+  onExerciseStatusChange: (id: number, status: ItemStatus) => void
+  onMealStatusChange: (id: number, status: ItemStatus) => void
+}) {
   const isRest = !day.exercise_sessions || day.exercise_sessions.length === 0
   const glucoseReminders = day.meals
     .flatMap(m => (m.meal_type === 'pre_workout_snack' ? ['Check glucose before workout'] : []))
+
+  const completedExercises = day.exercise_sessions.filter(s => s.status === 'completed').length
+  const completedMeals     = day.meals.filter(m => m.status === 'completed').length
 
   return (
     <Card>
@@ -611,12 +767,25 @@ function DayDetail({ day }: { day: WellnessDay }) {
             {day.day_name}
             {isRest && <span className="ml-2 text-xs font-normal text-muted-foreground">— Rest day</span>}
           </CardTitle>
-          {glucoseReminders.length > 0 && (
-            <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-full">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span className="text-xs font-medium">Glucose monitoring day</span>
+          <div className="flex items-center gap-2">
+            {glucoseReminders.length > 0 && (
+              <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-full">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span className="text-xs font-medium">Glucose monitoring day</span>
+              </div>
+            )}
+            {/* Day adherence summary */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {!isRest && (
+                <span className={completedExercises === day.exercise_sessions.length && day.exercise_sessions.length > 0 ? 'text-green-600 dark:text-green-400 font-medium' : ''}>
+                  <Dumbbell className="inline h-3 w-3 mr-0.5" />{completedExercises}/{day.exercise_sessions.length}
+                </span>
+              )}
+              <span className={completedMeals === day.meals.length && day.meals.length > 0 ? 'text-green-600 dark:text-green-400 font-medium' : ''}>
+                <Apple className="inline h-3 w-3 mr-0.5" />{completedMeals}/{day.meals.length}
+              </span>
             </div>
-          )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -641,7 +810,9 @@ function DayDetail({ day }: { day: WellnessDay }) {
               </div>
             ) : (
               <div className="space-y-3">
-                {day.exercise_sessions.map((s, i) => <SessionCard key={i} s={s} />)}
+                {day.exercise_sessions.map(s => (
+                  <SessionCard key={s.id} s={s} onStatusChange={onExerciseStatusChange} />
+                ))}
               </div>
             )}
           </TabsContent>
@@ -651,7 +822,9 @@ function DayDetail({ day }: { day: WellnessDay }) {
               <p className="text-sm text-muted-foreground py-6 text-center">No meals generated for this day.</p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {day.meals.map((m, i) => <MealCard key={i} m={m} />)}
+                {day.meals.map(m => (
+                  <MealCard key={m.id} m={m} onStatusChange={onMealStatusChange} />
+                ))}
               </div>
             )}
           </TabsContent>
@@ -775,6 +948,36 @@ export function WellnessPlannerTabContent({
     }
   }
 
+  const handleExerciseStatusChange = (sessionId: number, newStatus: ItemStatus) => {
+    setPlan(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        days: prev.days.map(day => ({
+          ...day,
+          exercise_sessions: day.exercise_sessions.map(s =>
+            s.id === sessionId ? { ...s, status: newStatus } : s
+          ),
+        })),
+      }
+    })
+  }
+
+  const handleMealStatusChange = (mealId: number, newStatus: ItemStatus) => {
+    setPlan(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        days: prev.days.map(day => ({
+          ...day,
+          meals: day.meals.map(m =>
+            m.id === mealId ? { ...m, status: newStatus } : m
+          ),
+        })),
+      }
+    })
+  }
+
   const selectedDayData = plan?.days.find(d => d.day_index === selectedDay) ?? plan?.days[0]
 
   if (loading) return <WellnessSkeleton />
@@ -846,7 +1049,13 @@ export function WellnessPlannerTabContent({
           </div>
 
           {/* Selected day detail */}
-          {selectedDayData && <DayDetail day={selectedDayData} />}
+          {selectedDayData && (
+            <DayDetail
+              day={selectedDayData}
+              onExerciseStatusChange={handleExerciseStatusChange}
+              onMealStatusChange={handleMealStatusChange}
+            />
+          )}
         </>
       )}
 

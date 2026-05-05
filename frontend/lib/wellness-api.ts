@@ -29,18 +29,30 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return r.json() as Promise<T>
 }
 
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${base()}${apiPrefix()}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    credentials: 'include',
+  })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json() as Promise<T>
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type GILevel       = 'low' | 'medium' | 'high'
-export type Intensity     = 'low' | 'moderate' | 'high'
-export type ExerciseType  = 'cardio' | 'strength' | 'flexibility' | 'HIIT' | 'mobility'
-export type MealType      = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'pre_workout_snack' | 'post_workout_snack'
-export type FitnessLevel  = 'beginner' | 'intermediate' | 'advanced'
-export type FitnessGoal   = 'weight_loss' | 'muscle_gain' | 'endurance' | 'flexibility' | 'maintenance'
-export type CuisineOption = 'mediterranean' | 'maghreb' | 'middle_eastern' | 'western'
+export type GILevel         = 'low' | 'medium' | 'high'
+export type Intensity       = 'low' | 'moderate' | 'high'
+export type ExerciseType    = 'cardio' | 'strength' | 'flexibility' | 'HIIT' | 'mobility'
+export type MealType        = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'pre_workout_snack' | 'post_workout_snack'
+export type FitnessLevel    = 'beginner' | 'intermediate' | 'advanced'
+export type FitnessGoal     = 'weight_loss' | 'muscle_gain' | 'endurance' | 'flexibility' | 'maintenance'
+export type CuisineOption   = 'mediterranean' | 'maghreb' | 'middle_eastern' | 'western'
+export type ItemStatus      = 'planned' | 'completed' | 'skipped'
 
 export interface WellnessExerciseSession {
-  id?: number
+  id: number
   exercise_type: ExerciseType | string
   name: string
   description: string
@@ -52,10 +64,11 @@ export interface WellnessExerciseSession {
   pre_exercise_glucose_check: boolean
   post_exercise_snack_tip: string
   diabetes_rationale: string
-  status?: string
+  status: ItemStatus
 }
 
 export interface WellnessMealItem {
+  id: number
   meal_type: MealType
   name: string
   description: string
@@ -69,6 +82,7 @@ export interface WellnessMealItem {
   glycemic_index: GILevel
   glycemic_load: GILevel
   diabetes_rationale: string
+  status: ItemStatus
 }
 
 export interface WellnessDay {
@@ -137,4 +151,18 @@ export async function regenerateWellnessDay(
     `/nutrition/wellness-plan/${planId}/regenerate-day`,
     { day_index: dayIndex },
   )
+}
+
+export async function updateExerciseStatus(
+  sessionId: number,
+  status: ItemStatus,
+): Promise<{ id: number; status: ItemStatus }> {
+  return patchJson(`/nutrition/exercise/${sessionId}/status`, { status })
+}
+
+export async function updateMealStatus(
+  mealId: number,
+  status: ItemStatus,
+): Promise<{ id: number; status: ItemStatus }> {
+  return patchJson(`/nutrition/meal/${mealId}/status`, { status })
 }

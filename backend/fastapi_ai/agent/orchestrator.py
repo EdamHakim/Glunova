@@ -83,8 +83,9 @@ async def run_coordination(patient_id: int, trigger: str) -> CoordinateResponse:
             # ── Step 3: reason ────────────────────────────────────────────────
             reasoning = await risk_reasoner_agent.run(ctx)
 
-            # Manual trigger always dispatches at least the patient nudge.
-            if not reasoning.should_dispatch and trigger != "manual":
+            # Clinical triggers (manual, nutrition_skip, crisis) always dispatch.
+            _force_dispatch = {"manual", "nutrition_skip", "crisis"}
+            if not reasoning.should_dispatch and trigger not in _force_dispatch:
                 logger.info(
                     "[Orchestrator] NO DISPATCH patient=%s tier=%s",
                     patient_id, reasoning.risk_tier,

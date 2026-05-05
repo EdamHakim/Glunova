@@ -105,6 +105,11 @@ class Meal(models.Model):
         MEDIUM = "medium", "Medium"
         HIGH   = "high",   "High"
 
+    class Status(models.TextChoices):
+        PLANNED   = "planned",   "Planned"
+        COMPLETED = "completed", "Completed"
+        SKIPPED   = "skipped",   "Skipped"
+
     wellness_plan            = models.ForeignKey(
         WeeklyWellnessPlan, on_delete=models.CASCADE, related_name="meals", null=True, blank=True
     )
@@ -122,6 +127,7 @@ class Meal(models.Model):
     glycemic_index           = models.CharField(max_length=10, choices=GILevel.choices)
     glycemic_load            = models.CharField(max_length=10, choices=GILevel.choices)
     diabetes_rationale       = models.TextField()
+    status                   = models.CharField(max_length=16, choices=Status.choices, default=Status.PLANNED)
 
     class Meta:
         ordering = ["day_index", "meal_type"]

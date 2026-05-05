@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 class CoordinateRequest(BaseModel):
     patient_id: int
-    trigger: Literal["alert", "cron", "manual"] = "manual"
+    trigger: Literal["alert", "cron", "manual", "nutrition_skip", "crisis"] = "manual"
 
 
 class CoordinateResponse(BaseModel):
