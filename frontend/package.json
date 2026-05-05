@@ -39,6 +39,8 @@
     "@radix-ui/react-toggle": "1.1.10",
     "@radix-ui/react-toggle-group": "1.1.11",
     "@radix-ui/react-tooltip": "1.2.8",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
     "@types/three": "^0.184.0",
     "@vercel/analytics": "^2.0.1",
     "autoprefixer": "^10.4.20",

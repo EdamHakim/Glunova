@@ -36,7 +36,7 @@ import {
   SanadiTalkingHead,
   type SanadiTalkingHeadHandle,
   type PsychologyTtsLang as SanadiPsychologyTtsLang,
-} from '@/components/psychology/sanadi-talkinghead'
+} from '@/components/psychology/sanadi-r3f-avatar'
 import { SanadiMoodRing } from '@/components/psychology/sanadi-mood-ring'
 import { SanadiBreathingCue } from '@/components/psychology/sanadi-breathing-cue'
 import { SanadiPastSessions } from '@/components/psychology/sanadi-past-sessions'
