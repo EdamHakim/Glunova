@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.contrib.auth import get_user_model
 
 from carecircle.models import CarePlan
-from users.models import PatientCaregiverLink
+from users.models import PatientCaregiverLink, PatientDoctorLink
 
 User = get_user_model()
 
@@ -14,7 +14,10 @@ def can_access_patient_documents(actor: User, patient_pk: int) -> bool:
     if role == "patient":
         return actor.pk == patient_pk
     if role == "doctor":
-        return CarePlan.objects.filter(doctor=actor, patient_id=patient_pk).exists()
+        return (
+            CarePlan.objects.filter(doctor=actor, patient_id=patient_pk).exists()
+            or PatientDoctorLink.objects.filter(doctor=actor, patient_id=patient_pk).exists()
+        )
     if role == "caregiver":
         return PatientCaregiverLink.objects.filter(
             caregiver=actor, patient_id=patient_pk, status="accepted"
