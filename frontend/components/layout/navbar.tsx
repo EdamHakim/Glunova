@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Bell, Search, Settings, LogOut, User, Menu } from 'lucide-react'
+import { Bell, Moon, Search, Settings, Sun, LogOut, User, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAuth } from '@/components/auth-context'
+import { useTheme } from '@/app/providers'
 import type { UserRole } from '@/lib/auth'
 
 type NavItem = {
@@ -35,6 +36,11 @@ const mobileNavItems: NavItem[] = [
 
 export default function Navbar() {
   const { user, logout } = useAuth()
+  const { isDark, setTheme } = useTheme()
+
+  function toggleAppearance() {
+    setTheme(isDark ? 'light' : 'dark')
+  }
 
   async function handleLogout() {
     await logout()
@@ -72,10 +78,24 @@ export default function Navbar() {
         <Button
           variant="ghost"
           size="icon"
-          className="text-muted-foreground hover:text-foreground"
+          className="relative text-muted-foreground hover:text-foreground"
+          aria-label="Notifications"
+          type="button"
         >
-          <Bell className="h-5 w-5" />
-          <span className="absolute top-2 right-2 h-2 w-2 bg-health-danger rounded-full" />
+          <Bell className="h-5 w-5" aria-hidden />
+          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-health-danger" aria-hidden />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          className="text-muted-foreground hover:text-foreground"
+          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-pressed={isDark}
+          onClick={toggleAppearance}
+        >
+          {isDark ? <Sun className="h-5 w-5 shrink-0" aria-hidden /> : <Moon className="h-5 w-5 shrink-0" aria-hidden />}
         </Button>
 
         <DropdownMenu>
