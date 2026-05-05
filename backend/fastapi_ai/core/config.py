@@ -99,19 +99,11 @@ class Settings(BaseSettings):
     # Mem0 optional spike (off by default)
     mem0_enabled: bool = False
 
-    # Sanadi voice: Groq Whisper STT + Groq TTS (`https://api.groq.com/openai/v1/audio/speech`, same GROQ_API_KEY).
+    # Sanadi voice: Groq Whisper STT (GROQ_API_KEY); synthesis is ElevenLabs only (see `_sanadi_tts_provider`).
     psychology_voice_stt_model: str = "whisper-large-v3-turbo"
     psychology_voice_max_upload_bytes: int = 10 * 1024 * 1024
-    psychology_tts_provider: str = "groq"  # groq | none
-    psychology_groq_tts_model_en: str = "canopylabs/orpheus-v1-english"
-    psychology_groq_tts_voice_en: str = "hannah"
-    psychology_groq_tts_model_ar: str = "canopylabs/orpheus-arabic-saudi"
-    psychology_groq_tts_voice_ar: str = "noura"
-    # Orpheus on Groq only supports WAV (see Groq TTS docs).
-    psychology_groq_tts_response_format: str = "wav"
-    openai_api_key: str = ""
-    psychology_openai_tts_model: str = "tts-1"
-    psychology_openai_tts_voice: str = "shimmer"
+    # ``none`` disables synthesis; anything else is normalized to elevenlabs.
+    psychology_tts_provider: str = "elevenlabs"
 
     elevenlabs_api_key: str = ""
     # eleven_multilingual_v2 handles EN/FR/AR; override per language via the voice IDs below.
@@ -132,6 +124,20 @@ class Settings(BaseSettings):
             if raw:
                 object.__setattr__(self, "psychology_hf_api_token", raw)
                 break
+        return self
+
+    @model_validator(mode="after")
+    def _sanadi_tts_provider(self) -> Any:
+        """Sanadi synthesis is ElevenLabs only; ``none`` disables TTS."""
+        raw = (self.psychology_tts_provider or "").strip().lower()
+        if raw == "none":
+            return self
+        if raw != "elevenlabs":
+            warnings.warn(
+                f"Psychology TTS is ElevenLabs only; overriding psychology_tts_provider={raw!r} → elevenlabs.",
+                stacklevel=2,
+            )
+            object.__setattr__(self, "psychology_tts_provider", "elevenlabs")
         return self
 
     @model_validator(mode="after")

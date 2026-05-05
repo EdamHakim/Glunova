@@ -30,7 +30,6 @@ from psychology.schemas import (
 from psychology.knowledge_ingestion import build_ingestion_manifest, get_knowledge_base
 from psychology.voice_service import (
     ElevenLabsSpeechError,
-    GroqSpeechError,
     VoiceConfigurationError,
     synthesize_speech_mp3,
     transcribe_audio_bytes,
@@ -287,14 +286,14 @@ def voice_synthesize(
     payload: VoiceSynthesizeRequest,
     _claims: dict = Depends(require_roles("patient", "doctor")),
 ) -> Response:
-    """TTS (ElevenLabs or Groq) for Sanadi replies."""
+    """TTS (ElevenLabs, with timestamps) for Sanadi replies."""
     try:
         blob, ctype = synthesize_speech_mp3(payload.text, language=payload.language)
     except VoiceConfigurationError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (ElevenLabsSpeechError, GroqSpeechError) as exc:
+    except ElevenLabsSpeechError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning("voice_synthesize failed: %s", exc)
