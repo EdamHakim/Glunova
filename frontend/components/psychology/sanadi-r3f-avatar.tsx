@@ -12,10 +12,11 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { cn } from '@/lib/utils'
+import { SANADI_DEFAULT_AVATAR_PATH } from '@/lib/sanadi-avatars'
 import type { AvatarEmotion, AvatarPhase } from '@/components/psychology/sanadi-avatar'
 import type { SynthesizedSpeech } from '@/lib/psychology-api'
 
@@ -41,6 +42,8 @@ type Props = {
   distressScore?: number | null
   variant?: 'inline' | 'overlay' | 'voiceHero'
   className?: string
+  /** Same-origin or HTTPS `.glb` URL; when omitted, uses `NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB` or bundled default. */
+  glbUrl?: string | null
   onAssistantAnalyser?: (node: AnalyserNode | null) => void
 }
 
@@ -53,12 +56,13 @@ const OCULUS_VISEMES = [
 ] as const
 type OcViseme = (typeof OCULUS_VISEMES)[number]
 
-/** Jaw-open weight per viseme (0–1). Drives jawOpen ARKit morph. */
+/** Jaw-open weight per viseme (0–1). Drives jawOpen ARKit morph.
+ *  Kept modest: visemeInt is also applied to Oculus viseme shapes, so jaw must not duplicate a huge open. */
 const VISEME_JAW: Record<OcViseme, number> = {
-  viseme_sil: 0,    viseme_PP: 0.05, viseme_FF: 0.12, viseme_TH: 0.18,
-  viseme_DD:  0.22, viseme_kk: 0.18, viseme_CH: 0.26, viseme_SS: 0.12,
-  viseme_nn:  0.08, viseme_RR: 0.22, viseme_aa: 0.65, viseme_E:  0.38,
-  viseme_I:   0.28, viseme_O:  0.48, viseme_U:  0.34,
+  viseme_sil: 0,    viseme_PP: 0.02, viseme_FF: 0.05, viseme_TH: 0.07,
+  viseme_DD:  0.09, viseme_kk: 0.07, viseme_CH: 0.10, viseme_SS: 0.05,
+  viseme_nn:  0.03, viseme_RR: 0.08, viseme_aa: 0.20, viseme_E:  0.12,
+  viseme_I:   0.08, viseme_O:  0.15, viseme_U:  0.10,
 }
 
 // Digraph → viseme (checked before monograph)
@@ -166,6 +170,105 @@ const EMOTION_MORPHS: Record<NonNullable<AvatarEmotion>, Partial<Record<string, 
 const EMOTION_KEYS = [M_SMILE_L, M_SMILE_R, M_FROWN_L, M_FROWN_R,
                       M_BROW_UP_L, M_BROW_UP_R, M_BROW_DN_L, M_BROW_DN_R, M_BROW_INN]
 
+/** Avoid driving ARKit/Oculus morphs on clothing/body LODs — wrong weights hide or crush the face. */
+function isLikelyFacialMorphMesh(mesh: THREE.Mesh): boolean {
+  const n = mesh.name.toLowerCase()
+  if (/\b(?:body|torso|shirt|dress|coat|pant|leg|boot|hand|finger|belt|jewel)\b/i.test(mesh.name))
+    return false
+  const d = mesh.morphTargetDictionary
+  if (!d) return false
+  const keys = Object.keys(d)
+  if (keys.some(k => k.startsWith('viseme_'))) return true
+  if (keys.includes(M_JAW) || keys.includes('mouthOpen')) return true
+  return /\b(?:head|face|wolf3d|teeth|tongue|eye|lip|lash|mouth|brow)\b/i.test(n)
+}
+
+function pickBodyAnimationClip(clips: THREE.AnimationClip[]): THREE.AnimationClip | null {
+  if (!clips.length) return null
+  const avoids = /t[\s_-]?pose|^bind|^rest$|reference|skin/i
+  const pool = clips.filter(c => !avoids.test(c.name))
+  const use = pool.length ? pool : clips
+  const ranked = [...use].sort((a, b) => {
+    const rank = (c: THREE.AnimationClip) =>
+      (/idle/i.test(c.name) ? 5 : 0) +
+      (/stand/i.test(c.name) ? 4 : 0) +
+      (/breathing|breath/i.test(c.name) ? 3 : 0) +
+      (/relax|neutral|conversation|talk/i.test(c.name) ? 2 : 0) -
+      (/tpose|figure|still/i.test(c.name) ? 4 : 0)
+    return rank(b) - rank(a)
+  })
+  return ranked[0] ?? null
+}
+
+/** `useGLTF` caches scenes; restore bind pose before each setup so Mixer / T-pose relax never stack. */
+const AVATAR_BONE_REST = new WeakMap<
+  THREE.Object3D,
+  Map<string, { p: THREE.Vector3; q: THREE.Quaternion; s: THREE.Vector3 }>
+>()
+
+function ensureBoneBindSnapshot(scene: THREE.Object3D) {
+  if (AVATAR_BONE_REST.has(scene)) return
+  const map = new Map<string, { p: THREE.Vector3; q: THREE.Quaternion; s: THREE.Vector3 }>()
+  scene.traverse((o) => {
+    if (!(o instanceof THREE.Bone)) return
+    map.set(o.uuid, { p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone() })
+  })
+  AVATAR_BONE_REST.set(scene, map)
+}
+
+function restoreBoneBindSnapshot(scene: THREE.Object3D) {
+  const map = AVATAR_BONE_REST.get(scene)
+  if (!map) return
+  scene.traverse((o) => {
+    if (!(o instanceof THREE.Bone)) return
+    const snap = map.get(o.uuid)
+    if (!snap) return
+    o.position.copy(snap.p)
+    o.quaternion.copy(snap.q)
+    o.scale.copy(snap.s)
+  })
+  scene.updateMatrixWorld(true)
+}
+
+/** Scale to ~1.72m tall, centre X/Z, feet on ground, refresh skinned bounds (fixes clipping / missing head). */
+function normalizeAvatarScaleAndGround(scene: THREE.Object3D): number {
+  scene.position.set(0, 0, 0)
+  scene.rotation.set(0, 0, 0)
+  scene.scale.set(1, 1, 1)
+  scene.updateMatrixWorld(true)
+
+  const box = new THREE.Box3().setFromObject(scene)
+  if (box.isEmpty()) return 1.35
+
+  const size = box.getSize(new THREE.Vector3())
+  const centre = box.getCenter(new THREE.Vector3())
+  scene.position.sub(centre)
+
+  const targetH = 1.72
+  const scale = size.y > 1e-4 ? targetH / size.y : 1
+  scene.scale.setScalar(scale)
+
+  scene.updateMatrixWorld(true)
+  const box2 = new THREE.Box3().setFromObject(scene)
+  scene.position.y -= box2.min.y
+
+  scene.updateMatrixWorld(true)
+  scene.traverse((o) => {
+    if (o instanceof THREE.SkinnedMesh) {
+      o.frustumCulled = false
+      o.geometry?.computeBoundingBox()
+      o.geometry?.computeBoundingSphere()
+    }
+  })
+
+  scene.updateMatrixWorld(true)
+  const box3 = new THREE.Box3().setFromObject(scene)
+  const h = box3.max.y - box3.min.y
+  const minY = box3.min.y
+  const lookY = minY + h * 0.88
+  return Number.isFinite(lookY) && lookY > 0 ? lookY : 1.38
+}
+
 // ─── Bone discovery ───────────────────────────────────────────────────────────
 
 type BoneMap = {
@@ -186,16 +289,20 @@ function discoverBones(root: THREE.Object3D): BoneMap {
   root.traverse((n) => {
     if (!(n instanceof THREE.Bone)) return
     const lo = n.name.toLowerCase()
-    if (!b.head     && /^head$/i.test(n.name)) b.head = n
-    if (!b.neck     && /neck/i.test(lo) && !/tie/i.test(lo)) b.neck = n
-    if (!b.spine    && /^(spine|spine\.?001)$/i.test(n.name)) b.spine = n
-    if (!b.chest    && /(spine[12]|spine\.?00[23]|chest|thorax)/i.test(lo)) b.chest = n
-    if (!b.leftEye  && /(left.?eye|eye.*left|eye\.?l$)/i.test(lo)) b.leftEye = n
-    if (!b.rightEye && /(right.?eye|eye.*right|eye\.?r$)/i.test(lo)) b.rightEye = n
-    if (!b.leftArm  && /(left.*arm|upper.?arm.*\.l)/i.test(lo) && !/fore/i.test(lo)) b.leftArm = n
-    if (!b.rightArm && /(right.*arm|upper.?arm.*\.r)/i.test(lo) && !/fore/i.test(lo)) b.rightArm = n
-    if (!b.leftFore && /(left.*fore|fore.*left|forearm.*\.l)/i.test(lo)) b.leftFore = n
-    if (!b.rightFore && /(right.*fore|fore.*right|forearm.*\.r)/i.test(lo)) b.rightFore = n
+    if (!b.head && !/forehead/i.test(lo)) {
+      if (/(^|:|\.|\/)head$/i.test(n.name) || /^head$/i.test(n.name.trim())) b.head = n
+    }
+    if (!b.neck && /\bneck\b/i.test(lo) && !/tie/i.test(lo)) b.neck = n
+    if (!b.spine && /(^|:|\/)spine$/i.test(n.name.trim())) b.spine = n
+    if (!b.chest && /(spine[12]|spine_?2|spine\.?00[23]|chest|thorax|upperchest)/i.test(lo)) b.chest = n
+    if (!b.leftEye && /(left[^a-z]*eye|eye[^a-z]*left|\.l[^a-z]*eye|_l_eye|lefteye)/i.test(lo)) b.leftEye = n
+    if (!b.rightEye && /(right[^a-z]*eye|eye[^a-z]*right|\.r[^a-z]*eye|_r_eye|righteye)/i.test(lo)) b.rightEye = n
+    if (!b.leftArm && /(leftarm|left_arm|arm\.l|upperarm_l|upper_arm_l|shoulder_l|leftshoulder)/i.test(lo) && !/fore|lower|twist|ik/i.test(lo))
+      b.leftArm = n
+    if (!b.rightArm && /(rightarm|right_arm|arm\.r|upperarm_r|upper_arm_r|shoulder_r|rightshoulder)/i.test(lo) && !/fore|lower|twist|ik/i.test(lo))
+      b.rightArm = n
+    if (!b.leftFore && /(left.*fore|fore.*left|forearm.*l|lowerarm.*l|hand_l)/i.test(lo)) b.leftFore = n
+    if (!b.rightFore && /(right.*fore|fore.*right|forearm.*r|lowerarm.*r|hand_r)/i.test(lo)) b.rightFore = n
   })
   return b
 }
@@ -222,22 +329,31 @@ type SceneProps = {
 }
 
 function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
-  const { scene } = useGLTF(glbUrl)
+  const { scene, animations = [] } = useGLTF(glbUrl)
+  const { camera } = useThree()
 
-  const meshesRef      = useRef<THREE.Mesh[]>([])
-  const bonesRef       = useRef<BoneMap>(emptyBones())
-  const baseRotsRef    = useRef<Map<THREE.Bone, THREE.Euler>>(new Map())
-  const hasOcVisemsRef = useRef(false)
+  const meshesRef            = useRef<THREE.Mesh[]>([])
+  const bonesRef             = useRef<BoneMap>(emptyBones())
+  const baseRotsRef          = useRef<Map<THREE.Bone, THREE.Euler>>(new Map())
+  const hasOcVisemsRef       = useRef(false)
+  const mixerRef             = useRef<THREE.AnimationMixer | null>(null)
+  const skeletalDriverRef    = useRef(false)
 
   // Pre-allocated audio buffers (avoids GC pressure at 60 fps)
   const tdBuf = useRef(new Float32Array(512))
 
   useEffect(() => {
+    restoreBoneBindSnapshot(scene)
+    ensureBoneBindSnapshot(scene)
+
     const meshes: THREE.Mesh[] = []
     let hasOc = false
+
+    const lookY = normalizeAvatarScaleAndGround(scene)
+
     scene.traverse((node) => {
       if (node instanceof THREE.Mesh && node.morphTargetDictionary && node.morphTargetInfluences) {
-        node.morphTargetInfluences.fill(0)
+        if (isLikelyFacialMorphMesh(node)) node.morphTargetInfluences.fill(0)
         meshes.push(node)
         if (!hasOc) hasOc = Object.keys(node.morphTargetDictionary).some(k => k.startsWith('viseme_'))
       }
@@ -248,11 +364,56 @@ function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
     const bones = discoverBones(scene)
     bonesRef.current = bones
     const rots = new Map<THREE.Bone, THREE.Euler>()
-    for (const bone of Object.values(bones)) { if (bone) rots.set(bone, bone.rotation.clone()) }
+    for (const bone of Object.values(bones)) {
+      if (bone) rots.set(bone, bone.rotation.clone())
+    }
     baseRotsRef.current = rots
 
+    const clip = pickBodyAnimationClip(animations)
+
+    // Soft A-pose when the file has no animation (bind pose is often a harsh T-pose).
+    if (!clip && bones.leftArm && bones.rightArm) {
+      const soft = 0.11
+      bones.leftArm.rotation.x += soft
+      bones.rightArm.rotation.x += soft
+      rots.set(bones.leftArm, bones.leftArm.rotation.clone())
+      rots.set(bones.rightArm, bones.rightArm.rotation.clone())
+    }
+
+    mixerRef.current?.stopAllAction()
+    mixerRef.current = null
+    skeletalDriverRef.current = false
+    if (clip) {
+      const mixer = new THREE.AnimationMixer(scene)
+      mixerRef.current = mixer
+      const action = mixer.clipAction(clip)
+      action.reset()
+      action.setLoop(THREE.LoopRepeat, Infinity)
+      action.clampWhenFinished = false
+      action.play()
+      skeletalDriverRef.current = true
+    }
+
+    scene.updateMatrixWorld(true)
+    const fitBox = new THREE.Box3().setFromObject(scene)
+    const fitSize = fitBox.getSize(new THREE.Vector3())
+    const dist = Math.max(1.02, lookY * 0.66, fitSize.x * 0.5, fitSize.z * 0.55)
+
+    camera.near = 0.06
+    camera.far = 80
+    const camY = lookY * 0.97
+    camera.position.set(0, camY, dist)
+    camera.lookAt(0, camY, 0)
+    camera.updateProjectionMatrix()
+
     onLoad()
-  }, [scene, onLoad])
+    return () => {
+      mixerRef.current?.stopAllAction()
+      mixerRef.current = null
+      skeletalDriverRef.current = false
+      restoreBoneBindSnapshot(scene)
+    }
+  }, [scene, animations, camera, onLoad])
 
   // Per-frame animation refs
   const smoothJaw     = useRef(0)
@@ -271,6 +432,8 @@ function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
   const gSeed         = useRef(Math.random() * Math.PI * 2)
 
   useFrame((_, dt) => {
+    mixerRef.current?.update(dt)
+
     timeAcc.current += dt
     const t   = timeAcc.current
     const gp  = gSeed.current
@@ -279,6 +442,7 @@ function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
     const meshes   = meshesRef.current
     const bones    = bonesRef.current
     const baseRots = baseRotsRef.current
+    const skeletal = skeletalDriverRef.current
 
     // ── Reset viseme cursor on new utterance ──────────────────────────
     if (ab.speechId !== prevSpeechId.current) {
@@ -309,13 +473,14 @@ function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
       activeV = segs[visemeCursor.current]?.viseme ?? 'viseme_sil'
     }
 
-    // Viseme intensity: amplitude envelope + minimum floor when in an active word
-    const visemeInt = activeV === 'viseme_sil' ? 0 : Math.max(amp * 1.35, 0.22)
+    // Viseme intensity: amplitude envelope + minimum floor (capped at 1 — amp boost must not stack past full morph)
+    const visemeInt =
+      activeV === 'viseme_sil' ? 0 : Math.min(1, Math.max(amp * 1.2, 0.22))
 
     // Jaw: viseme-driven when Oculus morphs available, amplitude-only fallback
     const jawTarget = hasOcVisemsRef.current
       ? (VISEME_JAW[activeV] ?? 0) * visemeInt
-      : amp * 0.38
+      : Math.min(1, amp * 0.32)
     smoothJaw.current = THREE.MathUtils.lerp(smoothJaw.current, ab.isSpeaking ? jawTarget : 0, ab.isSpeaking ? 0.30 : 0.06)
     const jaw = smoothJaw.current
 
@@ -361,8 +526,9 @@ function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
     // ── Emotion morphs ────────────────────────────────────────────────
     const emotMorphs = EMOTION_MORPHS[sb.emotion ?? 'neutral'] ?? {}
 
-    // ── Apply to all morph meshes ─────────────────────────────────────
+    // ── Apply to facial morph meshes only (body meshes may reuse ARKit names with different semantics) ──
     for (const mesh of meshes) {
+      if (!isLikelyFacialMorphMesh(mesh)) continue
       const dict = mesh.morphTargetDictionary!
       const inf  = mesh.morphTargetInfluences!
 
@@ -398,59 +564,62 @@ function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
       }
     }
 
-    // ── Eye bones ─────────────────────────────────────────────────────
-    const applyEye = (bone: THREE.Bone | null) => {
-      if (!bone) return
-      const base = baseRots.get(bone)
-      bone.rotation.y = THREE.MathUtils.lerp(bone.rotation.y, (base?.y ?? 0) + eyeCurrH.current, 0.12)
-      bone.rotation.x = THREE.MathUtils.lerp(bone.rotation.x, (base?.x ?? 0) + eyeCurrV.current, 0.12)
-    }
-    applyEye(bones.leftEye); applyEye(bones.rightEye)
-
-    // ── Head ──────────────────────────────────────────────────────────
-    if (bones.head) {
-      const base = baseRots.get(bones.head)
-      // Nod amplitude scales with speech, jaw-dip physically couples head to mouth
-      bones.head.rotation.x = (base?.x ?? 0) + Math.sin(t * 0.52) * (0.020 + bEnv * 0.048) + jaw * 0.10 + eyeCurrV.current * 0.30
-      bones.head.rotation.y = (base?.y ?? 0) + eyeCurrH.current * 0.42
-      bones.head.rotation.z = (base?.z ?? 0) + Math.sin(t * 0.37) * (0.013 + bEnv * 0.022)
-    } else if (bones.neck) {
-      const base = baseRots.get(bones.neck)
-      bones.neck.rotation.x = (base?.x ?? 0) + Math.sin(t * 0.52) * (0.013 + bEnv * 0.032)
-      bones.neck.rotation.y = (base?.y ?? 0) + eyeCurrH.current * 0.30
-    }
-
-    // ── Spine / chest breathing ───────────────────────────────────────
-    const sb2 = bones.chest ?? bones.spine
-    if (sb2) {
-      const base = baseRots.get(sb2)
-      sb2.rotation.x = (base?.x ?? 0) + Math.sin(t * (0.27 + (isSpeaking ? 0.09 : 0))) * (0.005 + bEnv * 0.008)
-      sb2.rotation.z = (base?.z ?? 0) + Math.sin(t * 0.28) * (0.003 + bEnv * 0.005)
-    }
-
-    // ── Arm gestures ─────────────────────────────────────────────────
-    const armActive  = isSpeaking && bEnv > 0.08
-    const gestureMag = armActive ? Math.min(0.16, (bEnv - 0.08) * 0.20) : 0
-
-    const applyArm = (bone: THREE.Bone|null, phase: number, zSign: number) => {
-      if (!bone) return
-      const base = baseRots.get(bone)
-      if (armActive) {
-        bone.rotation.z = (base?.z ?? 0) + zSign * Math.sin(t * 0.60 + gp + phase) * gestureMag
-        bone.rotation.x = (base?.x ?? 0) + Math.sin(t * 0.44 + gp + phase + 1.1) * gestureMag * 0.45
-      } else {
-        bone.rotation.x = THREE.MathUtils.lerp(bone.rotation.x, base?.x ?? 0, 0.03)
-        bone.rotation.z = THREE.MathUtils.lerp(bone.rotation.z, base?.z ?? 0, 0.03)
+    // ── Eye bones (skip when a skeletal clip drives the skeleton) ───────────────────
+    if (!skeletal) {
+      const applyEye = (bone: THREE.Bone | null) => {
+        if (!bone) return
+        const base = baseRots.get(bone)
+        bone.rotation.y = THREE.MathUtils.lerp(bone.rotation.y, (base?.y ?? 0) + eyeCurrH.current, 0.12)
+        bone.rotation.x = THREE.MathUtils.lerp(bone.rotation.x, (base?.x ?? 0) + eyeCurrV.current, 0.12)
       }
+      applyEye(bones.leftEye); applyEye(bones.rightEye)
     }
-    applyArm(bones.leftArm,  0,         +1)
-    applyArm(bones.rightArm, Math.PI,   -1)
-    applyArm(bones.leftFore, 0.5,       +1)
-    applyArm(bones.rightFore, Math.PI + 0.5, -1)
 
-    // Fallback scene-root sway when no skeleton found
-    if (!bones.head && !bones.neck) {
-      scene.rotation.y = Math.sin(t * 0.38) * 0.028 + Math.sin(t * 0.71) * 0.010
+    if (skeletal) {
+      scene.rotation.y = THREE.MathUtils.lerp(scene.rotation.y, 0, 0.04)
+    }
+
+    if (!skeletal) {
+      if (bones.head) {
+        const base = baseRots.get(bones.head)
+        bones.head.rotation.x = (base?.x ?? 0) + Math.sin(t * 0.52) * (0.020 + bEnv * 0.048) + jaw * 0.10 + eyeCurrV.current * 0.30
+        bones.head.rotation.y = (base?.y ?? 0) + eyeCurrH.current * 0.42
+        bones.head.rotation.z = (base?.z ?? 0) + Math.sin(t * 0.37) * (0.013 + bEnv * 0.022)
+      } else if (bones.neck) {
+        const base = baseRots.get(bones.neck)
+        bones.neck.rotation.x = (base?.x ?? 0) + Math.sin(t * 0.52) * (0.013 + bEnv * 0.032)
+        bones.neck.rotation.y = (base?.y ?? 0) + eyeCurrH.current * 0.30
+      }
+
+      const sb2 = bones.chest ?? bones.spine
+      if (sb2) {
+        const base = baseRots.get(sb2)
+        sb2.rotation.x = (base?.x ?? 0) + Math.sin(t * (0.27 + (isSpeaking ? 0.09 : 0))) * (0.005 + bEnv * 0.008)
+        sb2.rotation.z = (base?.z ?? 0) + Math.sin(t * 0.28) * (0.003 + bEnv * 0.005)
+      }
+
+      const armActive  = isSpeaking && bEnv > 0.08
+      const gestureMag = armActive ? Math.min(0.16, (bEnv - 0.08) * 0.20) : 0
+
+      const applyArm = (bone: THREE.Bone|null, phase: number, zSign: number) => {
+        if (!bone) return
+        const base = baseRots.get(bone)
+        if (armActive) {
+          bone.rotation.z = (base?.z ?? 0) + zSign * Math.sin(t * 0.60 + gp + phase) * gestureMag
+          bone.rotation.x = (base?.x ?? 0) + Math.sin(t * 0.44 + gp + phase + 1.1) * gestureMag * 0.45
+        } else {
+          bone.rotation.x = THREE.MathUtils.lerp(bone.rotation.x, base?.x ?? 0, 0.03)
+          bone.rotation.z = THREE.MathUtils.lerp(bone.rotation.z, base?.z ?? 0, 0.03)
+        }
+      }
+      applyArm(bones.leftArm,  0,         +1)
+      applyArm(bones.rightArm, Math.PI,   -1)
+      applyArm(bones.leftFore, 0.5,       +1)
+      applyArm(bones.rightFore, Math.PI + 0.5, -1)
+
+      if (!bones.head && !bones.neck) {
+        scene.rotation.y = Math.sin(t * 0.38) * 0.028 + Math.sin(t * 0.71) * 0.010
+      }
     }
   })
 
@@ -464,7 +633,7 @@ function AvatarScene({ audioRef, stateRef, glbUrl, onLoad }: SceneProps) {
   )
 }
 
-useGLTF.preload('/mpfb.glb')
+useGLTF.preload(SANADI_DEFAULT_AVATAR_PATH)
 
 // ─── Audio helpers ────────────────────────────────────────────────────────────
 
@@ -473,26 +642,27 @@ async function decodeAudio(ctx: AudioContext, ab: ArrayBuffer): Promise<AudioBuf
   catch { return await new Promise<AudioBuffer>((res, rej) => ctx.decodeAudioData(ab.slice(0), res, rej)) }
 }
 
-const DEFAULT_GLB = '/mpfb.glb'
-function resolveGlb() {
+function resolveTalkingHeadGlb(override?: string | null): string {
+  const o = override?.trim()
+  if (o) return o
   if (typeof process !== 'undefined') {
     const e = process.env.NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB?.trim()
     if (e) return e
   }
-  return DEFAULT_GLB
+  return SANADI_DEFAULT_AVATAR_PATH
 }
 
 // ─── Outer component ──────────────────────────────────────────────────────────
 
 export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(
   function SanadiTalkingHead(
-    { active, phase, emotion, distressScore: _ds, variant = 'overlay', className, onAssistantAnalyser },
+    { active, phase, emotion, distressScore: _ds, variant = 'overlay', className, glbUrl: glbUrlProp, onAssistantAnalyser },
     ref,
   ) {
     const [sceneReady, setSceneReady] = useState(false)
     const [sceneError, setSceneError] = useState<string | null>(null)
     const sceneReadyRef = useRef(false)
-    const glbUrl = resolveGlb()
+    const glbUrl = resolveTalkingHeadGlb(glbUrlProp)
 
     const audioCtxRef    = useRef<AudioContext | null>(null)
     const analyserRef    = useRef<AnalyserNode | null>(null)
@@ -596,6 +766,13 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(
     }), [stopSpeech])
 
     useEffect(() => {
+      stopSpeech()
+      sceneReadyRef.current = false
+      setSceneReady(false)
+      setSceneError(null)
+    }, [glbUrl, stopSpeech])
+
+    useEffect(() => {
       if (!active) {
         stopSpeech()
         audioCtxRef.current?.close().catch(() => {})
@@ -641,8 +818,9 @@ export const SanadiTalkingHead = forwardRef<SanadiTalkingHeadHandle, Props>(
             sizeCls,
           )}
         >
-          <AvatarErrorBoundary onError={setSceneError}>
+          <AvatarErrorBoundary key={glbUrl} onError={setSceneError}>
             <Canvas
+              key={glbUrl}
               className="h-full w-full"
               camera={{ position: [0, 1.5, 0.85], fov: 45 }}
               gl={{ antialias: true, alpha: true }}

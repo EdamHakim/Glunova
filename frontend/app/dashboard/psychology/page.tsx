@@ -42,6 +42,11 @@ import { SanadiBreathingCue } from '@/components/psychology/sanadi-breathing-cue
 import { SanadiPastSessions } from '@/components/psychology/sanadi-past-sessions'
 import { SanadiVoiceWaveform, type WaveformSpeaker } from '@/components/psychology/sanadi-waveform'
 import { cn } from '@/lib/utils'
+import {
+  SANADI_AVATAR_CHOICES,
+  SANADI_DEFAULT_AVATAR_PATH,
+  coerceSanadiAvatarPath,
+} from '@/lib/sanadi-avatars'
 import { getApiUrls } from '@/lib/auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
@@ -56,6 +61,7 @@ const notoSansArabic = Noto_Sans_Arabic({
 type PreferredSessionLang = 'mixed' | 'en' | 'fr' | 'ar'
 
 const SANADI_PREF_LANG_KEY = 'sanadi_pref_lang'
+const SANADI_PREF_AVATAR_KEY = 'sanadi_pref_avatar_path'
 
 
 function coercePreferredLang(raw: string | null): PreferredSessionLang {
@@ -175,6 +181,39 @@ function LanguagePicker({
   )
 }
 
+function SanadiAvatarPicker({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (glbPath: string) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Choose companion avatar"
+      className="grid grid-cols-2 gap-2 sm:grid-cols-3"
+    >
+      {SANADI_AVATAR_CHOICES.map((o) => {
+        const selected = value === o.path
+        return (
+          <Button
+            key={o.path}
+            type="button"
+            size="sm"
+            variant={selected ? 'secondary' : 'outline'}
+            className="h-auto min-h-11 justify-center rounded-xl px-2 py-2 text-center text-[0.7rem] leading-tight whitespace-normal shadow-sm"
+            aria-pressed={selected}
+            onClick={() => onChange(o.path)}
+          >
+            {o.label}
+          </Button>
+        )
+      })}
+    </div>
+  )
+}
+
 function inferSpeechEmotionFromText(text: string): { label: LiveEmotion['label']; confidence: number } | null {
   const lower = text.toLowerCase()
   if (!lower.trim()) return null
@@ -237,6 +276,7 @@ export default function PsychologyPage() {
   const [visitOrdinal, setVisitOrdinal] = useState(1)
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [preferredSessionLang, setPreferredSessionLang] = useState<PreferredSessionLang>('mixed')
+  const [sanadiAvatarPath, setSanadiAvatarPath] = useState<string>(SANADI_DEFAULT_AVATAR_PATH)
   const [recognitionDebugOpen, setRecognitionDebugOpen] = useState(false)
   const [lastRecognitionSentHints, setLastRecognitionSentHints] = useState<RecognitionSentHints | null>(null)
   const [sessionToolsOpen, setSessionToolsOpen] = useState(false)
@@ -530,6 +570,25 @@ export default function PsychologyPage() {
       /* ignore */
     }
   }, [preferredSessionLang])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      setSanadiAvatarPath(coerceSanadiAvatarPath(sessionStorage.getItem(SANADI_PREF_AVATAR_KEY)))
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const selectSanadiAvatar = useCallback((path: string) => {
+    setSanadiAvatarPath(path)
+    if (typeof window === 'undefined') return
+    try {
+      sessionStorage.setItem(SANADI_PREF_AVATAR_KEY, path)
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   useEffect(() => {
     if (!liveEmotion) return
@@ -1287,7 +1346,7 @@ export default function PsychologyPage() {
                 <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-primary">Sanadi</p>
                 <SheetTitle className="mt-1.5 text-left text-xl font-bold tracking-tight">Visit settings</SheetTitle>
                 <SheetDescription className="mt-2 text-left text-sm leading-relaxed text-muted-foreground">
-                  Mood, optional camera, and recognition diagnostics for this visit.
+                  Companion avatar, mood, optional camera, and recognition diagnostics for this visit.
                 </SheetDescription>
               </div>
 
@@ -1323,6 +1382,21 @@ export default function PsychologyPage() {
                       confidence={displayEmotion?.confidence ?? null}
                       className="h-20 w-20 rounded-full shadow-lg ring-4 ring-primary/15"
                     />
+                  </div>
+                </div>
+
+                <Separator className="my-5 bg-border/60" />
+
+                <div className="rounded-2xl border border-border/80 bg-card/95 p-4 shadow-sm">
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Companion avatar
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    How Sanadi looks in voice mode. Your choice is remembered for future visits until you clear site data for
+                    this browser.
+                  </p>
+                  <div className="mt-4 max-h-[min(52vh,24rem)] overflow-y-auto overscroll-contain pe-1">
+                    <SanadiAvatarPicker value={sanadiAvatarPath} onChange={selectSanadiAvatar} />
                   </div>
                 </div>
 
@@ -1415,6 +1489,7 @@ export default function PsychologyPage() {
                         ref={talkingHeadRef}
                         active
                         variant="voiceHero"
+                        glbUrl={sanadiAvatarPath}
                         phase={avatarPhase}
                         emotion={displayEmotion?.label ?? null}
                         distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}

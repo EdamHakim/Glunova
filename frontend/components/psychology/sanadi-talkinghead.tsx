@@ -3,7 +3,7 @@
 /**
  * TalkingHead — https://github.com/met4citizen/talkinghead — for Voice mode lipsync + service TTS.
  *
- * Default avatar: `public/mpfb.glb` (Avaturn export with Oculus `viseme_*` blendshapes on Head/Teeth/Tongue).
+ * Default avatar: `public/3D Avatars/mpfb.glb` (Avaturn export with Oculus `viseme_*` blendshapes on Head/Teeth/Tongue).
  * Override with `NEXT_PUBLIC_SANADI_TALKINGHEAD_GLB` (e.g. `/api/sanadi-talkinghead-default` for RPM, or another `/…` / HTTPS GLB).
  * Bare `models.readyplayer.me/…glb` URLs get `morphTargets=ARKit,Oculus+Visemes,…` if missing (TalkingHead README).
  */
@@ -114,8 +114,8 @@ type Props = {
   onAssistantAnalyser?: (node: AnalyserNode | null) => void
 }
 
-/** Bundled avatar (`public/mpfb.glb`) — works offline; has `viseme_*` targets for TalkingHead `speakAudio`. */
-const DEFAULT_AVATAR_SAME_ORIGIN_GLB = '/mpfb.glb'
+/** Bundled avatar (`public/3D Avatars/mpfb.glb`) — works offline; has `viseme_*` targets for TalkingHead `speakAudio`. */
+const DEFAULT_AVATAR_SAME_ORIGIN_GLB = '/3D%20Avatars/mpfb.glb'
 
 /**
  * Ready Player Me must request ARKit + Oculus viseme morphs or TalkingHead cannot drive the mouth

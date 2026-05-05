@@ -105,12 +105,12 @@ def classify_text(
     text: str,
     timeout_s: float,
     *,
-    retries: int = 4,
+    retries: int = 1,
     max_input_chars: int = 1024,
 ) -> tuple[str, float] | None:
     """Text classification (emotion labels) via HF Inference.
 
-    Long inputs are truncated (many classifiers error past ~512 subword tokens). Retries help with cold-start 503s.
+    Long inputs are truncated (many classifiers error past ~512 subword tokens).
     """
     trimmed = (text or "").strip()
     if max_input_chars > 0 and len(trimmed) > max_input_chars:
@@ -147,9 +147,9 @@ def classify_audio(
     audio_bytes: bytes,
     timeout_s: float,
     *,
-    retries: int = 4,
+    retries: int = 1,
 ) -> tuple[str, float] | None:
-    """Audio classification via HF Inference (`audio_classification`). Retries help with cold-start 503s."""
+    """Audio classification via HF Inference (`audio_classification`)."""
     if not audio_bytes:
         return None
     token = api_token.strip()

@@ -9,7 +9,7 @@ export const runtime = 'nodejs'
 const LOCAL_GL = join(process.cwd(), 'public', 'sanadi-local-avatar.glb')
 
 /** Bundled mesh when RPM is blocked and no cache; lip sync is weaker than Oculus-ready RPM exports. */
-const FALLBACK_MPFB = join(process.cwd(), 'public', 'mpfb.glb')
+const FALLBACK_MPFB = join(process.cwd(), 'public', '3D Avatars', 'mpfb.glb')
 
 const READY_PLAYER_ME_DEFAULT_GL =
   'https://models.readyplayer.me/64bfa15f0e72c63d7c3934a6.glb?' +
@@ -40,7 +40,7 @@ async function serveBundledMpfbFallback(): Promise<NextResponse | null> {
       headers: {
         'Content-Type': 'model/gltf-binary',
         'Cache-Control': 'private, max-age=3600',
-        'X-Sanadi-Avatar-Source': 'public/mpfb.glb (fallback — RPM unreachable, weaker lip sync)',
+        'X-Sanadi-Avatar-Source': 'public/3D Avatars/mpfb.glb (fallback — RPM unreachable, weaker lip sync)',
       },
     })
   } catch {
@@ -65,7 +65,7 @@ export async function GET() {
       const mpfb = await serveBundledMpfbFallback()
       if (mpfb) {
         console.warn(
-          `[api/sanadi-talkinghead-default] Ready Player Me HTTP ${upstream.status}; serving public/mpfb.glb fallback`,
+          `[api/sanadi-talkinghead-default] Ready Player Me HTTP ${upstream.status}; serving public/3D Avatars/mpfb.glb fallback`,
         )
         return mpfb
       }
@@ -94,7 +94,7 @@ export async function GET() {
     console.error('[api/sanadi-talkinghead-default]', message)
     const mpfb = await serveBundledMpfbFallback()
     if (mpfb) {
-      console.warn('[api/sanadi-talkinghead-default] RPM fetch failed; serving public/mpfb.glb fallback')
+      console.warn('[api/sanadi-talkinghead-default] RPM fetch failed; serving public/3D Avatars/mpfb.glb fallback')
       return mpfb
     }
     const dnsBroken = message.includes('ENOTFOUND') || message.includes('getaddrinfo')
