@@ -250,15 +250,15 @@ export async function transcribePsychologyVoice(formData: FormData): Promise<Voi
   return parseJson<VoiceTranscribeResponse>(response)
 }
 
-/** Structured TTS response used by both the TalkingHead and the HTML-audio fallback. */
+/** Structured TTS response (ElevenLabs via FastAPI JSON envelope). */
 export type SynthesizedSpeech = {
-  /** Raw audio bytes (MP3 or WAV depending on provider). */
+  /** Decoded MP3 bytes from JSON `audio_b64`. */
   audioBuf: ArrayBuffer
   /** MIME type matching audioBuf (e.g. "audio/mpeg"). */
   contentType: string
   /** Blob created from audioBuf — ready for URL.createObjectURL / new Audio(). */
   blob: Blob
-  /** Word strings from ElevenLabs normalizedAlignment; empty → frontend estimates. */
+  /** Word strings from normalized alignment (`words` empty only if upstream omitted timing). */
   words: string[]
   /** Word start times in milliseconds (same length as words). */
   wtimes: number[]
@@ -283,7 +283,6 @@ export async function synthesizePsychologyVoice(payload: {
 
   const ctype = response.headers.get('content-type') || ''
   if (ctype.includes('application/json')) {
-    // ElevenLabs path: JSON envelope with base64 audio + ElevenLabs word alignment.
     const data = await response.json() as {
       audio_b64: string
       content_type: string
@@ -306,14 +305,8 @@ export async function synthesizePsychologyVoice(payload: {
     }
   }
 
-  // Groq / binary fallback: no alignment data, TalkingHead will estimate.
   const blob = await response.blob()
-  return {
-    audioBuf: await blob.arrayBuffer(),
-    contentType: blob.type || 'audio/wav',
-    blob,
-    words: [],
-    wtimes: [],
-    wdurations: [],
-  }
+  throw new Error(
+    `tts_unexpected_media_type:${ctype || blob.type}; expected JSON with audio_b64 + alignment`,
+  )
 }

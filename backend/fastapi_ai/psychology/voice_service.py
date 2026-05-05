@@ -1,4 +1,4 @@
-"""Sanadi voice STT (Groq Whisper) and TTS (ElevenLabs / Groq Orpheus)."""
+"""Sanadi voice: Groq Whisper STT; TTS exclusively via ElevenLabs (with timestamps for clients)."""
 
 from __future__ import annotations
 
@@ -14,21 +14,11 @@ logger = logging.getLogger(__name__)
 
 LanguageLiterals = Literal["en", "fr", "ar", "darija", "mixed"]
 
-GROQ_SPEECH_URL = "https://api.groq.com/openai/v1/audio/speech"
-
 
 class VoiceConfigurationError(RuntimeError):
-    """Missing API credentials or disabled provider."""
+    """Missing API credentials or TTS disabled (psychology_tts_provider=none)."""
 
     pass
-
-
-class GroqSpeechError(RuntimeError):
-    """Groq `/audio/speech` returned an error (e.g. model terms not accepted)."""
-
-    def __init__(self, message: str, *, status_code: int = 502) -> None:
-        super().__init__(message)
-        self.status_code = status_code
 
 
 class ElevenLabsSpeechError(RuntimeError):
@@ -37,25 +27,6 @@ class ElevenLabsSpeechError(RuntimeError):
     def __init__(self, message: str, *, status_code: int = 502) -> None:
         super().__init__(message)
         self.status_code = status_code
-
-
-def _groq_speech_error_from_response(response: httpx.Response) -> GroqSpeechError:
-    """Map Groq JSON error body to a client-facing exception."""
-    detail = f"Groq speech HTTP error: {response.status_code}"
-    client_status = 502
-    try:
-        data = response.json()
-        err = data.get("error") or {}
-        groq_msg = (err.get("message") or "").strip()
-        code = err.get("code")
-        if groq_msg:
-            detail = groq_msg
-        if code == "model_terms_required":
-            # Org admin must accept model terms in Groq Console; not fixable from this API.
-            client_status = 503
-    except Exception:
-        pass
-    return GroqSpeechError(detail, status_code=client_status)
 
 
 def _groq_whisper_language(hint: str | None) -> str | None:
@@ -124,18 +95,6 @@ def transcribe_audio_bytes(
     return text, guessed
 
 
-def _groq_tts_model_and_voice(language: LanguageLiterals) -> tuple[str, str]:
-    """Return (model_id, voice_id) for Groq `audio/speech`."""
-    if language in ("ar", "darija"):
-        model = (settings.psychology_groq_tts_model_ar or "canopylabs/orpheus-arabic-saudi").strip()
-        voice = (settings.psychology_groq_tts_voice_ar or "noura").strip()
-        return model, voice
-    # en, fr, mixed — Orpheus English (no dedicated FR model; French text is read with English voice).
-    model = (settings.psychology_groq_tts_model_en or "canopylabs/orpheus-v1-english").strip()
-    voice = (settings.psychology_groq_tts_voice_en or "hannah").strip()
-    return model, voice
-
-
 ELEVENLABS_TTS_TIMESTAMPS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
 
 
@@ -187,7 +146,6 @@ def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals) -> tuple[by
       wtimes      — word start times in ms (from normalizedAlignment)
       wdurations  — word durations in ms
     """
-    import base64
     import json as _json
 
     api_key = (settings.elevenlabs_api_key or "").strip()
@@ -255,62 +213,21 @@ def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals) -> tuple[by
 
 def synthesize_speech_mp3(text: str, *, language: LanguageLiterals) -> tuple[bytes, str]:
     """
-    Synthesize speech for Sanadi replies. Routes to ElevenLabs or Groq based on
-    ``PSYCHOLOGY_TTS_PROVIDER`` (elevenlabs | groq | none).
+    Synthesize speech for Sanadi replies via ElevenLabs only (unless ``psychology_tts_provider=none``).
 
     Returns:
-        (audio_bytes, content_type)
+        (audio_bytes, content_type) — typically ``application/json`` with base64 MP3 + alignment.
 
     Raises:
-        VoiceConfigurationError: Provider disabled or missing API key.
-        ElevenLabsSpeechError / GroqSpeechError: Upstream error.
+        VoiceConfigurationError: TTS disabled or missing ElevenLabs API key.
+        ElevenLabsSpeechError: Upstream error.
     """
-    provider = (settings.psychology_tts_provider or "groq").strip().lower()
+    provider = (settings.psychology_tts_provider or "elevenlabs").strip().lower()
 
     if provider == "none":
         raise VoiceConfigurationError("Psychology TTS provider is disabled (psychology_tts_provider=none)")
 
-    if provider == "elevenlabs":
-        return _synthesize_elevenlabs(text, language=language)
-
-    # groq (default)
-    api_key = (settings.groq_api_key or "").strip().strip("'\"")
-    if not api_key:
-        raise VoiceConfigurationError("GROQ_API_KEY not configured (required for Groq TTS)")
-
-    trimmed = text.strip()
-    if not trimmed:
-        raise ValueError("text is empty")
-
-    # Groq Orpheus: max 200 characters per request; only WAV is supported.
-    clipped = trimmed[:200]
-    if len(trimmed) > 200:
-        logger.debug("tts groq: truncating input from %s to 200 chars (Orpheus limit)", len(trimmed))
-
-    model, voice = _groq_tts_model_and_voice(language)
-    payload = {
-        "model": model,
-        "input": clipped,
-        "voice": voice,
-        "response_format": "wav",
-    }
-
-    logger.debug("tts groq lang=%s model=%s voice=%s", language, model, voice)
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    timeout = httpx.Timeout(120.0, connect=30.0)
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            r = client.post(GROQ_SPEECH_URL, json=payload, headers=headers)
-            if r.status_code >= 400:
-                logger.warning("Groq speech failed (%s): %s", r.status_code, r.text[:500])
-                raise _groq_speech_error_from_response(r)
-            body = r.content
-    except GroqSpeechError:
-        raise
-    except httpx.HTTPError as exc:
-        raise GroqSpeechError(f"Groq speech request failed: {exc}", status_code=502) from exc
-
-    return body, "audio/wav"
+    return _synthesize_elevenlabs(text, language=language)
 
 
 def is_groq_configured() -> bool:
@@ -318,9 +235,7 @@ def is_groq_configured() -> bool:
 
 
 def is_tts_configured() -> bool:
-    provider = (settings.psychology_tts_provider or "groq").strip().lower()
+    provider = (settings.psychology_tts_provider or "elevenlabs").strip().lower()
     if provider == "none":
         return False
-    if provider == "elevenlabs":
-        return bool((settings.elevenlabs_api_key or "").strip())
-    return bool((settings.groq_api_key or "").strip())
+    return bool((settings.elevenlabs_api_key or "").strip())
