@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Headphones,
   HeartHandshake,
+  Keyboard,
   Mic,
   SendHorizonal,
   SlidersHorizontal,
@@ -1244,10 +1245,7 @@ export default function PsychologyPage() {
     >
       {(voiceRecording || micListening) && (
         <div
-          className={cn(
-            'pointer-events-none fixed left-3 z-[120] flex items-center gap-2 rounded-full bg-black/50 px-2.5 py-1 text-[0.65rem] font-medium text-white md:left-4',
-            voiceModeActive ? 'top-[9.5rem]' : 'top-[8.75rem]',
-          )}
+          className="pointer-events-none fixed left-3 top-[4.75rem] z-[120] flex items-center gap-2 rounded-full bg-black/50 px-2.5 py-1 text-[0.65rem] font-medium text-white md:left-4 md:top-20"
           role="status"
           aria-live="polite"
         >
@@ -1258,24 +1256,12 @@ export default function PsychologyPage() {
       )}
 
       <header className="relative z-[70] flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b border-border/40 bg-[color:var(--sanadi-shell-bg)]/95 px-3 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-[color:var(--sanadi-shell-bg)]/85 md:px-4">
-        <div className="flex min-w-0 max-w-[72vw] flex-wrap items-center gap-2 sm:max-w-none">
+        <div className="flex min-w-0 max-w-[58vw] items-center gap-2 sm:max-w-none">
           <SanadiMoodRing
             emotion={displayEmotion?.label ?? null}
             distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
             className="h-9 w-9 shrink-0 rounded-full shadow-md ring-2 ring-border/35 md:h-10 md:w-10"
           />
-          <Button
-            type="button"
-            variant={cameraOn ? 'secondary' : 'outline'}
-            size="sm"
-            className="h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-xs md:h-9 md:px-3"
-            aria-pressed={cameraOn}
-            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-            onClick={() => (cameraOn ? stopCamera() : void startCamera())}
-          >
-            {cameraOn ? <CameraOff className="h-3.5 w-3.5 md:h-4 md:w-4" aria-hidden /> : <Video className="h-3.5 w-3.5 md:h-4 md:w-4" aria-hidden />}
-            <span className="max-w-[5.5rem] truncate sm:max-w-none">{cameraOn ? 'Camera off' : 'Camera on'}</span>
-          </Button>
           <span className="truncate text-sm font-semibold tracking-tight text-primary sm:text-base md:text-lg">Sanadi</span>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 md:gap-2">
@@ -1347,7 +1333,7 @@ export default function PsychologyPage() {
                       <p className="mt-1.5 text-sm font-semibold leading-snug">Preview</p>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                         {cameraOn
-                          ? 'Live video is shown in the floating window. Turn it off here or with the button on the preview.'
+                          ? 'Live video is shown in the floating window. Turn it off here or with the camera button next to the mic.'
                           : 'Optional — when on, a small preview appears so you can see yourself and Sanadi can use gentle face cues.'}
                       </p>
                     </div>
@@ -1405,50 +1391,14 @@ export default function PsychologyPage() {
         </div>
       </header>
 
-      <div className="relative z-[65] flex shrink-0 justify-center border-b border-border/50 bg-linear-to-r from-primary/[0.07] via-muted/35 to-primary/[0.07] px-3 py-3">
-        <Button
-          type="button"
-          variant={voiceModeActive ? 'secondary' : 'default'}
-          className="flex h-auto min-h-12 w-full max-w-lg flex-col gap-1 rounded-2xl px-4 py-3 shadow-md sm:flex-row sm:items-center sm:justify-center sm:gap-3 sm:py-3.5"
-          aria-label="Voice mode"
-          aria-pressed={voiceModeActive}
-          onClick={() => setVoiceModeActive((v) => !v)}
-        >
-          <span className="flex items-center justify-center gap-2">
-            <Headphones className="h-5 w-5 shrink-0" aria-hidden />
-            <span className="text-base font-semibold tracking-tight">
-              {voiceModeActive ? 'Voice mode is on' : 'Voice mode'}
-            </span>
-          </span>
-          <span className="text-center text-[0.7rem] leading-snug text-muted-foreground sm:text-left sm:text-sm">
-            {voiceModeActive
-              ? 'Speak with Sanadi — switch off to type in chat instead.'
-              : 'Tap for hands-free conversation, waveform, and talking companion.'}
-          </span>
-        </Button>
-      </div>
-
       {cameraOn ? (
         <div
           className="pointer-events-auto fixed right-3 z-[60] w-[min(46vw,232px)] max-w-[232px] overflow-hidden rounded-2xl border border-border/90 bg-card shadow-2xl ring-1 ring-black/10 dark:ring-white/10 md:right-5"
-          style={{ top: 'max(9.5rem, calc(env(safe-area-inset-top, 0px) + 8.5rem))' }}
+          style={{ top: 'max(4.5rem, calc(env(safe-area-inset-top, 0px) + 3.5rem))' }}
         >
           <div className="relative aspect-[4/3] bg-black">
             <video ref={videoRef} className="h-full w-full object-cover object-top" playsInline muted />
-            <Button
-              type="button"
-              size="icon"
-              variant="secondary"
-              className="absolute right-2 top-2 h-9 w-9 rounded-full border border-border/60 bg-background/95 shadow-md backdrop-blur-sm hover:bg-background"
-              onClick={() => stopCamera()}
-              aria-label="Turn camera off"
-            >
-              <CameraOff className="h-4 w-4" />
-            </Button>
           </div>
-          <p className="border-t border-border/50 bg-muted/30 px-2 py-1.5 text-center text-[0.65rem] font-medium text-muted-foreground">
-            Camera preview
-          </p>
         </div>
       ) : null}
 
@@ -1457,8 +1407,8 @@ export default function PsychologyPage() {
             <>
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-3">
-                  <div className="flex w-full max-w-lg flex-col items-center justify-center gap-3">
-                    <div className="flex min-h-[min(48svh,440px)] max-h-[56svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
+                  <div className="flex w-full max-w-lg flex-col items-center justify-center gap-4">
+                    <div className="flex min-h-[min(44svh,400px)] max-h-[52svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
                       <SanadiTalkingHead
                         ref={talkingHeadRef}
                         active
@@ -1469,42 +1419,61 @@ export default function PsychologyPage() {
                         onAssistantAnalyser={onTalkingHeadAnalyserNode}
                       />
                     </div>
-                    <p className="text-center text-sm font-medium text-muted-foreground">{voicePhaseLine}</p>
+                    <p className="text-balance text-center text-sm font-medium text-muted-foreground">{voicePhaseLine}</p>
 
                     {showVoiceBreathingCue ? (
                       <SanadiBreathingCue className="w-full max-w-[480px]" onDismiss={() => setBreathingCueDismissed(true)} />
                     ) : null}
 
-                    <div className="w-full max-w-[480px] shrink-0 overflow-hidden rounded-2xl border border-border/80 bg-card/90 shadow-md shadow-black/5 backdrop-blur-sm">
-                      <div className="border-b border-border/50 bg-muted/20 px-3 py-2">
-                        <p className="text-center text-[0.7rem] font-medium text-muted-foreground">Your voice</p>
-                      </div>
-                      <div className="px-3 pt-3 pb-1">
-                        <SanadiVoiceWaveform
-                          analyserRef={voiceAnalyserRef}
-                          speaker={waveSpeaker}
-                          height={72}
-                          className="opacity-95"
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        className="h-auto w-full rounded-none border-0 border-t border-border/50 bg-primary py-6 text-base font-semibold text-primary-foreground shadow-none hover:bg-primary/90"
-                        disabled={loading || startingSession}
-                        onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
-                      >
-                        {voiceRecording ? 'Done speaking' : 'Tap to speak'}
-                      </Button>
+                    <div className="w-full max-w-[480px] shrink-0 rounded-2xl border border-border/70 bg-card/95 p-4 shadow-sm">
+                      <p className="mb-3 text-center text-xs font-medium tracking-wide text-muted-foreground">Your voice</p>
+                      <SanadiVoiceWaveform
+                        analyserRef={voiceAnalyserRef}
+                        speaker={waveSpeaker}
+                        height={72}
+                        className="opacity-95"
+                      />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {chatError ? (
-                <div className="shrink-0 border-t border-border/30 bg-destructive/5 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-                  <p className="text-center text-xs text-muted-foreground">{chatError}</p>
+              <div className="shrink-0 border-t border-border/40 bg-[color:var(--sanadi-shell-bg)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                {chatError ? (
+                  <p className="mx-auto mb-3 max-w-lg text-center text-xs text-destructive">{chatError}</p>
+                ) : null}
+                <div className="mx-auto flex w-full max-w-lg items-stretch gap-2">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant={cameraOn ? 'secondary' : 'outline'}
+                    className="h-12 w-12 shrink-0 rounded-2xl"
+                    aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                    aria-pressed={cameraOn}
+                    onClick={() => (cameraOn ? stopCamera() : void startCamera())}
+                  >
+                    {cameraOn ? <CameraOff className="h-5 w-5" aria-hidden /> : <Video className="h-5 w-5" aria-hidden />}
+                  </Button>
+                  <Button
+                    type="button"
+                    className="min-h-12 flex-1 rounded-2xl px-4 text-sm font-semibold sm:text-base"
+                    disabled={loading || startingSession}
+                    onClick={() => (voiceRecording ? stopVoiceRecordingTurn() : void startVoiceRecordingTurn())}
+                  >
+                    {voiceRecording ? 'Done speaking' : 'Tap to speak'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-12 w-12 shrink-0 rounded-2xl"
+                    aria-label="Return to typed chat"
+                    onClick={() => setVoiceModeActive(false)}
+                  >
+                    <Keyboard className="h-5 w-5" aria-hidden />
+                  </Button>
                 </div>
-              ) : null}
+              </div>
             </>
           ) : (
             <>
@@ -1568,21 +1537,35 @@ export default function PsychologyPage() {
           </main>
 
           <footer className="relative z-[80] shrink-0 border-t border-border/30 bg-[color:var(--sanadi-shell-bg)] px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
-              <Button
-                type="button"
-                size="icon"
-                variant={micListening ? 'secondary' : 'outline'}
-                className="h-12 w-12 shrink-0 rounded-2xl"
-                onClick={() => toggleMic()}
-              >
-                <Mic className="h-5 w-5" />
-              </Button>
+            <div className="mx-auto flex w-full max-w-2xl flex-wrap items-end justify-center gap-2">
+              <div className="flex gap-1 rounded-2xl border border-border/50 bg-muted/25 p-1">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={micListening ? 'secondary' : 'ghost'}
+                  className="h-11 w-11 shrink-0 rounded-xl sm:h-12 sm:w-12 sm:rounded-2xl"
+                  aria-label={micListening ? 'Stop microphone' : 'Start microphone'}
+                  onClick={() => toggleMic()}
+                >
+                  <Mic className="h-5 w-5" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={cameraOn ? 'secondary' : 'ghost'}
+                  className="h-11 w-11 shrink-0 rounded-xl sm:h-12 sm:w-12 sm:rounded-2xl"
+                  aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                  aria-pressed={cameraOn}
+                  onClick={() => (cameraOn ? stopCamera() : void startCamera())}
+                >
+                  {cameraOn ? <CameraOff className="h-5 w-5" aria-hidden /> : <Video className="h-5 w-5" aria-hidden />}
+                </Button>
+              </div>
               <textarea
                 value={input}
                 placeholder="Say anything..."
                 rows={1}
-                className="max-h-40 min-h-12 flex-1 resize-y rounded-2xl border border-border bg-background px-3 py-3 text-sm outline-none"
+                className="min-h-11 min-w-[min(100%,14rem)] max-h-40 flex-[1_1_12rem] resize-y rounded-2xl border border-border bg-background px-3 py-2.5 text-sm outline-none sm:min-h-12 sm:py-3"
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
@@ -1591,17 +1574,33 @@ export default function PsychologyPage() {
                   }
                 }}
               />
-              <Button
-                type="button"
-                size="icon"
-                className="h-12 w-12 shrink-0 rounded-2xl"
-                onClick={() => void submitMessage()}
-                disabled={loading || startingSession || !input.trim() || voiceRecording}
-              >
-                <SendHorizonal className="h-5 w-5" />
-              </Button>
+              <div className="flex gap-1 rounded-2xl border border-border/50 bg-muted/25 p-1">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-11 w-11 shrink-0 rounded-xl sm:h-12 sm:w-12 sm:rounded-2xl"
+                  aria-label="Turn on voice mode"
+                  disabled={loading || startingSession}
+                  onClick={() => setVoiceModeActive(true)}
+                >
+                  <Headphones className="h-5 w-5" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-11 w-11 shrink-0 rounded-xl sm:h-12 sm:w-12 sm:rounded-2xl"
+                  aria-label="Send message"
+                  onClick={() => void submitMessage()}
+                  disabled={loading || startingSession || !input.trim() || voiceRecording}
+                >
+                  <SendHorizonal className="h-5 w-5" aria-hidden />
+                </Button>
+              </div>
             </div>
-            {chatError && <p className="mx-auto mt-2 w-full max-w-2xl text-xs text-muted-foreground">{chatError}</p>}
+            {chatError ? (
+              <p className="mx-auto mt-2 max-w-2xl text-center text-xs text-muted-foreground">{chatError}</p>
+            ) : null}
           </footer>
             </>
           )}
