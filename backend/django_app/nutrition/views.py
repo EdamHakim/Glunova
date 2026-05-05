@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 
 from carecircle.models import CarePlan
 from documents.access import can_access_patient_documents, parse_patient_pk
-from documents.models import PatientCaregiverLink
+from users.models import PatientCaregiverLink
 from nutrition.models import ExerciseSession, Meal, NutritionGoal, RecoveryPlan, WeeklyWellnessPlan
 
 FASTAPI_BASE = getattr(settings, "AI_SERVICE_URL", "http://localhost:8001")
@@ -36,7 +36,11 @@ def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] 
         ids = list(CarePlan.objects.filter(doctor=user).values_list("patient_id", flat=True).distinct())
         return ids, None
     if role == "caregiver":
-        ids = list(PatientCaregiverLink.objects.filter(caregiver=user).values_list("patient_id", flat=True).distinct())
+        ids = list(
+            PatientCaregiverLink.objects.filter(caregiver=user, status="accepted")
+            .values_list("patient_id", flat=True)
+            .distinct()
+        )
         return ids, None
     return [], None
 

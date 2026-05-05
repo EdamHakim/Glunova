@@ -6,8 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from documents.access import can_access_patient_documents, parse_patient_pk
-from documents.models import PatientCaregiverLink
-from users.models import User, UserRole
+from users.models import PatientCaregiverLink, User, UserRole
 
 from .models import Appointment, CarePlan, CareTask, FamilyUpdate, MedicationGuidance
 
@@ -28,7 +27,11 @@ def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] 
         ids = list(CarePlan.objects.filter(doctor=user).values_list("patient_id", flat=True).distinct())
         return ids, None
     if role == UserRole.CAREGIVER:
-        ids = list(PatientCaregiverLink.objects.filter(caregiver=user).values_list("patient_id", flat=True).distinct())
+        ids = list(
+            PatientCaregiverLink.objects.filter(caregiver=user, status="accepted")
+            .values_list("patient_id", flat=True)
+            .distinct()
+        )
         return ids, None
     return [], None
 
@@ -64,7 +67,10 @@ class CareCircleTeamView(APIView):
             )
 
         doctor_ids = set(CarePlan.objects.filter(patient_id__in=patient_ids, doctor_id__isnull=False).values_list("doctor_id", flat=True))
-        caregiver_ids = set(PatientCaregiverLink.objects.filter(patient_id__in=patient_ids).values_list("caregiver_id", flat=True))
+        caregiver_ids = set(
+            PatientCaregiverLink.objects.filter(patient_id__in=patient_ids, status="accepted")
+            .values_list("caregiver_id", flat=True)
+        )
         for doctor in User.objects.filter(pk__in=doctor_ids):
             members.append(
                 {

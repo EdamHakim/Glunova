@@ -8,6 +8,12 @@ from django.db import models
 from django.utils.timezone import now
 
 
+class LinkStatus(models.TextChoices):
+    PENDING  = "pending",  "Pending"
+    ACCEPTED = "accepted", "Accepted"
+    REJECTED = "rejected", "Rejected"
+
+
 class UserRole(models.TextChoices):
     PATIENT   = "patient",   "Patient"
     DOCTOR    = "doctor",    "Doctor"
@@ -106,3 +112,63 @@ class CaregiverProfile(models.Model):
 
     def __str__(self):
         return f"CaregiverProfile(user={self.user_id})"
+
+
+class PatientCaregiverLink(models.Model):
+    """Patient-initiated caregiver invite with accept/reject flow."""
+
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="caregiver_links",
+    )
+    caregiver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="patient_links_as_caregiver",
+    )
+    status = models.CharField(
+        max_length=16, choices=LinkStatus.choices, default=LinkStatus.PENDING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        # Reuses the existing DB table created by the documents app migration.
+        db_table = "documents_patientcaregiverlink"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["patient", "caregiver"],
+                name="uniq_patient_caregiver_document_link",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"Caregiver {self.caregiver_id} → Patient {self.patient_id} [{self.status}]"
+
+
+class PatientDoctorLink(models.Model):
+    """Patient-initiated doctor link (immediate, no acceptance step)."""
+
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="doctor_links",
+    )
+    doctor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="patient_links_as_doctor",
+    )
+    linked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["patient", "doctor"],
+                name="uniq_patient_doctor_link",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"Patient {self.patient_id} ↔ Doctor {self.doctor_id}"

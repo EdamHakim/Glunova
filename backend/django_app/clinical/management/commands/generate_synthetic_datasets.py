@@ -10,7 +10,8 @@ from django.utils import timezone
 
 from carecircle.models import Appointment, CarePlan, CareTask, FamilyUpdate, MedicationGuidance
 from clinical.models import ClinicalCaseReview, CrisisEscalation, ImagingAnalysis
-from documents.models import MedicalDocument, PatientCaregiverLink
+from documents.models import MedicalDocument
+from users.models import PatientCaregiverLink
 from kids.models import KidsInteraction
 from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, PatientMedication, RiskAssessment
 from nutrition.models import ExerciseSession, NutritionGoal, RecoveryPlan

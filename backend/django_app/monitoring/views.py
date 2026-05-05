@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from documents.access import can_access_patient_documents, parse_patient_pk
-from documents.models import PatientCaregiverLink
+from users.models import PatientCaregiverLink
 from carecircle.models import CarePlan
 from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, PatientLabResult, RiskAssessment, PatientMedication
 from screening.models import ScreeningResult
@@ -36,7 +36,11 @@ def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] 
         ids = list(CarePlan.objects.filter(doctor=user).values_list("patient_id", flat=True).distinct())
         return ids, None
     if role == "caregiver":
-        ids = list(PatientCaregiverLink.objects.filter(caregiver=user).values_list("patient_id", flat=True).distinct())
+        ids = list(
+            PatientCaregiverLink.objects.filter(caregiver=user, status="accepted")
+            .values_list("patient_id", flat=True)
+            .distinct()
+        )
         return ids, None
     return [], None
 

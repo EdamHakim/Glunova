@@ -1,12 +1,15 @@
 from django.contrib import admin
 
-from .models import MedicalDocument, PatientCaregiverLink
+from users.models import PatientCaregiverLink
+
+from .models import MedicalDocument
 
 
 @admin.register(PatientCaregiverLink)
 class PatientCaregiverLinkAdmin(admin.ModelAdmin):
-    list_display = ("id", "patient", "caregiver", "created_at")
+    list_display = ("id", "patient", "caregiver", "status", "created_at", "responded_at")
     search_fields = ("patient__username", "caregiver__username")
+    list_filter = ("status",)
 
 
 @admin.register(MedicalDocument)

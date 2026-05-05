@@ -4,33 +4,6 @@ from django.conf import settings
 from django.db import models
 
 
-class PatientCaregiverLink(models.Model):
-    """Allows caregivers to access documents for a linked patient."""
-
-    patient = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="caregiver_document_links",
-    )
-    caregiver = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="patient_document_links_as_caregiver",
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["patient", "caregiver"],
-                name="uniq_patient_caregiver_document_link",
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.caregiver_id} → patient {self.patient_id}"
-
-
 class MedicalDocument(models.Model):
     class ProcessingStatus(models.TextChoices):
         PENDING = "pending", "Pending"
