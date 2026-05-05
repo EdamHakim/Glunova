@@ -42,6 +42,10 @@ class HealthAlert(models.Model):
         ACKNOWLEDGED = "acknowledged", "Acknowledged"
         RESOLVED = "resolved", "Resolved"
 
+    class AgentAudience(models.TextChoices):
+        PATIENT = "patient", "Patient"
+        DOCTOR = "doctor", "Doctor"
+
     patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="health_alerts")
     risk_assessment = models.ForeignKey(
         "monitoring.RiskAssessment",
@@ -57,6 +61,13 @@ class HealthAlert(models.Model):
     triggered_at = models.DateTimeField()
     resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Care-agent dispatch audience; null for clinical / risk-generated alerts.
+    agent_audience = models.CharField(
+        max_length=16,
+        choices=AgentAudience.choices,
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ["-triggered_at", "-created_at"]

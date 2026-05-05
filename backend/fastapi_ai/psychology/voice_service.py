@@ -98,8 +98,13 @@ def transcribe_audio_bytes(
 ELEVENLABS_TTS_TIMESTAMPS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
 
 
-def _elevenlabs_voice_id(language: LanguageLiterals) -> str:
-    if language in ("ar", "darija"):
+def _elevenlabs_voice_id(language: LanguageLiterals, gender: str = "female") -> str:
+    is_arabic = language in ("ar", "darija")
+    if gender == "male":
+        if is_arabic:
+            return (settings.psychology_elevenlabs_voice_ar_male or "pNInz6obpgDQGcFmaJgB").strip()
+        return (settings.psychology_elevenlabs_voice_en_male or "pNInz6obpgDQGcFmaJgB").strip()
+    if is_arabic:
         return (settings.psychology_elevenlabs_voice_ar or "EXAVITQu4vr4xnSDxMaL").strip()
     return (settings.psychology_elevenlabs_voice_en or "EXAVITQu4vr4xnSDxMaL").strip()
 
@@ -136,7 +141,7 @@ def _chars_to_word_timestamps(
     return words, wtimes, wdurations
 
 
-def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals) -> tuple[bytes, str]:
+def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals, gender: str = "female") -> tuple[bytes, str]:
     """Synthesize via ElevenLabs /with-timestamps.
 
     Returns JSON bytes (content-type application/json) containing:
@@ -156,7 +161,7 @@ def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals) -> tuple[by
     if not trimmed:
         raise ValueError("text is empty")
 
-    voice_id = _elevenlabs_voice_id(language)
+    voice_id = _elevenlabs_voice_id(language, gender)
     model_id = (settings.psychology_elevenlabs_model or "eleven_multilingual_v2").strip()
     url = ELEVENLABS_TTS_TIMESTAMPS_URL.format(voice_id=voice_id)
     payload = {
@@ -169,7 +174,7 @@ def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals) -> tuple[by
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
-    logger.debug("tts elevenlabs lang=%s voice=%s model=%s", language, voice_id, model_id)
+    logger.debug("tts elevenlabs lang=%s gender=%s voice=%s model=%s", language, gender, voice_id, model_id)
     timeout = httpx.Timeout(60.0, connect=15.0)
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -211,7 +216,7 @@ def _synthesize_elevenlabs(text: str, *, language: LanguageLiterals) -> tuple[by
     return result.encode(), "application/json"
 
 
-def synthesize_speech_mp3(text: str, *, language: LanguageLiterals) -> tuple[bytes, str]:
+def synthesize_speech_mp3(text: str, *, language: LanguageLiterals, gender: str = "female") -> tuple[bytes, str]:
     """
     Synthesize speech for Sanadi replies via ElevenLabs only (unless ``psychology_tts_provider=none``).
 
@@ -227,7 +232,7 @@ def synthesize_speech_mp3(text: str, *, language: LanguageLiterals) -> tuple[byt
     if provider == "none":
         raise VoiceConfigurationError("Psychology TTS provider is disabled (psychology_tts_provider=none)")
 
-    return _synthesize_elevenlabs(text, language=language)
+    return _synthesize_elevenlabs(text, language=language, gender=gender)
 
 
 def is_groq_configured() -> bool:

@@ -5,13 +5,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from carecircle.models import CarePlan
 from clinical.models import ClinicalCaseReview, CrisisEscalation, ImagingAnalysis
+from users.doctor_scope import patient_ids_for_doctor
 from monitoring.models import RiskAssessment
 
 
 def _assigned_patient_ids(user) -> list[int]:
-    return list(CarePlan.objects.filter(doctor=user).values_list("patient_id", flat=True).distinct())
+    return patient_ids_for_doctor(user)
 
 
 class ClinicalSummaryView(APIView):

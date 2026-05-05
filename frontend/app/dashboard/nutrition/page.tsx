@@ -5,8 +5,7 @@ import { Activity, Apple, Camera, Check, Sparkles, UserRoundSearch } from 'lucid
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/components/auth-context'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import { NutritionAnalysisModal } from '@/components/nutrition/nutrition-analysis-modal'
 import { WellnessPlannerTabContent } from './wellness-planner/page'
 import { cn } from '@/lib/utils'
@@ -56,18 +55,22 @@ export default function NutritionPage() {
                   <span className="text-xs font-semibold uppercase tracking-wide">Patient context</span>
                 </div>
                 <CardTitle className="text-base">Load data for a patient</CardTitle>
-                <CardDescription>Enter an ID you are allowed to view or assist.</CardDescription>
+                <CardDescription>
+                  {isDoctor
+                    ? 'Choose an assigned patient to load nutrition and wellness data.'
+                    : 'Choose a linked patient. One linked patient is selected automatically.'}
+                </CardDescription>
               </CardHeader>
               <CardContent className="pb-5">
-                <Label htmlFor="nutrition-patient-id" className="sr-only sm:not-sr-only sm:mb-1.5 sm:block">
-                  Patient ID
-                </Label>
-                <Input
+                <DoctorPatientPicker
                   id="nutrition-patient-id"
-                  placeholder="Patient user ID"
+                  label="Patient"
+                  description={
+                    isDoctor ? 'Patients on your care team.' : 'Patients you support as a caregiver.'
+                  }
                   value={patientId}
-                  onChange={(e) => setPatientId(e.target.value)}
-                  className="bg-background/80"
+                  onChange={setPatientId}
+                  className="[&_button]:bg-background/80"
                 />
               </CardContent>
             </Card>

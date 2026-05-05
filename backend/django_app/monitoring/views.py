@@ -4,7 +4,7 @@ from datetime import datetime
 
 import httpx
 from django.conf import settings
-from django.db.models import Avg, Count, QuerySet
+from django.db.models import Avg, Count, Q, QuerySet
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -13,12 +13,28 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from documents.access import can_access_patient_documents, parse_patient_pk
-from users.models import PatientCaregiverLink
-from carecircle.models import CarePlan
+from users.models import PatientCaregiverLink, User, UserRole
+from users.doctor_scope import patient_ids_for_doctor
 from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, PatientLabResult, RiskAssessment, PatientMedication
 from screening.models import ScreeningResult
-from users.models import UserRole
 from documents.services.storage import create_download_payload
+
+
+def _health_alerts_for_viewer(user, patient_ids: list[int]) -> QuerySet[HealthAlert]:
+    """Risk/clinical alerts for everyone; care-agent posts only for the intended role."""
+    qs = HealthAlert.objects.filter(patient_id__in=patient_ids)
+    role = getattr(user, "role", None)
+    if role == "patient":
+        return qs.filter(
+            Q(agent_audience__isnull=True) | Q(agent_audience=HealthAlert.AgentAudience.PATIENT)
+        )
+    if role == "doctor":
+        return qs.filter(
+            Q(agent_audience__isnull=True) | Q(agent_audience=HealthAlert.AgentAudience.DOCTOR)
+        )
+    if role == "caregiver":
+        return qs.filter(agent_audience__isnull=True)
+    return qs.none()
 
 
 def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] | None, Response | None]:
@@ -34,8 +50,7 @@ def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] 
     if role == "patient":
         return [int(user.pk)], None
     if role == "doctor":
-        ids = list(CarePlan.objects.filter(doctor=user).values_list("patient_id", flat=True).distinct())
-        return ids, None
+        return patient_ids_for_doctor(user), None
     if role == "caregiver":
         ids = list(
             PatientCaregiverLink.objects.filter(caregiver=user, status="accepted")
@@ -73,7 +88,7 @@ class MonitoringAlertsView(APIView):
             return Response({"items": [], "total": 0})
 
         items = (
-            HealthAlert.objects.filter(patient_id__in=patient_ids)
+            _health_alerts_for_viewer(request.user, patient_ids)
             .select_related("patient")
             .order_by("-triggered_at", "-created_at")[:100]
         )
@@ -88,6 +103,7 @@ class MonitoringAlertsView(APIView):
                 "status": alert.status,
                 "triggered_at": alert.triggered_at.isoformat(),
                 "relative_time": _format_relative_time(alert.triggered_at),
+                "is_agent": bool(alert.agent_audience),
             }
             for alert in items
         ]
@@ -134,7 +150,11 @@ class MonitoringTimelineView(APIView):
                     "value": f"{progression.trend} ({progression.value:.2f})",
                 }
             )
-        for alert in HealthAlert.objects.filter(patient_id__in=patient_ids).select_related("patient").order_by("-triggered_at")[:limit]:
+        for alert in (
+            _health_alerts_for_viewer(request.user, patient_ids)
+            .select_related("patient")
+            .order_by("-triggered_at")[:limit]
+        ):
             entries.append(
                 {
                     "type": "alert",
@@ -229,7 +249,7 @@ class DashboardOverviewView(APIView):
         if getattr(request.user, "role", None) != UserRole.DOCTOR:
             return Response({"detail": "Doctor access required"}, status=status.HTTP_403_FORBIDDEN)
 
-        patient_ids = list(CarePlan.objects.filter(doctor=request.user).values_list("patient_id", flat=True).distinct())
+        patient_ids = patient_ids_for_doctor(request.user)
         if not patient_ids:
             return Response({"stats": {}, "trend": [], "recent_patients": []})
 
@@ -243,8 +263,7 @@ class DashboardOverviewView(APIView):
             RiskAssessment.objects.filter(id__in=latest_ids).select_related("patient").order_by("-assessed_at")
         )
 
-        alerts_count = HealthAlert.objects.filter(
-            patient_id__in=patient_ids,
+        alerts_count = _health_alerts_for_viewer(request.user, patient_ids).filter(
             status=HealthAlert.Status.ACTIVE,
         ).count()
         pending_screenings = max(0, len(patient_ids) - ScreeningResult.objects.filter(patient_id__in=patient_ids).values("patient_id").distinct().count())
@@ -300,6 +319,45 @@ class DashboardOverviewView(APIView):
                 "recent_patients": recent_patients,
             }
         )
+
+
+class DashboardMyPatientsView(APIView):
+    """Linked patients for dashboard pickers: doctors (care team link) and caregivers (accepted link)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        role = getattr(request.user, "role", None)
+        if role == UserRole.DOCTOR:
+            patient_ids = patient_ids_for_doctor(request.user)
+        elif role == UserRole.CAREGIVER:
+            patient_ids = list(
+                PatientCaregiverLink.objects.filter(caregiver=request.user, status="accepted")
+                .values_list("patient_id", flat=True)
+                .distinct()
+            )
+        else:
+            return Response(
+                {"detail": "Only doctors and caregivers can list linked patients."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not patient_ids:
+            return Response({"items": []})
+
+        patients_qs = User.objects.filter(id__in=patient_ids, role=UserRole.PATIENT).only(
+            "id", "username", "first_name", "last_name"
+        )
+        items = [
+            {
+                "id": int(u.pk),
+                "username": u.username,
+                "display_name": (u.get_full_name() or "").strip() or u.username,
+            }
+            for u in patients_qs
+        ]
+        items.sort(key=lambda row: row["display_name"].lower())
+        return Response({"items": items})
 
 
 class PatientMedicationsView(APIView):
@@ -657,8 +715,7 @@ class MonitoringDiseaseProgressionView(APIView):
         period_days = max(1, int(period_seconds // 86400))
 
         # Active alerts count for this patient scope
-        active_alerts = HealthAlert.objects.filter(
-            patient_id__in=patient_ids,
+        active_alerts = _health_alerts_for_viewer(request.user, patient_ids).filter(
             status=HealthAlert.Status.ACTIVE,
         ).count()
 

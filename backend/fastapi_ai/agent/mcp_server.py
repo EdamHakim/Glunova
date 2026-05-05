@@ -9,7 +9,7 @@ Tools exposed:
   get_nutrition_summary    — wellness plan adherence, nutrition goals
   get_psychology_state     — emotion assessment, therapy history
   get_care_team            — linked doctor + accepted caregivers
-  dispatch_update          — write FamilyUpdate record to Django DB
+  dispatch_update          — caregiver: Care Circle row; patient/doctor: Monitoring alert
 """
 
 from __future__ import annotations
@@ -86,6 +86,7 @@ def get_monitoring_summary(
                     SELECT title, message, severity, triggered_at
                     FROM monitoring_healthalert
                     WHERE patient_id = %s AND status = 'active'
+                      AND (agent_audience IS NULL OR agent_audience = 'patient')
                     ORDER BY triggered_at DESC
                     LIMIT 3
                     """,
@@ -284,23 +285,55 @@ def dispatch_update(
     patient_id: Annotated[int, "The patient's user ID"],
     recipient_type: Annotated[str, "One of: patient, caregiver, doctor"],
     message: Annotated[str, "The care coordination message to dispatch"],
-    recipient_id: Annotated[int | None, "User ID of the caregiver or doctor. Omit for patient messages."] = None,
+    recipient_id: Annotated[int | None, "User ID of the caregiver. Omit for patient and doctor messages."] = None,
 ) -> str:
-    """Write a care coordination update to the patient's care circle feed. Also stamps the current wellness plan with the agent run timestamp."""
-    result: dict = {"ok": False, "family_update_id": None, "recipient_type": recipient_type}
+    """Deliver care-agent text: patient/doctor → Monitoring alert; caregiver → Care Circle FamilyUpdate."""
+    result: dict = {"ok": False, "family_update_id": None, "health_alert_id": None, "recipient_type": recipient_type}
+    rt = (recipient_type or "").strip().lower()
     try:
         with _conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO carecircle_familyupdate
-                        (patient_id, caregiver_id, summary, source, created_at)
-                    VALUES (%s, %s, %s, 'agent', NOW())
-                    RETURNING id
-                    """,
-                    (patient_id, recipient_id, message),
-                )
-                result["family_update_id"] = cur.fetchone()[0]
+                if rt == "caregiver":
+                    if recipient_id is None:
+                        result["error"] = "recipient_id is required when recipient_type is caregiver"
+                        return json.dumps(result)
+                    cur.execute(
+                        """
+                        INSERT INTO carecircle_familyupdate
+                            (patient_id, caregiver_id, summary, source, created_at)
+                        VALUES (%s, %s, %s, 'agent', NOW())
+                        RETURNING id
+                        """,
+                        (patient_id, recipient_id, message),
+                    )
+                    result["family_update_id"] = cur.fetchone()[0]
+                elif rt == "patient":
+                    cur.execute(
+                        """
+                        INSERT INTO monitoring_healthalert
+                            (patient_id, risk_assessment_id, title, message, severity, status,
+                             triggered_at, resolved_at, created_at, agent_audience)
+                        VALUES (%s, NULL, %s, %s, 'info', 'active', NOW(), NULL, NOW(), %s)
+                        RETURNING id
+                        """,
+                        (patient_id, "Care agent", message, "patient"),
+                    )
+                    result["health_alert_id"] = cur.fetchone()[0]
+                elif rt == "doctor":
+                    cur.execute(
+                        """
+                        INSERT INTO monitoring_healthalert
+                            (patient_id, risk_assessment_id, title, message, severity, status,
+                             triggered_at, resolved_at, created_at, agent_audience)
+                        VALUES (%s, NULL, %s, %s, 'info', 'active', NOW(), NULL, NOW(), %s)
+                        RETURNING id
+                        """,
+                        (patient_id, "Care agent", message, "doctor"),
+                    )
+                    result["health_alert_id"] = cur.fetchone()[0]
+                else:
+                    result["error"] = f"Unknown recipient_type: {recipient_type!r}"
+                    return json.dumps(result)
 
                 # Stamp the current wellness plan for auditability.
                 ts = _now_utc().isoformat()

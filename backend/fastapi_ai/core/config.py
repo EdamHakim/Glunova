@@ -108,8 +108,12 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str = ""
     # eleven_multilingual_v2 handles EN/FR/AR; override per language via the voice IDs below.
     psychology_elevenlabs_model: str = "eleven_multilingual_v2"
+    # Female voices (default)
     psychology_elevenlabs_voice_en: str = "EXAVITQu4vr4xnSDxMaL"
     psychology_elevenlabs_voice_ar: str = "EXAVITQu4vr4xnSDxMaL"
+    # Male voices
+    psychology_elevenlabs_voice_en_male: str = "pNInz6obpgDQGcFmaJgB"
+    psychology_elevenlabs_voice_ar_male: str = "pNInz6obpgDQGcFmaJgB"
 
     # Azure Document Intelligence (OCR)
     azure_document_intelligence_endpoint: str = ""

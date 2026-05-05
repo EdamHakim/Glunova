@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import { Progress } from '@/components/ui/progress'
 import { getApiUrls } from '@/lib/auth'
 import { useAuth } from '@/components/auth-context'
@@ -135,7 +136,7 @@ export function RetinopathyPanel() {
     setHeatmap(null)
 
     const pid = Number.parseInt(patientId.trim(), 10)
-    if (!Number.isFinite(pid) || pid <= 0) return setError('Enter a valid patient ID.')
+    if (!Number.isFinite(pid) || pid <= 0) return setError('Choose a patient from your list.')
     if (!file) return setError('Select a fundus image.')
     if (!sessionUser || sessionUser.role !== 'doctor') {
       return setError('This tool is only available to doctors.')
@@ -176,7 +177,7 @@ export function RetinopathyPanel() {
     if (!file || !result) return
     setError('')
     const pid = Number.parseInt(patientId.trim(), 10)
-    if (!Number.isFinite(pid) || pid <= 0) return setError('Enter a valid patient ID.')
+    if (!Number.isFinite(pid) || pid <= 0) return setError('Choose a patient from your list.')
     setLoadingGradcam(true)
     try {
       const { fastapi } = getApiUrls()
@@ -223,14 +224,12 @@ export function RetinopathyPanel() {
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4 max-w-3xl">
-          <div className="space-y-2 max-w-xs">
-            <Label htmlFor="dr-patient-id">Patient ID</Label>
-            <Input
+          <div className="space-y-2 max-w-md">
+            <DoctorPatientPicker
               id="dr-patient-id"
-              type="number"
-              min={1}
+              label="Patient"
               value={patientId}
-              onChange={(e) => setPatientId(e.target.value)}
+              onChange={setPatientId}
             />
           </div>
           <div className="space-y-2">

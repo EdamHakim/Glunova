@@ -1,23 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bell, Bot, FileText, MessageSquare, Plus, Stethoscope, Trash2, UserCheck, Users } from 'lucide-react'
+import { AlertCircle, Bell, Bot, Calendar, Plus, Stethoscope, Trash2, UserCheck, UserRoundSearch } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import RoleGuard from '@/components/auth/role-guard'
 import { MedicalDocumentsSection } from '@/components/care-circle/medical-documents-section'
+import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import { useAuth } from '@/components/auth-context'
 import {
-  getCareCirclePlan,
   inviteCaregiver,
   linkDoctor,
   listAvailableCaregivers,
   listAvailableDoctors,
   listCareCircleAppointments,
-  listCareCircleTeam,
   listCareCircleUpdates,
   listMyCaregivers,
   listMyDoctors,
@@ -28,10 +28,6 @@ import {
   type AvailableCaregiver,
   type AvailableDoctor,
   type CareCircleAppointment,
-  type CareCircleMember,
-  type CareCircleMedicationGuidance,
-  type CareCirclePlan,
-  type CareCircleTask,
   type CareCircleUpdate,
   type CaregiverLink,
   type DoctorLink,
@@ -409,28 +405,22 @@ function PendingInvitationsCard() {
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Main page (patients & caregivers only) ───────────────────────────────────
 
-export default function CareCirclePage() {
+function CareCircleContent() {
   const { user } = useAuth()
   const [patientId, setPatientId] = useState('')
-  const [members, setMembers] = useState<CareCircleMember[]>([])
   const [updates, setUpdates] = useState<CareCircleUpdate[]>([])
-  const [carePlans, setCarePlans] = useState<CareCirclePlan[]>([])
-  const [tasks, setTasks] = useState<CareCircleTask[]>([])
-  const [medGuidance, setMedGuidance] = useState<CareCircleMedicationGuidance[]>([])
   const [appointments, setAppointments] = useState<CareCircleAppointment[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const role = user?.role
-  const canClinicallyEdit = role === 'doctor'
+  const caregiverNeedsPatientId = role === 'caregiver'
   const intro =
-    role === 'doctor'
-      ? 'Coordinate with caregivers and keep shared care plans aligned for assigned patients.'
-      : role === 'caregiver'
-        ? 'Stay informed, help with routines, and support the linked patient day to day.'
-        : 'Connect with family, caregivers, and healthcare providers.'
+    role === 'caregiver'
+      ? 'Stay informed, help with routines, and support the linked patient day to day.'
+      : 'Connect with family, caregivers, and healthcare providers.'
 
   useEffect(() => {
     if (user?.role === 'patient') setPatientId(user.id)
@@ -438,30 +428,17 @@ export default function CareCirclePage() {
 
   useEffect(() => {
     if (!patientId) {
-      setMembers([])
       setUpdates([])
-      setCarePlans([])
-      setTasks([])
-      setMedGuidance([])
       setAppointments([])
       return
     }
     let cancelled = false
     setLoading(true)
     setError(null)
-    void Promise.all([
-      listCareCircleTeam(patientId),
-      listCareCircleUpdates(patientId),
-      getCareCirclePlan(patientId),
-      listCareCircleAppointments(patientId),
-    ])
-      .then(([teamPayload, updatesPayload, planPayload, apptsPayload]) => {
+    void Promise.all([listCareCircleUpdates(patientId), listCareCircleAppointments(patientId)])
+      .then(([updatesPayload, apptsPayload]) => {
         if (cancelled) return
-        setMembers(teamPayload.items)
         setUpdates(updatesPayload.items)
-        setCarePlans(planPayload.care_plans)
-        setTasks(planPayload.tasks)
-        setMedGuidance(planPayload.medication_guidance)
         setAppointments(apptsPayload.items)
       })
       .catch((err: unknown) => {
@@ -474,182 +451,193 @@ export default function CareCirclePage() {
   }, [patientId])
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Care Circle</h1>
-        <p className="text-muted-foreground mt-2">{intro}</p>
-      </div>
+    <div className="relative min-h-[calc(100dvh-6rem)]">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-linear-to-b from-primary/8 via-primary/2 to-transparent"
+        aria-hidden
+      />
+      <div className="relative mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 sm:py-10">
+        <header className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Care coordination</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Care Circle</h1>
+            <p className="text-base leading-relaxed text-muted-foreground">{intro}</p>
+          </div>
 
-      {role !== 'patient' && (
-        <div className="max-w-sm space-y-2">
-          <Label htmlFor="carecircle-patient-id">Patient ID</Label>
-          <Input
-            id="carecircle-patient-id"
-            placeholder="Enter accessible patient ID"
-            value={patientId}
-            onChange={(e) => setPatientId(e.target.value)}
-          />
-        </div>
-      )}
-
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
-      {/* Patient: manage their care team */}
-      {role === 'patient' && <ManageCareTeam />}
-
-      {/* Caregiver: pending invitations inbox */}
-      {role === 'caregiver' && <PendingInvitationsCard />}
-
-      <MedicalDocumentsSection />
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Shared Care Plan
-            </CardTitle>
-            <CardDescription>
-              {canClinicallyEdit
-                ? 'Shared plan you can refine with medical guidance'
-                : 'Current health plan shared with the care circle'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <h4 className="font-medium mb-2">Daily Routine</h4>
-              {carePlans.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No care plan notes yet.</p>
-              ) : (
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  {carePlans.slice(0, 3).map(plan => (
-                    <li key={plan.id}>
-                      {plan.patient_name}: {plan.notes || 'No notes provided.'}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <h4 className="font-medium mb-2">Medications</h4>
-              {medGuidance.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No medication guidance available.</p>
-              ) : (
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  {medGuidance.slice(0, 3).map(item => (
-                    <li key={item.id}>
-                      {item.medication_name} • {item.guidance}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <h4 className="font-medium mb-2">Goals</h4>
-              {tasks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No tasks defined yet.</p>
-              ) : (
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  {tasks.slice(0, 3).map(task => (
-                    <li key={task.id}>
-                      {task.title} ({task.status})
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="rounded-lg border border-dashed border-border p-4">
-              <p className="font-medium">{canClinicallyEdit ? 'Doctor note' : 'Participation note'}</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                {canClinicallyEdit
-                  ? 'You can update this plan clinically, but document and monitoring access remain relationship-scoped.'
-                  : 'You can follow this plan and coordinate around it, but medically authoritative edits remain clinician-led.'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              Updates & Messages
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {loading && <p className="text-sm text-muted-foreground">Loading updates...</p>}
-            {!loading && updates.length === 0 && (
-              <p className="text-sm text-muted-foreground">No care circle updates for this patient scope.</p>
-            )}
-            {updates.map(update => (
-              <div key={update.id} className="p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium text-sm">{update.from_name}</p>
-                  {update.source === 'agent' && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-600 border border-violet-500/20">
-                      <Bot className="h-3 w-3" />
-                      AI
-                    </span>
-                  )}
+          {caregiverNeedsPatientId && (
+            <Card className="w-full shrink-0 border-dashed bg-muted/25 shadow-sm lg:max-w-md">
+              <CardHeader className="space-y-1 pb-2 pt-5">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <UserRoundSearch className="h-4 w-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wide">Patient context</span>
                 </div>
-                <p className="text-sm text-muted-foreground mt-1">{update.summary}</p>
-                <p className="text-xs text-muted-foreground mt-2">{new Date(update.created_at).toLocaleString()}</p>
-              </div>
-            ))}
-            <Button variant="outline" className="w-full">View All</Button>
-          </CardContent>
-        </Card>
-      </div>
+                <CardTitle className="text-base">Whose care circle are you viewing?</CardTitle>
+                <CardDescription>
+                  Choose a linked patient. If you support only one, they are selected automatically.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pb-5">
+                <DoctorPatientPicker
+                  id="carecircle-patient-id"
+                  label="Patient"
+                  description="Search by name — patients you are linked to as a caregiver."
+                  value={patientId}
+                  onChange={setPatientId}
+                  className="[&_button]:bg-background/80"
+                />
+              </CardContent>
+            </Card>
+          )}
+        </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
-            Upcoming Appointments
-          </CardTitle>
-          <CardDescription>
-            {role === 'doctor'
-              ? 'Coordinate next steps with the support network'
-              : 'Shared care timeline'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="h-48 border border-border rounded-lg bg-muted/30 p-4 overflow-y-auto space-y-3">
-              {loading && <p className="text-sm text-muted-foreground">Loading appointments...</p>}
-              {!loading && appointments.length === 0 && (
-                <p className="text-sm text-muted-foreground">No appointments available for this patient scope.</p>
-              )}
-              {appointments.map(appointment => (
-                <div key={appointment.id} className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-sm font-medium">{appointment.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {appointment.patient_name} • {new Date(appointment.starts_at).toLocaleString()}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Doctor: {appointment.doctor_name} • Caregiver: {appointment.caregiver_name}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder={
-                  role === 'doctor'
-                    ? 'Appointment management stays read-only in this view'
-                    : 'Scheduling actions stay read-only in this view'
-                }
-                disabled
-                className="flex-1 px-3 py-2 border border-border rounded-lg bg-background text-sm"
-              />
-              <Button size="icon" disabled>
-                <MessageSquare className="h-4 w-4" />
-              </Button>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Something went wrong</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {role === 'patient' && <ManageCareTeam />}
+
+        {role === 'caregiver' && <PendingInvitationsCard />}
+
+        <section className="space-y-3">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Health records</h2>
+              <p className="text-sm text-muted-foreground">Uploads and extractions for the selected context.</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+          <MedicalDocumentsSection linkedPatientId={role === 'caregiver' ? patientId : undefined} />
+        </section>
+
+        {caregiverNeedsPatientId && !patientId ? (
+          <Card className="border-dashed border-muted-foreground/25 bg-muted/15">
+            <CardContent className="flex flex-col items-center justify-center gap-2 py-16 text-center sm:py-20">
+              <div className="rounded-full border border-border bg-background p-3 shadow-sm">
+                <UserRoundSearch className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="max-w-sm text-sm font-medium text-foreground">Select a patient first</p>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Updates, appointments, and shared documents load after you choose a patient above.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-stretch">
+            <Card className="flex flex-col border-border/80 shadow-sm lg:col-span-7">
+              <CardHeader className="border-b border-border/60 bg-muted/20 pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Bell className="h-4 w-4" />
+                  </span>
+                  Updates &amp; messages
+                </CardTitle>
+                <CardDescription>Recent notes from the care team and care agent.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col p-0">
+                {loading && (
+                  <p className="p-5 text-sm text-muted-foreground">Loading updates…</p>
+                )}
+                {!loading && updates.length === 0 && (
+                  <p className="p-5 text-sm text-muted-foreground">No updates yet for this patient.</p>
+                )}
+                {!loading && updates.length > 0 && (
+                  <ScrollArea className="h-[min(420px,50vh)] sm:h-[min(480px,55vh)]">
+                    <ul className="divide-y divide-border/80 p-2">
+                      {updates.map((update) => (
+                        <li
+                          key={update.id}
+                          className="px-3 py-3 transition-colors hover:bg-muted/40 sm:px-4 sm:py-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="font-medium leading-snug">{update.from_name}</p>
+                            {update.source === 'agent' && (
+                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                                <Bot className="h-3 w-3" />
+                                AI
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{update.summary}</p>
+                          <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+                            {new Date(update.created_at).toLocaleString()}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="flex flex-col border-border/80 shadow-sm lg:col-span-5">
+              <CardHeader className="border-b border-border/60 bg-muted/20 pb-4">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Calendar className="h-4 w-4" />
+                  </span>
+                  Appointments
+                </CardTitle>
+                <CardDescription>
+                  {role === 'patient'
+                    ? 'Your shared schedule with the care team.'
+                    : 'Scheduled touchpoints for the patient you support.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col p-0">
+                {loading && (
+                  <p className="p-5 text-sm text-muted-foreground">Loading appointments…</p>
+                )}
+                {!loading && appointments.length === 0 && (
+                  <p className="p-5 text-sm text-muted-foreground">No appointments on file for this patient.</p>
+                )}
+                {!loading && appointments.length > 0 && (
+                  <ScrollArea className="h-[min(420px,50vh)] sm:h-[min(480px,55vh)]">
+                    <ul className="space-y-3 p-4">
+                      {appointments.map((appointment) => (
+                        <li
+                          key={appointment.id}
+                          className="rounded-xl border border-border/80 bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
+                        >
+                          <p className="font-medium leading-snug">{appointment.title}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {appointment.patient_name}
+                            <span className="text-border"> · </span>
+                            {new Date(appointment.starts_at).toLocaleString()}
+                          </p>
+                          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                            <span className="font-medium text-foreground/80">Doctor:</span> {appointment.doctor_name}
+                            <br />
+                            <span className="font-medium text-foreground/80">Caregiver:</span>{' '}
+                            {appointment.caregiver_name}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </ScrollArea>
+                )}
+                <p className="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
+                  Scheduling changes are managed outside this view.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
     </div>
+  )
+}
+
+export default function CareCirclePage() {
+  return (
+    <RoleGuard
+      allowedRoles={['patient', 'caregiver']}
+      title="Care Circle is not available for clinicians"
+      description="Care Circle is for patients and caregivers. Use Monitoring for assigned patients and Clinical Support where applicable."
+    >
+      <CareCircleContent />
+    </RoleGuard>
   )
 }

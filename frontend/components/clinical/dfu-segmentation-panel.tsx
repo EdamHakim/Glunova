@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import { getApiUrls } from '@/lib/auth'
 import { useAuth } from '@/components/auth-context'
 
@@ -58,7 +59,7 @@ export function DFUSegmentationPanel() {
     const pid = Number.parseInt(patientId.trim(), 10)
     const mm = Number.parseFloat(mmPerPixel)
     const thr = Number.parseFloat(threshold)
-    if (!Number.isFinite(pid) || pid <= 0) return setError('Enter a valid patient ID.')
+    if (!Number.isFinite(pid) || pid <= 0) return setError('Choose a patient from your list.')
     if (!Number.isFinite(mm) || mm <= 0) return setError('mm/pixel must be > 0.')
     if (!Number.isFinite(thr) || thr < 0 || thr > 1) return setError('Threshold must be between 0 and 1.')
     if (!file) return setError('Select a foot ulcer image.')
@@ -142,16 +143,20 @@ export function DFUSegmentationPanel() {
           Foot ulcer detection & segmentation
         </CardTitle>
         <CardDescription>
-          Upload a foot image to detect ulcer region, estimate lesion dimensions, view XAI overlay, and
-          generate a PDF report for clinical documentation.
+          Upload a foot image for a selected assigned patient to detect ulcer region, estimate lesion
+          dimensions, view XAI overlay, and generate a PDF report for clinical documentation.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4 max-w-3xl">
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="dfu-patient-id">Patient ID</Label>
-              <Input id="dfu-patient-id" type="number" min={1} value={patientId} onChange={(e) => setPatientId(e.target.value)} />
+            <div className="space-y-2 sm:col-span-1 min-w-0">
+              <DoctorPatientPicker
+                id="dfu-patient-id"
+                label="Patient"
+                value={patientId}
+                onChange={setPatientId}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="dfu-mm-px">mm / pixel</Label>

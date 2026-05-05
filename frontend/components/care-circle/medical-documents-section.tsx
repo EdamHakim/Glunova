@@ -15,6 +15,8 @@ import {
   type MedicationExtractionRow,
   type MedicalDocumentRow,
 } from '@/lib/documents-api'
+import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
+import { useAuth } from '@/components/auth-context'
 
 function formatExtraction(ex: ExtractedDocument | null) {
   if (!ex) return null
@@ -27,8 +29,6 @@ function formatExtraction(ex: ExtractedDocument | null) {
   }
   return rows
 }
-
-import { useAuth } from '@/components/auth-context'
 
 function getVerificationBadgeClass(status?: string) {
   switch (status) {
@@ -43,9 +43,17 @@ function getVerificationBadgeClass(status?: string) {
   }
 }
 
-export function MedicalDocumentsSection() {
+export type MedicalDocumentsSectionProps = {
+  /**
+   * When set, non-patient viewers use this patient id (e.g. Care Circle header).
+   * Omit to keep an internal picker (not used on Care Circle today).
+   */
+  linkedPatientId?: string
+}
+
+export function MedicalDocumentsSection({ linkedPatientId }: MedicalDocumentsSectionProps) {
   const { user } = useAuth()
-  const [patientId, setPatientId] = useState('')
+  const [internalPatientId, setInternalPatientId] = useState('')
   const [items, setItems] = useState<MedicalDocumentRow[]>([])
   const [selected, setSelected] = useState<MedicalDocumentRow | null>(null)
   const [loading, setLoading] = useState(false)
@@ -53,14 +61,16 @@ export function MedicalDocumentsSection() {
   const [uploading, setUploading] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
 
-  // Automatically resolve patient and load documents on mount/user change
+  const isPatient = user?.role === 'patient'
+  const useLinkedScope = typeof linkedPatientId === 'string' && !isPatient
+
+  const patientId = isPatient ? (user?.id ?? '') : useLinkedScope ? linkedPatientId : internalPatientId
+
   useEffect(() => {
-    if (user) {
-      if (user.role === 'patient') {
-        setPatientId(user.id)
-      }
+    if (user && isPatient) {
+      setInternalPatientId('')
     }
-  }, [user])
+  }, [user, isPatient])
 
   const resolveDocuments = useCallback(async (pid: string) => {
     if (!pid) return
@@ -128,6 +138,8 @@ export function MedicalDocumentsSection() {
     ? extraction!.medications
     : []
 
+  const showInlinePicker = !isPatient && !useLinkedScope
+
   return (
     <Card>
       <CardHeader>
@@ -140,15 +152,15 @@ export function MedicalDocumentsSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {user?.role !== 'patient' && (
+        {user && showInlinePicker && (
           <div className="flex items-end gap-2 mb-4">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="patient-id">Patient ID</Label>
-              <Input
+            <div className="flex-1 space-y-2 max-w-md">
+              <DoctorPatientPicker
                 id="patient-id"
-                placeholder="Enter patient ID to view records"
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
+                label="Patient"
+                description="Search by name — only patients you are linked to."
+                value={internalPatientId}
+                onChange={setInternalPatientId}
               />
             </div>
           </div>

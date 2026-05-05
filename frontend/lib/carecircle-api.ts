@@ -39,18 +39,6 @@ async function deleteReq(path: string) {
 
 // ── Existing types ────────────────────────────────────────────────────────────
 
-export type CareCircleMember = {
-  id: number
-  name: string
-  username: string
-  role: string
-  status: string
-  specialization?: string
-  hospital_affiliation?: string
-  relationship?: string
-  is_professional?: boolean
-}
-
 export type CareCircleUpdate = {
   id: number
   patient_id: number
@@ -59,36 +47,6 @@ export type CareCircleUpdate = {
   summary: string
   created_at: string
   source: 'human' | 'agent'
-}
-
-export type CareCircleTask = {
-  id: number
-  patient_id: number
-  patient_name: string
-  title: string
-  status: 'todo' | 'in_progress' | 'done'
-  assignee_name: string
-  due_at: string | null
-  created_at: string
-}
-
-export type CareCirclePlan = {
-  id: number
-  patient_id: number
-  patient_name: string
-  doctor_name: string
-  notes: string
-  created_at: string
-}
-
-export type CareCircleMedicationGuidance = {
-  id: number
-  patient_id: number
-  patient_name: string
-  medication_name: string
-  guidance: string
-  doctor_validated: boolean
-  created_at: string
 }
 
 export type CareCircleAppointment = {
@@ -155,23 +113,9 @@ export type PendingInvitation = {
 
 // ── Existing read-only calls ──────────────────────────────────────────────────
 
-export async function listCareCircleTeam(patientId?: string) {
-  const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
-  return getJson<{ items: CareCircleMember[]; total: number }>(`/care-circle/team${query}`)
-}
-
 export async function listCareCircleUpdates(patientId?: string) {
   const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
   return getJson<{ items: CareCircleUpdate[]; total: number }>(`/care-circle/updates${query}`)
-}
-
-export async function getCareCirclePlan(patientId?: string) {
-  const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
-  return getJson<{
-    care_plans: CareCirclePlan[]
-    tasks: CareCircleTask[]
-    medication_guidance: CareCircleMedicationGuidance[]
-  }>(`/care-circle/plan${query}`)
 }
 
 export async function listCareCircleAppointments(patientId?: string) {

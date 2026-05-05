@@ -288,7 +288,7 @@ def voice_synthesize(
 ) -> Response:
     """TTS (ElevenLabs, with timestamps) for Sanadi replies."""
     try:
-        blob, ctype = synthesize_speech_mp3(payload.text, language=payload.language)
+        blob, ctype = synthesize_speech_mp3(payload.text, language=payload.language, gender=payload.gender)
     except VoiceConfigurationError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     except ValueError as exc:

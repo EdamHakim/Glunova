@@ -36,3 +36,24 @@ export async function getDashboardOverview() {
   if (!response.ok) throw new Error(await response.text())
   return response.json() as Promise<DashboardOverview>
 }
+
+export type AssignedPatientRow = {
+  id: number
+  username: string
+  display_name: string
+}
+
+/** Patients the signed-in viewer may scope to: doctors (assigned) or caregivers (accepted links). */
+export async function getLinkedPatientsForDashboard() {
+  const response = await fetch(`${base()}${apiPrefix()}/dashboard/my-patients`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error(await response.text())
+  return response.json() as Promise<{ items: AssignedPatientRow[] }>
+}
+
+/** @deprecated Use {@link getLinkedPatientsForDashboard} */
+export async function getDoctorAssignedPatients() {
+  return getLinkedPatientsForDashboard()
+}

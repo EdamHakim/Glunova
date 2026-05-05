@@ -58,6 +58,7 @@ const menuItems: MenuItem[] = [
     label: 'Care Circle',
     href: '/dashboard/care-circle',
     icon: Users,
+    allowedRoles: ['patient', 'caregiver'],
   },
   {
     label: 'Kids',

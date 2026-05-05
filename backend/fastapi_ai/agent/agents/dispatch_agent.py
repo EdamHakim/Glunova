@@ -22,14 +22,14 @@ _DISPATCH_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "dispatch_update",
-        "description": "Write a care coordination message into the patient's care circle feed.",
+        "description": "Deliver a care-agent message: patient/doctor go to Monitoring alerts; caregiver to Care Circle.",
         "parameters": {
             "type": "object",
             "properties": {
                 "patient_id":     {"type": "integer", "description": "Patient user ID"},
                 "recipient_type": {"type": "string",  "enum": ["patient", "caregiver", "doctor"]},
                 "message":        {"type": "string",  "description": "The message to dispatch"},
-                "recipient_id":   {"type": ["integer", "null"], "description": "User ID of caregiver or doctor; null for patient"},
+                "recipient_id":   {"type": ["integer", "null"], "description": "Caregiver user ID when recipient_type is caregiver; null for patient and doctor"},
             },
             "required": ["patient_id", "recipient_type", "message"],
         },
@@ -44,7 +44,7 @@ Your job is to call dispatch_update for each relevant recipient exactly once.
 Rules:
 - Always dispatch the patient_nudge to the patient (recipient_type="patient", recipient_id=null).
 - If caregiver_update is provided AND caregivers list is non-empty, dispatch once per caregiver.
-- If doctor_summary is provided AND a doctor is linked, dispatch once for the doctor.
+- If doctor_summary is provided AND a doctor is linked, dispatch for the doctor (recipient_type='doctor', recipient_id=null).
 - Do not modify the messages — dispatch them verbatim.
 - Call dispatch_update for each recipient, then stop.
 """
@@ -113,9 +113,11 @@ async def run(
                 dispatched += 1
                 recipients.append(args.get("recipient_type", "unknown"))
                 logger.info(
-                    "[DispatchAgent] dispatched patient=%s recipient=%s fuid=%s",
-                    args.get("patient_id"), args.get("recipient_type"),
+                    "[DispatchAgent] dispatched patient=%s recipient=%s family_update=%s health_alert=%s",
+                    args.get("patient_id"),
+                    args.get("recipient_type"),
                     result_data.get("family_update_id"),
+                    result_data.get("health_alert_id"),
                 )
 
     return DispatchResult(

@@ -8,10 +8,10 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from carecircle.models import Appointment, CarePlan, CareTask, FamilyUpdate, MedicationGuidance
+from carecircle.models import Appointment, FamilyUpdate
 from clinical.models import ClinicalCaseReview, CrisisEscalation, ImagingAnalysis
 from documents.models import MedicalDocument
-from users.models import PatientCaregiverLink
+from users.models import PatientCaregiverLink, PatientDoctorLink
 from kids.models import KidsInteraction
 from monitoring.models import DiseaseProgression, HealthAlert, MonitoringLog, PatientMedication, RiskAssessment
 from nutrition.models import ExerciseSession, NutritionGoal, RecoveryPlan
@@ -66,15 +66,10 @@ class Command(BaseCommand):
         exercise_intensities = list(ExerciseSession.Intensity.values)
         distress_levels = list(EmotionAssessment.DistressLevel.values)
         risk_tiers = list(RiskAssessment.Tier.values)
-        care_task_statuses = list(CareTask.Status.values)
         priorities = list(ClinicalCaseReview.Priority.values)
 
         for idx, patient in enumerate(patients, start=1):
-            care_plan = CarePlan.objects.create(
-                patient=patient,
-                doctor=doctor,
-                notes=f"Synthetic care plan for {patient.username}.",
-            )
+            PatientDoctorLink.objects.get_or_create(patient=patient, doctor=doctor)
 
             for day_offset in range(3):
                 captured_at = now - timedelta(days=day_offset * 3 + idx)
@@ -212,14 +207,6 @@ class Command(BaseCommand):
                 summary="Synthetic family update: stable progress with recommended meal adjustments.",
             )
 
-            CareTask.objects.create(
-                care_plan=care_plan,
-                assignee=caregiver,
-                title="Review meal adherence and hydration",
-                status=care_task_statuses[idx % len(care_task_statuses)],
-                due_at=now + timedelta(days=idx + 1),
-            )
-
             Appointment.objects.create(
                 patient=patient,
                 doctor=doctor,
@@ -229,14 +216,6 @@ class Command(BaseCommand):
                 ends_at=now + timedelta(days=idx + 2, minutes=30),
                 status=Appointment.Status.SCHEDULED,
                 reminder_sent=(idx % 2 == 0),
-            )
-
-            MedicationGuidance.objects.create(
-                patient=patient,
-                requested_by=caregiver,
-                medication_name="Metformin",
-                guidance="Take with meals; monitor for GI discomfort; escalate severe side effects.",
-                doctor_validated=(idx % 2 == 1),
             )
 
             ClinicalCaseReview.objects.create(

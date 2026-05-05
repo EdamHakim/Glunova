@@ -30,8 +30,7 @@ import {
 import './monitoring.css'
 
 import { useAuth } from '@/components/auth-context'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import { listMedications, type PatientMedicationRow } from '@/lib/medications-api'
 import {
   getDiseaseProgression,
@@ -355,8 +354,12 @@ export default function MonitoringPage() {
             <Bot className="h-4 w-4 shrink-0" />
             {agentResult.messages_dispatched > 0 ? (
               <span>
-                Care agent dispatched <strong>{agentResult.messages_dispatched}</strong> message{agentResult.messages_dispatched !== 1 ? 's' : ''}.
-                Check your <strong>Care Circle</strong> for the AI-tagged updates.
+                Care agent dispatched <strong>{agentResult.messages_dispatched}</strong> message{agentResult.messages_dispatched !== 1 ? 's' : ''}.{' '}
+                {user?.role === 'doctor' ? (
+                  <>Patients and caregivers can read AI-tagged updates in their <strong>Care Circle</strong>.</>
+                ) : (
+                  <>Check your <strong>Care Circle</strong> for the AI-tagged updates.</>
+                )}
               </span>
             ) : (
               <span>{agentResult.skipped_reason ?? 'Agent ran but no messages were dispatched.'}</span>
@@ -372,21 +375,25 @@ export default function MonitoringPage() {
             <CardTitle className="text-base font-semibold">Patient context</CardTitle>
             <CardDescription>
               {patientId
-                ? `Viewing patient #${patientId}. All sections below load this patient's data.`
-                : 'Enter a patient ID you have access to. All sections below will then load that patient’s data.'}
+                ? `Viewing records for the selected patient. All sections below use this patient’s data.`
+                : user?.role === 'doctor'
+                  ? `Choose one of your assigned patients. All sections below will load that patient’s data.`
+                  : `Choose a linked patient. If you support only one, they are selected automatically.`}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex-1 space-y-2 sm:max-w-xs">
-                <Label htmlFor="monitoring-patient-id">Patient ID</Label>
-                <Input
+              <div className="flex-1 space-y-2 sm:max-w-md">
+                <DoctorPatientPicker
                   id="monitoring-patient-id"
-                  type="number"
-                  min={1}
-                  placeholder="e.g. 14"
+                  label="Patient"
+                  description={
+                    user?.role === 'doctor'
+                      ? 'Search by name — patients on your care team.'
+                      : 'Search by name — patients you are linked to as a caregiver.'
+                  }
                   value={patientId}
-                  onChange={(event) => setPatientId(event.target.value)}
+                  onChange={setPatientId}
                 />
               </div>
               {patientId ? (
@@ -405,8 +412,9 @@ export default function MonitoringPage() {
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
             <Info className="h-8 w-8 text-muted-foreground/60" aria-hidden />
             <p className="max-w-md leading-relaxed">
-              Select a patient above to view their risk assessment, screening history, alerts, and
-              disease progression.
+              {isDoctor
+                ? 'Pick an assigned patient above to view their risk assessment, screening history, alerts, and disease progression.'
+                : 'Choose a linked patient above to view their risk assessment, screening history, alerts, and disease progression.'}
             </p>
           </CardContent>
         </Card>
@@ -683,7 +691,7 @@ export default function MonitoringPage() {
                 {isDoctor
                   ? 'Assigned patients requiring immediate attention'
                   : isCaregiver
-                    ? 'Important updates you may need to help with'
+                    ? 'Clinical and risk alerts for patients you support (care agent messages are in Care Circle)'
                     : 'Your latest health alerts and reminders'}
               </CardDescription>
             </CardHeader>
@@ -739,6 +747,12 @@ export default function MonitoringPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end shrink-0">
+                        {alert.is_agent && (
+                          <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
+                            <Bot className="h-3 w-3" aria-hidden />
+                            AI
+                          </Badge>
+                        )}
                         <Badge className={getSeverityColor(alert.severity)}>{alert.severity}</Badge>
                         <span className="text-xs text-muted-foreground">{alert.relative_time}</span>
                       </div>

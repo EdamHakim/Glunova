@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import {
   Dialog,
   DialogContent,
@@ -65,7 +66,7 @@ export function ThermalFootPanel() {
 
     const pid = Number.parseInt(patientId.trim(), 10)
     if (!Number.isFinite(pid) || pid <= 0) {
-      setError('Enter a valid patient ID (positive integer).')
+      setError('Choose a patient from your list.')
       return
     }
     if (!file) {
@@ -206,22 +207,18 @@ export function ThermalFootPanel() {
             Thermal foot (IR) — diabetes risk
           </CardTitle>
           <CardDescription>
-            Upload a plantar thermal or infrared image and link it to a patient ID. The model returns a
-            risk score with a Grad-CAM heatmap for interpretability.
+            Upload a plantar thermal or infrared image for a selected assigned patient. The model
+            returns a risk score with a Grad-CAM heatmap for interpretability.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4 max-w-xl">
-            <div className="space-y-2">
-              <Label htmlFor="thermal-patient-id">Patient ID</Label>
-              <Input
+            <div className="space-y-2 max-w-md">
+              <DoctorPatientPicker
                 id="thermal-patient-id"
-                type="number"
-                min={1}
-                step={1}
-                placeholder="e.g. 42"
+                label="Patient"
                 value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
+                onChange={setPatientId}
               />
             </div>
 

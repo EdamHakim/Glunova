@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.db.models import Q
 from django.utils.timezone import now
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -9,7 +10,7 @@ from rest_framework.views import APIView
 from documents.access import can_access_patient_documents, parse_patient_pk
 from users.models import PatientCaregiverLink, PatientDoctorLink, User, UserRole
 
-from .models import Appointment, CarePlan, CareTask, FamilyUpdate, MedicationGuidance
+from .models import Appointment, FamilyUpdate
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
@@ -27,9 +28,8 @@ def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] 
     if role == UserRole.PATIENT:
         return [int(user.pk)], None
     if role == UserRole.DOCTOR:
-        from_plans = set(CarePlan.objects.filter(doctor=user).values_list("patient_id", flat=True))
-        from_links = set(PatientDoctorLink.objects.filter(doctor=user).values_list("patient_id", flat=True))
-        return list(from_plans | from_links), None
+        ids = set(PatientDoctorLink.objects.filter(doctor=user).values_list("patient_id", flat=True))
+        return list(ids), None
     if role == UserRole.CAREGIVER:
         ids = list(
             PatientCaregiverLink.objects.filter(caregiver=user, status="accepted")
@@ -55,146 +55,41 @@ def _require_role(user, role: str) -> Response | None:
 
 # ── Existing read-only views ──────────────────────────────────────────────────
 
-class CareCircleTeamView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
-        if error is not None:
-            return error
-        if not patient_ids:
-            return Response({"items": [], "total": 0})
-
-        members: list[dict] = []
-        patients = User.objects.filter(pk__in=patient_ids)
-        for patient in patients:
-            members.append(
-                {
-                    "id": int(patient.pk),
-                    "name": _user_display(patient),
-                    "username": patient.username,
-                    "role": "Patient",
-                    "status": "Active",
-                }
-            )
-
-        # Doctors: union of CarePlan links and PatientDoctorLink
-        doctor_ids = (
-            set(CarePlan.objects.filter(patient_id__in=patient_ids, doctor_id__isnull=False).values_list("doctor_id", flat=True))
-            | set(PatientDoctorLink.objects.filter(patient_id__in=patient_ids).values_list("doctor_id", flat=True))
-        )
-        caregiver_ids = set(
-            PatientCaregiverLink.objects.filter(patient_id__in=patient_ids, status="accepted")
-            .values_list("caregiver_id", flat=True)
-        )
-        for doctor in User.objects.filter(pk__in=doctor_ids).select_related("doctor_profile"):
-            profile = getattr(doctor, "doctor_profile", None)
-            members.append(
-                {
-                    "id": int(doctor.pk),
-                    "name": _user_display(doctor),
-                    "username": doctor.username,
-                    "role": "Doctor",
-                    "status": "Available",
-                    "specialization": profile.specialization if profile else "",
-                    "hospital_affiliation": profile.hospital_affiliation if profile else "",
-                }
-            )
-        for caregiver in User.objects.filter(pk__in=caregiver_ids).select_related("caregiver_profile"):
-            profile = getattr(caregiver, "caregiver_profile", None)
-            members.append(
-                {
-                    "id": int(caregiver.pk),
-                    "name": _user_display(caregiver),
-                    "username": caregiver.username,
-                    "role": "Caregiver",
-                    "status": "Active",
-                    "relationship": profile.relationship if profile else "",
-                    "is_professional": profile.is_professional if profile else False,
-                }
-            )
-        return Response({"items": members, "total": len(members)})
-
-
-class CareCirclePlanView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
-        if error is not None:
-            return error
-        if not patient_ids:
-            return Response({"care_plans": [], "tasks": [], "medication_guidance": []})
-
-        plans = (
-            CarePlan.objects.filter(patient_id__in=patient_ids)
-            .select_related("patient", "doctor")
-            .order_by("-created_at")
-        )
-        plan_payload = [
-            {
-                "id": plan.id,
-                "patient_id": int(plan.patient_id),
-                "patient_name": _user_display(plan.patient),
-                "doctor_name": _user_display(plan.doctor),
-                "notes": plan.notes,
-                "created_at": plan.created_at.isoformat(),
-            }
-            for plan in plans
-        ]
-
-        tasks = (
-            CareTask.objects.filter(care_plan__patient_id__in=patient_ids)
-            .select_related("care_plan__patient", "assignee")
-            .order_by("-created_at")[:100]
-        )
-        task_payload = [
-            {
-                "id": task.id,
-                "patient_id": int(task.care_plan.patient_id),
-                "patient_name": _user_display(task.care_plan.patient),
-                "title": task.title,
-                "status": task.status,
-                "assignee_name": _user_display(task.assignee),
-                "due_at": task.due_at.isoformat() if task.due_at else None,
-                "created_at": task.created_at.isoformat(),
-            }
-            for task in tasks
-        ]
-
-        guidance = MedicationGuidance.objects.filter(patient_id__in=patient_ids).select_related("patient").order_by("-created_at")[:100]
-        guidance_payload = [
-            {
-                "id": row.id,
-                "patient_id": int(row.patient_id),
-                "patient_name": _user_display(row.patient),
-                "medication_name": row.medication_name,
-                "guidance": row.guidance,
-                "doctor_validated": row.doctor_validated,
-                "created_at": row.created_at.isoformat(),
-            }
-            for row in guidance
-        ]
-        return Response({"care_plans": plan_payload, "tasks": task_payload, "medication_guidance": guidance_payload})
-
-
 class CareCircleUpdatesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if getattr(request.user, "role", None) == UserRole.DOCTOR:
+            return Response({"detail": "Care Circle is only available to patients and caregivers."}, status=status.HTTP_403_FORBIDDEN)
         patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
         if error is not None:
             return error
         if not patient_ids:
             return Response({"items": [], "total": 0})
 
-        updates = FamilyUpdate.objects.filter(patient_id__in=patient_ids).select_related("patient", "caregiver").order_by("-created_at")[:100]
+        updates_qs = FamilyUpdate.objects.filter(patient_id__in=patient_ids).select_related("patient", "caregiver")
+        viewer_role = getattr(request.user, "role", None)
+        if viewer_role == UserRole.PATIENT:
+            updates_qs = updates_qs.filter(
+                Q(source=FamilyUpdate.Source.HUMAN)
+                | (Q(source=FamilyUpdate.Source.AGENT) & Q(caregiver_id__isnull=True))
+            )
+        elif viewer_role == UserRole.CAREGIVER:
+            updates_qs = updates_qs.filter(
+                Q(source=FamilyUpdate.Source.HUMAN)
+                | (Q(source=FamilyUpdate.Source.AGENT) & Q(caregiver_id=request.user.pk))
+            )
+        updates = updates_qs.order_by("-created_at")[:100]
         payload = [
             {
                 "id": update.id,
                 "patient_id": int(update.patient_id),
                 "patient_name": _user_display(update.patient),
-                "from_name": _user_display(update.caregiver) if update.caregiver else "System",
+                "from_name": (
+                    "Care agent"
+                    if update.source == FamilyUpdate.Source.AGENT
+                    else (_user_display(update.caregiver) if update.caregiver else "System")
+                ),
                 "summary": update.summary,
                 "created_at": update.created_at.isoformat(),
                 "source": update.source,
@@ -208,6 +103,8 @@ class CareCircleAppointmentsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if getattr(request.user, "role", None) == UserRole.DOCTOR:
+            return Response({"detail": "Care Circle is only available to patients and caregivers."}, status=status.HTTP_403_FORBIDDEN)
         patient_ids, error = _resolve_patient_scope(request.user, request.query_params.get("patient_id"))
         if error is not None:
             return error

@@ -51,8 +51,8 @@ def _maybe_trigger_agent_on_skip(patient_id: int) -> None:
         logger.info("[nutrition.views] Skip threshold reached (%s) for patient %s — spawning agent", total_skips, patient_id)
 from rest_framework.views import APIView
 
-from carecircle.models import CarePlan
 from documents.access import can_access_patient_documents, parse_patient_pk
+from users.doctor_scope import patient_ids_for_doctor
 from users.models import PatientCaregiverLink
 from nutrition.models import ExerciseSession, Meal, NutritionGoal, RecoveryPlan, WeeklyWellnessPlan
 
@@ -74,8 +74,7 @@ def _resolve_patient_scope(user, raw_patient_id: str | None) -> tuple[list[int] 
     if role == "patient":
         return [int(user.pk)], None
     if role == "doctor":
-        ids = list(CarePlan.objects.filter(doctor=user).values_list("patient_id", flat=True).distinct())
-        return ids, None
+        return patient_ids_for_doctor(user), None
     if role == "caregiver":
         ids = list(
             PatientCaregiverLink.objects.filter(caregiver=user, status="accepted")

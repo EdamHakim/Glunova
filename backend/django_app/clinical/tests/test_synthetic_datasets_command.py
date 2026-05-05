@@ -1,7 +1,8 @@
 from django.core.management import call_command
 from django.test import TestCase
 
-from carecircle.models import Appointment, CareTask, FamilyUpdate, MedicationGuidance
+from carecircle.models import Appointment, FamilyUpdate
+from users.models import PatientDoctorLink
 from clinical.models import ClinicalCaseReview, CrisisEscalation, ImagingAnalysis
 from kids.models import KidsInteraction
 from monitoring.models import DiseaseProgression, HealthAlert, PatientMedication, RiskAssessment
@@ -26,9 +27,8 @@ class SyntheticDatasetCommandTests(TestCase):
         self.assertEqual(CrisisEscalation.objects.count(), 5)
         self.assertEqual(KidsInteraction.objects.count(), 5)
         self.assertEqual(FamilyUpdate.objects.count(), 5)
-        self.assertEqual(CareTask.objects.count(), 5)
         self.assertEqual(Appointment.objects.count(), 5)
-        self.assertEqual(MedicationGuidance.objects.count(), 5)
+        self.assertEqual(PatientDoctorLink.objects.count(), 5)
         self.assertEqual(ClinicalCaseReview.objects.count(), 5)
         self.assertEqual(ImagingAnalysis.objects.count(), 5)
         self.assertEqual(PatientMedication.objects.count(), 5)

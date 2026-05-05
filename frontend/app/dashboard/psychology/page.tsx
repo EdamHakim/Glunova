@@ -46,6 +46,7 @@ import {
   SANADI_AVATAR_CHOICES,
   SANADI_DEFAULT_AVATAR_PATH,
   coerceSanadiAvatarPath,
+  sanadiAvatarGender,
 } from '@/lib/sanadi-avatars'
 import { getApiUrls } from '@/lib/auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -277,6 +278,7 @@ export default function PsychologyPage() {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [preferredSessionLang, setPreferredSessionLang] = useState<PreferredSessionLang>('mixed')
   const [sanadiAvatarPath, setSanadiAvatarPath] = useState<string>(SANADI_DEFAULT_AVATAR_PATH)
+  const sanadiAvatarPathRef = useRef<string>(SANADI_DEFAULT_AVATAR_PATH)
   const [recognitionDebugOpen, setRecognitionDebugOpen] = useState(false)
   const [lastRecognitionSentHints, setLastRecognitionSentHints] = useState<RecognitionSentHints | null>(null)
   const [sessionToolsOpen, setSessionToolsOpen] = useState(false)
@@ -574,7 +576,9 @@ export default function PsychologyPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
-      setSanadiAvatarPath(coerceSanadiAvatarPath(sessionStorage.getItem(SANADI_PREF_AVATAR_KEY)))
+      const saved = coerceSanadiAvatarPath(sessionStorage.getItem(SANADI_PREF_AVATAR_KEY))
+      setSanadiAvatarPath(saved)
+      sanadiAvatarPathRef.current = saved
     } catch {
       /* ignore */
     }
@@ -582,6 +586,7 @@ export default function PsychologyPage() {
 
   const selectSanadiAvatar = useCallback((path: string) => {
     setSanadiAvatarPath(path)
+    sanadiAvatarPathRef.current = path
     if (typeof window === 'undefined') return
     try {
       sessionStorage.setItem(SANADI_PREF_AVATAR_KEY, path)
@@ -702,7 +707,7 @@ export default function PsychologyPage() {
         void recordingAudioCtxRef.current?.close()
         recordingAudioCtxRef.current = null
         voiceAnalyserRef.current = null
-        const speech: SynthesizedSpeech = await synthesizePsychologyVoice({ text: reply, language: lang })
+        const speech: SynthesizedSpeech = await synthesizePsychologyVoice({ text: reply, language: lang, gender: sanadiAvatarGender(sanadiAvatarPathRef.current) })
 
         if (voiceModeActive) {
           const deadline = Date.now() + 4000

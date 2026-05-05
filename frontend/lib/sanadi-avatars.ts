@@ -39,7 +39,7 @@ export const SANADI_AVATAR_CHOICES: SanadiAvatarChoice[] = [
   glb('Karim', 'male-karim.glb'),
   glb('Tarek', 'male-tarek.glb'),
   glb('Hakim', 'male-hakim.glb'),
-  glb('Sami', 'male-sami.glb'),
+
   glb('Mehdi', 'male-mehdi.glb'),
   glb('Rashid', 'male-rashid.glb'),
   glb('Nabil', 'male-nabil.glb'),
@@ -63,19 +63,19 @@ const LEGACY_GLB_FILENAME: Record<string, string> = {
   'female-avatar4.glb': 'female-zara.glb',
   'female-avatar5.glb': 'female-amel.glb',
   'male-avatar1.glb': 'male-hakim.glb',
-  'male-avatar2.glb': 'male-sami.glb',
+
   'male-avatar3.glb': 'male-mehdi.glb',
   'male-avatar4.glb': 'male-rashid.glb',
   'male-avatar5.glb': 'male-nabil.glb',
   'male-avatar6.glb': 'male-fares.glb',
-  avatar1.glb: 'female-elena.glb',
-  avatar2.glb: 'female-lina.glb',
-  avatar3.glb: 'female-sara.glb',
-  brunette.glb: 'female-zara.glb',
-  mpfbbb.glb: 'mpfb.glb',
+  'avatar1.glb': 'female-elena.glb',
+  'avatar2.glb': 'female-lina.glb',
+  'avatar3.glb': 'female-sara.glb',
+  'brunette.glb': 'female-zara.glb',
+  'mpfbbb.glb': 'mpfb.glb',
   'p-f-a1.glb': 'female-amel.glb',
   'p-f-a2.glb': 'female-maya.glb',
-  professionalfemale.glb: 'female-sara.glb',
+  'professionalfemale.glb': 'female-sara.glb',
   'p-m-a3.glb': 'male-mehdi.glb',
   'p-m-a4.glb': 'male-karim.glb',
 }
@@ -84,6 +84,12 @@ function resolveLegacyFilename(decodedBasename: string): string | null {
   return LEGACY_GLB_FILENAME[decodedBasename]
     ?? LEGACY_GLB_FILENAME[decodedBasename.toLowerCase()]
     ?? null
+}
+
+/** Derive avatar gender from its path — male-*.glb → "male", everything else → "female". */
+export function sanadiAvatarGender(path: string): 'male' | 'female' {
+  const filename = decodeURIComponent(path).split('/').pop() ?? ''
+  return filename.startsWith('male-') ? 'male' : 'female'
 }
 
 export function coerceSanadiAvatarPath(raw: string | null): string {

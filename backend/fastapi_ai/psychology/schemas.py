@@ -171,6 +171,7 @@ class VoiceTranscribeResponse(BaseModel):
 class VoiceSynthesizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
     language: Literal["en", "fr", "ar", "darija", "mixed"] = "en"
+    gender: Literal["female", "male"] = "female"
 
 
 class SessionEndRequest(BaseModel):

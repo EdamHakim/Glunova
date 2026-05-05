@@ -269,6 +269,7 @@ export type SynthesizedSpeech = {
 export async function synthesizePsychologyVoice(payload: {
   text: string
   language: PsychologyMessageResult['language_detected']
+  gender?: 'male' | 'female'
 }): Promise<SynthesizedSpeech> {
   const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/voice/synthesize`, {
     method: 'POST',
