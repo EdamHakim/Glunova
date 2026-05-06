@@ -419,9 +419,10 @@ class ExerciseStatusView(APIView):
             session = ExerciseSession.objects.get(pk=pk, patient=request.user)
         except ExerciseSession.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        prev_status = session.status
         session.status = new_status
         session.save(update_fields=["status"])
-        if new_status == "skipped":
+        if new_status == "skipped" and prev_status != "skipped":
             _maybe_trigger_agent_on_skip(request.user.pk)
         return Response({"id": session.id, "status": session.status})
 
@@ -438,8 +439,9 @@ class MealStatusView(APIView):
             meal = Meal.objects.select_related("wellness_plan").get(pk=pk, wellness_plan__patient=request.user)
         except Meal.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        prev_status = meal.status
         meal.status = new_status
         meal.save(update_fields=["status"])
-        if new_status == "skipped":
+        if new_status == "skipped" and prev_status != "skipped":
             _maybe_trigger_agent_on_skip(request.user.pk)
         return Response({"id": meal.id, "status": meal.status})

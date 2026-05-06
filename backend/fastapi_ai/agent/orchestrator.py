@@ -65,10 +65,10 @@ async def run_coordination(patient_id: int, trigger: str) -> CoordinateResponse:
             ctx = await context_agent.run(patient_id, session)
 
             # ── Step 2: cooldown guard ────────────────────────────────────────
-            # CRITICAL tier and actionable triggers always bypass the cooldown.
-            risk_tier = (ctx.monitoring.get("risk") or {}).get("tier", "LOW")
-            _no_cooldown = {"nutrition_skip", "crisis"}
-            if risk_tier.upper() != "CRITICAL" and trigger not in _no_cooldown:
+            # Open psychology crisis events and actionable triggers bypass the cooldown.
+            open_crisis = int((ctx.psychology or {}).get("open_crisis") or 0)
+            _no_cooldown = {"nutrition_skip", "crisis", "therapy_session"}
+            if open_crisis <= 0 and trigger not in _no_cooldown:
                 should_run, reason = _is_cooled_down(ctx)
                 if not should_run:
                     logger.info("[Orchestrator] SKIPPED patient=%s reason=%s", patient_id, reason)
@@ -77,15 +77,15 @@ async def run_coordination(patient_id: int, trigger: str) -> CoordinateResponse:
                         patient_id=patient_id,
                         messages_dispatched=0,
                         trigger=trigger,
-                        risk_tier=risk_tier,
+                        risk_tier=None,
                         skipped_reason=reason,
                     )
 
             # ── Step 3: reason ────────────────────────────────────────────────
             reasoning = await risk_reasoner_agent.run(ctx, trigger)
 
-            # Clinical triggers (manual, nutrition_skip, crisis) always dispatch.
-            _force_dispatch = {"manual", "nutrition_skip", "crisis"}
+            # Clinical triggers (manual, nutrition_skip, crisis, therapy_session) always dispatch.
+            _force_dispatch = {"manual", "nutrition_skip", "crisis", "therapy_session"}
             if not reasoning.should_dispatch and trigger not in _force_dispatch:
                 logger.info(
                     "[Orchestrator] NO DISPATCH patient=%s tier=%s",

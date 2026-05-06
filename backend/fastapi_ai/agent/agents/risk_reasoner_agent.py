@@ -1,10 +1,8 @@
 """RiskReasonerAgent — Groq LLM (llama-3.3-70b-versatile, JSON mode).
 
-Receives a PatientContext, produces a ReasoningOutput containing:
-- risk tier and priority level
-- key clinical signals
-- pre-drafted messages for each recipient role
-- should_dispatch flag (False when signals are reassuringly LOW)
+Receives a PatientContext (nutrition + weekly activity adherence, psychology only),
+produces a ReasoningOutput containing coordination priority, key signals from those
+domains, pre-drafted messages, and should_dispatch.
 """
 
 from __future__ import annotations
@@ -21,18 +19,28 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM = """\
 You are a proactive clinical care coordinator for Glunova, a diabetes management platform.
-You receive structured health data for a diabetic patient and must produce a JSON response.
+You receive structured data for a patient and must produce a JSON response.
+
+Data scope (strict):
+- You ONLY see NUTRITION (weekly wellness plan, macro goals, exercise skip counts) and PSYCHOLOGY
+  (emotion check-ins, recent therapy session count, open crisis flags).
+- You do NOT have screening outputs (e.g. retinopathy grades), formal risk-stratification scores,
+  risk-assessment drivers, disease-progression timelines, or lab-based monitoring feeds. Never invent
+  or cite those. The field name "risk_tier" means coordination urgency inferred ONLY from the JSON
+  blocks you are given (nutrition / activity adherence and psychology), not from clinical screening.
 
 Rules:
 - Your messages MUST be directly relevant to the TRIGGER that caused this run. Focus on what
-  actually happened, not on unrelated clinical findings in the data.
-- Synthesise signals in priority order: what the trigger highlights first, then correlated signals.
-- CRITICAL tier always sets priority=urgent and should_dispatch=true.
+  actually happened, not on unrelated findings.
+- Synthesise signals in priority order: what the trigger highlights first, then correlated signals
+  from the allowed blocks only.
+- CRITICAL tier always sets priority=urgent and should_dispatch=true (use only when open crisis or
+  severe distress in the PSYCHOLOGY block warrants it).
 - LOW tier with no concerning signals sets should_dispatch=false (no messages needed).
 - Messages must be empathetic, concise, and role-appropriate:
   - patient_nudge: motivational, directly addresses the trigger reason (max 2 sentences).
   - caregiver_update: practical, what to watch for given the trigger (max 3 sentences). null if no caregivers.
-  - doctor_summary: clinical, includes risk tier + trigger context + suggested action (max 4 sentences). null if no doctor.
+  - doctor_summary: includes coordination priority + trigger context + suggested action (max 4 sentences). null if no doctor.
 - Output ONLY valid JSON. No preamble.
 
 Output schema:
@@ -57,19 +65,30 @@ _TRIGGER_FOCUS = {
         "doctor_summary: set to null unless the risk tier is HIGH or CRITICAL."
     ),
     "alert": (
-        "TRIGGER — HEALTH ALERT: A risk tier escalation or high-risk event was detected. "
-        "Focus on the monitoring signals: current risk tier, active alerts, and disease progression. "
-        "Lead with the clinical finding that drove the alert."
+        "TRIGGER — HEALTH ALERT: A coordination run was triggered after an internal clinical alert. "
+        "You do not receive screening results or formal risk-assessment payloads. Base your assessment "
+        "only on NUTRITION/activity adherence and PSYCHOLOGY below; give supportive follow-up in "
+        "general terms without claiming specific screening or stratification results."
     ),
     "cron": (
         "TRIGGER — NIGHTLY CHECK: Routine scheduled review. Provide a balanced assessment "
-        "across all signals. Only dispatch if there is a meaningful concern to report."
+        "from NUTRITION_AND_ACTIVITY and PSYCHOLOGY only. Only dispatch if there is a meaningful concern."
     ),
     "crisis": (
         "TRIGGER — PSYCHOLOGICAL CRISIS: A crisis event was detected during the patient's therapy "
         "session. Focus entirely on the patient's emotional and psychological state. The "
         "patient_nudge must be warm, supportive, and urge the patient to reach out to their care "
         "team or a trusted person immediately."
+    ),
+    "therapy_session": (
+        "TRIGGER — THERAPY SESSION COMPLETE: The patient just finished a guided therapy session. "
+        "Use last_completed_session.summary (themes, last_state, techniques_used, risk_flags if any) "
+        "plus PSYCHOLOGY and NUTRITION_AND_ACTIVITY blocks. Produce three coordinated messages: "
+        "patient_nudge: brief affirming wrap-up referencing progress or coping themes (no clinical jargon). "
+        "caregiver_update: one short paragraph on how the family can support the patient this week "
+        "(themes only — do not quote raw message excerpts or sensitive tokens). "
+        "doctor_summary: concise clinical handoff (mental state trajectory, techniques, any risk_flags). "
+        "Set should_dispatch=true so summaries are delivered to every linked recipient."
     ),
 }
 
@@ -87,8 +106,7 @@ async def run(context: PatientContext, trigger: str = "cron") -> ReasoningOutput
         f"Patient ID: {context.patient_id}\n"
         f"Has linked doctor: {has_doctor}\n"
         f"Has linked caregivers: {has_caregiver}\n\n"
-        f"MONITORING:\n{json.dumps(context.monitoring, indent=2)}\n\n"
-        f"NUTRITION:\n{json.dumps(context.nutrition, indent=2)}\n\n"
+        f"NUTRITION_AND_ACTIVITY:\n{json.dumps(context.nutrition, indent=2)}\n\n"
         f"PSYCHOLOGY:\n{json.dumps(context.psychology, indent=2)}\n\n"
         "Generate the care coordination reasoning output as JSON."
     )

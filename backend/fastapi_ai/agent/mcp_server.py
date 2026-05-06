@@ -5,9 +5,8 @@ Spawned by:      agent/agents/context_agent.py and agent/agents/dispatch_agent.p
                  via StdioServerParameters inside an MCP ClientSession.
 
 Tools exposed:
-  get_monitoring_summary   — latest risk, alerts, disease trends
-  get_nutrition_summary    — wellness plan adherence, nutrition goals
-  get_psychology_state     — emotion assessment, therapy history
+  get_nutrition_summary    — wellness plan, meal/exercise adherence, nutrition goals
+  get_psychology_state     — emotion assessment, therapy history, crisis flags
   get_care_team            — linked doctor + accepted caregivers
   dispatch_update          — caregiver: Care Circle row; patient/doctor: Monitoring alert
 """
@@ -53,69 +52,7 @@ def _week_start() -> str:
     return str(monday)
 
 
-# ── Tool 1: Monitoring ────────────────────────────────────────────────────────
-
-@mcp.tool()
-def get_monitoring_summary(
-    patient_id: Annotated[int, "The patient's user ID"],
-) -> str:
-    """Return the latest risk assessment, active health alerts, and disease progression trends for a patient."""
-    result: dict = {"patient_id": patient_id, "risk": None, "alerts": [], "progressions": []}
-    try:
-        with _conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT tier, score, confidence, drivers, assessed_at
-                    FROM monitoring_riskassessment
-                    WHERE patient_id = %s
-                    ORDER BY assessed_at DESC
-                    LIMIT 1
-                    """,
-                    (patient_id,),
-                )
-                row = cur.fetchone()
-                if row:
-                    result["risk"] = {
-                        "tier": row[0], "score": row[1], "confidence": row[2],
-                        "drivers": row[3], "assessed_at": str(row[4]),
-                    }
-
-                cur.execute(
-                    """
-                    SELECT title, message, severity, triggered_at
-                    FROM monitoring_healthalert
-                    WHERE patient_id = %s AND status = 'active'
-                      AND (agent_audience IS NULL OR agent_audience = 'patient')
-                    ORDER BY triggered_at DESC
-                    LIMIT 3
-                    """,
-                    (patient_id,),
-                )
-                result["alerts"] = [
-                    {"title": r[0], "message": r[1], "severity": r[2], "triggered_at": str(r[3])}
-                    for r in cur.fetchall()
-                ]
-
-                cur.execute(
-                    """
-                    SELECT DISTINCT ON (indicator) indicator, value, trend, recorded_at
-                    FROM monitoring_diseaseprogression
-                    WHERE patient_id = %s
-                    ORDER BY indicator, recorded_at DESC
-                    """,
-                    (patient_id,),
-                )
-                result["progressions"] = [
-                    {"indicator": r[0], "value": r[1], "trend": r[2], "recorded_at": str(r[3])}
-                    for r in cur.fetchall()
-                ]
-    except Exception as exc:
-        result["error"] = str(exc)
-    return json.dumps(result)
-
-
-# ── Tool 2: Nutrition ─────────────────────────────────────────────────────────
+# ── Tool 1: Nutrition (includes weekly exercise / meal plan adherence) ───────
 
 @mcp.tool()
 def get_nutrition_summary(
@@ -176,14 +113,20 @@ def get_nutrition_summary(
     return json.dumps(result)
 
 
-# ── Tool 3: Psychology ────────────────────────────────────────────────────────
+# ── Tool 2: Psychology ────────────────────────────────────────────────────────
 
 @mcp.tool()
 def get_psychology_state(
     patient_id: Annotated[int, "The patient's user ID"],
 ) -> str:
-    """Return the patient's latest emotion assessment, therapy session count in the last 7 days, and any open crisis events."""
-    result: dict = {"patient_id": patient_id, "emotion": None, "sessions_7d": 0, "open_crisis": 0}
+    """Return emotion check-in, therapy session counts, crisis flags, and latest completed session summary (structured)."""
+    result: dict = {
+        "patient_id": patient_id,
+        "emotion": None,
+        "sessions_7d": 0,
+        "open_crisis": 0,
+        "last_completed_session": None,
+    }
     try:
         with _conn() as conn:
             with conn.cursor() as cur:
@@ -223,12 +166,49 @@ def get_psychology_state(
                     (patient_id,),
                 )
                 result["open_crisis"] = cur.fetchone()[0]
+
+                cur.execute(
+                    """
+                    SELECT session_id::text, started_at, ended_at, last_state, session_summary_json
+                    FROM psychology_psychologysession
+                    WHERE patient_id = %s AND ended_at IS NOT NULL
+                    ORDER BY ended_at DESC
+                    LIMIT 1
+                    """,
+                    (patient_id,),
+                )
+                srow = cur.fetchone()
+                if srow:
+                    raw_summary = srow[4]
+                    summary_obj: dict | None = None
+                    if isinstance(raw_summary, dict):
+                        summary_obj = raw_summary
+                    elif raw_summary not in (None, "") and isinstance(raw_summary, str):
+                        try:
+                            loaded = json.loads(raw_summary)
+                            summary_obj = loaded if isinstance(loaded, dict) else None
+                        except json.JSONDecodeError:
+                            summary_obj = None
+                    if summary_obj is not None:
+                        dumped = json.dumps(summary_obj, ensure_ascii=False)
+                        if len(dumped) > 7000:
+                            summary_obj = {
+                                "_truncated": True,
+                                "preview": dumped[:6900],
+                            }
+                    result["last_completed_session"] = {
+                        "session_id": srow[0],
+                        "started_at": str(srow[1]) if srow[1] else None,
+                        "ended_at": str(srow[2]) if srow[2] else None,
+                        "last_state": srow[3],
+                        "summary": summary_obj,
+                    }
     except Exception as exc:
         result["error"] = str(exc)
     return json.dumps(result)
 
 
-# ── Tool 4: Care team ─────────────────────────────────────────────────────────
+# ── Tool 3: Care team ─────────────────────────────────────────────────────────
 
 @mcp.tool()
 def get_care_team(
@@ -278,7 +258,7 @@ def get_care_team(
     return json.dumps(result)
 
 
-# ── Tool 5: Dispatch ──────────────────────────────────────────────────────────
+# ── Tool 4: Dispatch ──────────────────────────────────────────────────────────
 
 @mcp.tool()
 def dispatch_update(

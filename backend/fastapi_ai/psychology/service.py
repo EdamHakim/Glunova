@@ -71,6 +71,13 @@ SAFE_CRISIS_REPLY = (
 MIN_RETRIEVAL_SCORE = 0.16
 
 
+def _schedule_post_therapy_coordination(patient_id: int) -> None:
+    """Fire-and-forget care agent after a therapy session row is saved (Postgres-backed deployments)."""
+    from psychology.repositories import spawn_therapy_session_coordination
+
+    spawn_therapy_session_coordination(patient_id)
+
+
 @dataclass
 class SessionData:
     session_id: str
@@ -532,6 +539,7 @@ class PsychologyService:
 
         if self._pool is not None and defer:
             self._sessions.put_session(session)
+            _schedule_post_therapy_coordination(patient_id)
             messages_snapshot = list(session.messages)
             started_at = session.started_at
             preferred_language = session.preferred_language
@@ -576,6 +584,7 @@ class PsychologyService:
                 session_number=sess_num,
             )
             self._sessions.put_session(session)
+            _schedule_post_therapy_coordination(patient_id)
             logger.info("psychology.session.end session_id=%s patient_id=%s", session_id, patient_id)
             return SessionEndResponse(
                 session_id=session_id,

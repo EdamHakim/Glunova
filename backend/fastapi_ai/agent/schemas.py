@@ -9,7 +9,14 @@ from pydantic import BaseModel
 
 class CoordinateRequest(BaseModel):
     patient_id: int
-    trigger: Literal["alert", "cron", "manual", "nutrition_skip", "crisis"] = "manual"
+    trigger: Literal[
+        "alert",
+        "cron",
+        "manual",
+        "nutrition_skip",
+        "crisis",
+        "therapy_session",
+    ] = "manual"
 
 
 class CoordinateResponse(BaseModel):
@@ -42,9 +49,12 @@ class CareTeamMember(BaseModel):
 
 
 class PatientContext(BaseModel):
-    """Output of ContextAgent — input to RiskReasonerAgent."""
+    """Output of ContextAgent — input to RiskReasonerAgent.
+
+    Care agents only see nutrition (meals, goals, wellness plan / activity adherence)
+    and psychology state — not screening results or formal risk assessments.
+    """
     patient_id: int
-    monitoring: dict
     nutrition: dict
     psychology: dict
     care_team: dict  # {doctor: CareTeamMember|None, caregivers: list[CareTeamMember]}

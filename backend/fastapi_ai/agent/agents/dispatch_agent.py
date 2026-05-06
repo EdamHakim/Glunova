@@ -49,6 +49,7 @@ Rules:
 - Do not modify the messages — dispatch them verbatim.
 - Choose a short, specific title that reflects the reason for the message:
     nutrition_skip context  → "Meal Check-in" or "Activity Check-in"
+    therapy_session context → "Therapy Session Summary"
     crisis context          → "Crisis Support Alert"
     health alert context    → "Health Alert" or "Risk Update"
     routine check-in        → "Care Coordinator Update"
@@ -84,6 +85,20 @@ async def run(
 
     dispatched = 0
     recipients: list[str] = []
+    # One logical recipient per run (LLM sometimes emits duplicate caregiver tool calls).
+    seen_recipients: set[tuple[str, int | None]] = set()
+
+    def _recipient_key(args: dict) -> tuple[str, int | None]:
+        rt = (args.get("recipient_type") or "").strip().lower()
+        rid = args.get("recipient_id")
+        if rt in ("patient", "doctor"):
+            return (rt, None)
+        if rt == "caregiver" and rid is not None:
+            try:
+                return ("caregiver", int(rid))
+            except (TypeError, ValueError):
+                return ("caregiver", None)
+        return (rt, rid if rid is None else rid)
 
     for _ in range(6):  # max rounds — one per recipient + one final
         response = client.chat.completions.create(
@@ -105,6 +120,20 @@ async def run(
 
         for tc in msg.tool_calls:
             args = json.loads(tc.function.arguments)
+            rkey = _recipient_key(args)
+            if rkey in seen_recipients:
+                dup_payload = json.dumps(
+                    {"ok": True, "deduped": True, "recipient_type": args.get("recipient_type")}
+                )
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": dup_payload})
+                logger.info(
+                    "[DispatchAgent] skipped duplicate recipient patient=%s key=%s",
+                    args.get("patient_id"),
+                    rkey,
+                )
+                continue
+            seen_recipients.add(rkey)
+
             mcp_result = await session.call_tool("dispatch_update", args)
             result_text = mcp_result.content[0].text if mcp_result.content else "{}"
             result_data = json.loads(result_text)

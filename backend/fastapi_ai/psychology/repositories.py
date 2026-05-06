@@ -25,6 +25,28 @@ def _fire_crisis_agent(patient_id: int) -> None:
         logger.warning("[psychology.repositories] Agent coordination failed for patient %s: %s", patient_id, exc)
 
 
+def _fire_therapy_session_agent(patient_id: int) -> None:
+    """Post–therapy care coordination: summaries to patient / caregivers / doctor."""
+    try:
+        from agent.orchestrator import run_coordination
+
+        asyncio.run(run_coordination(int(patient_id), "therapy_session"))
+        logger.info(
+            "[psychology.repositories] Therapy-session coordination completed for patient %s",
+            patient_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[psychology.repositories] Therapy-session coordination failed for patient %s: %s",
+            patient_id,
+            exc,
+        )
+
+
+def spawn_therapy_session_coordination(patient_id: int) -> None:
+    threading.Thread(target=_fire_therapy_session_agent, args=(patient_id,), daemon=True).start()
+
+
 def _parse_dt(value: Any) -> datetime:
     if isinstance(value, datetime):
         if value.tzinfo is not None:
