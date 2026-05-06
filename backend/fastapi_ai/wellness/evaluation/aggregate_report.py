@@ -49,11 +49,13 @@ def run_full_evaluation(
     output_dir:   Path = _DEFAULT_OUTPUT,
     *,
     fail_on_thresholds: bool = False,
+    judge_provider: str = "auto",
 ) -> dict[str, Any]:
+    """*judge_provider*: ``auto`` uses Groq when ``GROQ_API_KEY`` is set, else OpenAI if configured."""
     _load_backend_dotenv()
     samples:      list[WellnessEvalSample]     = load_eval_samples(dataset_path)
     runtime_rows: list[WellnessEvalRuntimeRow] = build_runtime_rows(samples)
-    deepeval_report = run_deepeval_eval(runtime_rows)
+    deepeval_report = run_deepeval_eval(runtime_rows, judge_provider=judge_provider)
 
     run_id = datetime.now(timezone.utc).strftime("wellness_eval_%Y%m%dT%H%M%SZ")
     report: dict[str, Any] = {

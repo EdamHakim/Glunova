@@ -31,16 +31,72 @@ def _fallback_case(row: WellnessEvalRuntimeRow) -> dict[str, Any]:
     }
 
 
-def _build_judge_model(provider: str = "auto"):
-    """Return a DeepEval-compatible judge model using the navy/OpenAI endpoint."""
-    provider = (provider or "auto").strip().lower()
+def _groq_api_key() -> str:
+    k = (os.getenv("GROQ_API_KEY") or "").strip()
+    if k:
+        return k
+    try:
+        from core.config import settings
 
-    if provider == "auto":
-        provider = "openai" if os.getenv("OPENAI_API_KEY") else None
-    if provider is None:
+        return (settings.groq_api_key or "").strip()
+    except Exception:
+        return ""
+
+
+def _resolve_judge_provider(provider: str) -> str | None:
+    """Pick groq first, then openai, when provider is 'auto'."""
+    p = (provider or "auto").strip().lower()
+    if p != "auto":
+        return p
+    if _groq_api_key():
+        return "groq"
+    if os.getenv("OPENAI_API_KEY"):
+        return "openai"
+    return None
+
+
+def _build_judge_model(provider: str = "auto"):
+    """Return a DeepEval-compatible judge (Groq or OpenAI-compatible / Navy client)."""
+    resolved = _resolve_judge_provider(provider)
+    if resolved is None:
         return None
 
-    if provider == "openai":
+    if resolved == "groq":
+        if not _groq_api_key():
+            return None
+        from deepeval.models import DeepEvalBaseLLM
+        from groq import Groq
+
+        from core.config import settings
+
+        class GroqJudgeModel(DeepEvalBaseLLM):
+            def __init__(self) -> None:
+                self._model_name = os.getenv(
+                    "WELLNESS_EVAL_GROQ_MODEL",
+                    settings.groq_model,
+                ).strip()
+                self._client = Groq(api_key=_groq_api_key())
+
+            def load_model(self):
+                return self._model_name
+
+            def generate(self, prompt: str, **kwargs) -> str:
+                res = self._client.chat.completions.create(
+                    model=self._model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                )
+                return res.choices[0].message.content or ""
+
+            async def a_generate(self, prompt: str, **kwargs) -> str:
+                return self.generate(prompt)
+
+            def get_model_name(self) -> str:
+                return self._model_name
+
+        return GroqJudgeModel()
+
+    if resolved == "openai":
         from deepeval.models import DeepEvalBaseLLM
 
         from wellness.navy_openai import create_navy_openai_client
@@ -69,7 +125,7 @@ def _build_judge_model(provider: str = "auto"):
 
         return NavyModel()
 
-    raise ValueError(f"Unsupported judge provider: {provider}")
+    raise ValueError(f"Unsupported judge provider: {resolved}")
 
 
 def _measure(metric, *, input_text: str, expected: str, actual: str) -> tuple[float, str]:
@@ -84,6 +140,7 @@ def run_deepeval_eval(
     *,
     judge_provider: str = "auto",
 ) -> dict[str, Any]:
+    """Run GEval metrics. *judge_provider*: ``auto`` prefers Groq (``GROQ_API_KEY``), then OpenAI."""
     try:
         from deepeval.metrics import GEval
         from deepeval.test_case import SingleTurnParams
@@ -93,9 +150,11 @@ def run_deepeval_eval(
 
     try:
         judge = _build_judge_model(judge_provider)
+        effective_provider = _resolve_judge_provider(judge_provider) or "none"
     except Exception:
         import traceback; traceback.print_exc()
         judge = None
+        effective_provider = "none"
 
     try:
         clinical_safety = GEval(
@@ -193,10 +252,11 @@ def run_deepeval_eval(
         })
 
     return {
-        "engine":         "deepeval",
-        "judge_provider": judge_provider,
-        "cases":          cases,
-        "aggregate":      _aggregate(cases),
+        "engine":                     "deepeval",
+        "judge_provider":             judge_provider,
+        "judge_provider_resolved":   effective_provider,
+        "cases":                      cases,
+        "aggregate":                  _aggregate(cases),
     }
 
 

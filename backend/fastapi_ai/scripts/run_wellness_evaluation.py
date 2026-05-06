@@ -23,11 +23,18 @@ def main() -> None:
     parser.add_argument("--dataset", type=Path, default=default_dataset)
     parser.add_argument("--output-dir", type=Path, default=default_output)
     parser.add_argument("--fail-on-thresholds", action="store_true")
+    parser.add_argument(
+        "--judge-provider",
+        default="auto",
+        choices=("auto", "groq", "openai"),
+        help="GEval judge LLM: auto prefers GROQ_API_KEY then OPENAI_API_KEY",
+    )
     args = parser.parse_args()
     report = run_full_evaluation(
         dataset_path=args.dataset,
         output_dir=args.output_dir,
         fail_on_thresholds=args.fail_on_thresholds,
+        judge_provider=args.judge_provider,
     )
     rid = report["run_id"]
     print(f"Wrote {args.output_dir / f'{rid}.json'}")
