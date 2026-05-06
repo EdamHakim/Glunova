@@ -1,7 +1,6 @@
 <p align="center">
-  <img src="frontend/public/glunova_logo.png" alt="Glunova — AI-assisted diabetes care platform logo" width="280">
-</p>
-<p align="center">
+  <img src="frontend/public/glunova_logo.png" alt="Glunova — AI-assisted diabetes care platform logo" width="260">
+  &nbsp;&nbsp;&nbsp;
   <a href="https://esprit.tn/"><img src="frontend/public/esprit_logo.png" alt="Esprit School of Engineering — se former autrement" width="220"></a>
 </p>
 
@@ -45,26 +44,49 @@ For a detailed feature matrix and team ownership, see [Features](https://citrine
 
 ## Tech Stack
 
-Icons are shown for quick scanning; dependency versions live in manifests under `frontend/` and `backend/`.
+Badges summarize the stack; pinned versions and extras live in `frontend/package.json`, `backend/requirements.txt`, and related configs.
 
 ### Frontend
 
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/nextdotjs.svg" width="18" height="18" alt=""> **Next.js** (App Router), <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/react.svg" width="18" height="18" alt=""> **React 19**, <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/typescript.svg" width="18" height="18" alt=""> **TypeScript**
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/tailwindcss.svg" width="18" height="18" alt=""> **Tailwind CSS** and <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/radixui.svg" width="18" height="18" alt=""> **Radix UI** primitives (see [frontend/package.json](frontend/package.json))
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/pnpm.svg" width="18" height="18" alt=""> **pnpm** for package management
+<p>
+<a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js"></a>
+<a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232a?style=flat-square&logo=react&logoColor=61dafb" alt="React 19"></a>
+<a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
+<a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
+<a href="https://www.radix-ui.com/"><img src="https://img.shields.io/badge/Radix_UI-161618?style=flat-square&logo=radixui&logoColor=white" alt="Radix UI"></a>
+<a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-f69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
+</p>
+
+- **Next.js** (App Router), **React 19**, **TypeScript**
+- **Tailwind CSS** and **Radix UI** primitives (see [frontend/package.json](frontend/package.json))
+- **pnpm** for package management
 
 ### Backend
 
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/django.svg" width="18" height="18" alt=""> **Django** — authentication, **RBAC**, migrations, REST APIs, document metadata and orchestration ([backend/django_app/](backend/django_app/))
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/fastapi.svg" width="18" height="18" alt=""> **FastAPI** — OCR and extraction, screening inference, AI routes; **OpenAPI** documentation at `/docs` ([backend/fastapi_ai/](backend/fastapi_ai/))
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/postgresql.svg" width="18" height="18" alt=""> **PostgreSQL** — shared database for Django and FastAPI
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/pytorch.svg" width="18" height="18" alt=""> **PyTorch** and **Ultralytics YOLO-World** — model-backed screening and nutrition vision paths (see [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md))
+<p>
+<a href="https://www.djangoproject.com/"><img src="https://img.shields.io/badge/Django-092E20?style=flat-square&logo=django&logoColor=white" alt="Django"></a>
+<a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI"></a>
+<a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-316192?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL"></a>
+<a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white" alt="PyTorch"></a>
+<a href="https://www.ultralytics.com/"><img src="https://img.shields.io/badge/Ultralytics-YOLO--World-1791CE?style=flat-square" alt="Ultralytics YOLO-World"></a>
+</p>
+
+- **Django** — authentication, **RBAC**, migrations, REST APIs, document metadata and orchestration ([backend/django_app/](backend/django_app/))
+- **FastAPI** — OCR and extraction, screening inference, AI routes; **OpenAPI** documentation at `/docs` ([backend/fastapi_ai/](backend/fastapi_ai/))
+- **PostgreSQL** — shared database for Django and FastAPI
+- **PyTorch** and **Ultralytics YOLO-World** — model-backed screening and nutrition vision paths (see [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md))
 
 ### Other tools
 
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/gnu.svg" width="18" height="18" alt=""> **GNU Make** and [Makefile](Makefile) for repeatable backend lifecycle commands
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/uv.svg" width="18" height="18" alt=""> **`uv`** (Python) for fast local dependency installs in the provided Windows script
-- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/nodedotjs.svg" width="18" height="18" alt=""> **Node.js 22+** for the frontend toolchain
+<p>
+<a href="https://www.gnu.org/software/make/"><img src="https://img.shields.io/badge/Make-427819?style=flat-square&logo=gnu&logoColor=white" alt="GNU Make"></a>
+<a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/uv-DE5FE9?style=flat-square&logo=uv&logoColor=white" alt="uv"></a>
+<a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js_22+-43853D?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 22+"></a>
+</p>
+
+- **GNU Make** and [Makefile](Makefile) for repeatable backend lifecycle commands
+- **`uv`** (Python) for fast local dependency installs in the provided Windows script
+- **Node.js 22+** for the frontend toolchain
 
 ---
 
