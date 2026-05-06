@@ -12,7 +12,6 @@ import torch.nn as nn
 from PIL import Image, UnidentifiedImageError
 from pytorch_grad_cam import GradCAM
 from torchvision import models as tv_models
-from torchvision.models import ResNet50_Weights
 
 from screening.config import (
     CLASS_LABELS,
@@ -51,7 +50,8 @@ def _circular_mask_tensor(image_tensor: np.ndarray) -> np.ndarray:
 
 
 def _build_model() -> nn.Module:
-    model = tv_models.resnet50(weights=ResNet50_Weights.DEFAULT)
+    # Empty backbone: trained weights come entirely from PT_MODEL_PATH (no ImageNet pull).
+    model = tv_models.resnet50(weights=None)
     model.fc = nn.Sequential(nn.Dropout(0.4), nn.Linear(2048, 1))
     return model
 
