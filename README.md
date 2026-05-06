@@ -22,11 +22,10 @@
 
 ## Overview
 
-**Glunova** is a full-stack health technology project focused on **diabetes care**, **machine learning–assisted screening**, and **patient-centered digital health**. It combines a modern **React** and **Next.js** frontend with a **hybrid Python backend** (**Django** REST APIs and **FastAPI** for AI-heavy workloads), backed by **PostgreSQL**. The platform supports **API-driven** workflows, **medical document processing** and **OCR**, **nutrition automation** (including vision-based food analysis), and **role-based access control (RBAC)** for secure multi-user care scenarios.
+**Glunova** is a full-stack health technology project focused on **diabetes care**, **deep learning–assisted screening**, and **patient-centered digital health**. It combines a modern **React** and **Next.js** frontend with a **hybrid Python backend** (**Django** REST APIs and **FastAPI** for AI-heavy workloads), backed by **PostgreSQL**. The platform supports **API-driven** workflows, **medical document processing** and **OCR**, **nutrition automation** (including vision-based food analysis), and **role-based access control (RBAC)** for secure multi-user care scenarios.
 
-This project was developed as part of coursework at **Esprit School of Engineering** (Class **3IA3**, **Innova Team**, **2026**). It demonstrates applied skills in **full-stack development**, **API design**, **AI integration**, and **health informatics**.
-
-For a detailed feature matrix and team ownership, see [features.md](features.md).
+This project was developed as part of coursework at **Esprit School of Engineering** (Class **3IA3**, **Innova Team**, **2026**). 
+For a detailed feature matrix and team ownership, see [Features](https://citrine-gallon-8da.notion.site/58e0ec81b5c0828bb7950134d55c4566?v=d010ec81b5c08247a6430893c5067867).
 
 ---
 
@@ -71,8 +70,6 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 | [frontend/](frontend/) | Next.js app, UI, client integration with Django and FastAPI |
 | [backend/django_app/](backend/django_app/) | Auth, RBAC, REST, migrations |
 | [backend/fastapi_ai/](backend/fastapi_ai/) | AI and OCR routes, FastAPI OpenAPI |
-| [docker-compose.yml](docker-compose.yml) | Compose stack (`django_app` → **8000**, `fastapi_ai` → **8001**) |
-| [Makefile](Makefile) | `backend-up`, `backend-down`, local backend helpers |
 | [scripts/start_backends_local.bat](scripts/start_backends_local.bat) | Local Django + FastAPI on Windows |
 
 ---
