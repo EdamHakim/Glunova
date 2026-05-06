@@ -175,10 +175,14 @@ def _evaluate_ragas_groq(dataset: Any) -> Any:
     model_name = groq_eval_model_name()
     from ragas import evaluate
     from ragas.llms import LangchainLLMWrapper
+    from ragas.run_config import RunConfig
     from langchain_groq import ChatGroq
 
     groq_llm = ChatGroq(model=model_name, api_key=key, temperature=0.0)
     ragas_llm = LangchainLLMWrapper(groq_llm)
+    # Default RunConfig(timeout=180, max_workers=16) causes TimeoutError when many faithfulness /
+    # context jobs pile up behind Groq rate limits; give each job more time and ease concurrency.
+    run_config = RunConfig(timeout=600, max_workers=6, max_retries=12)
 
     # Prefer module-level metrics API (as requested); fallback to class API by version.
     try:
@@ -196,7 +200,7 @@ def _evaluate_ragas_groq(dataset: Any) -> Any:
             ContextRecall(llm=ragas_llm),
             ContextPrecision(llm=ragas_llm),
         ]
-    return evaluate(dataset=dataset, metrics=metrics, llm=ragas_llm)
+    return evaluate(dataset=dataset, metrics=metrics, llm=ragas_llm, run_config=run_config)
 
 
 def run_ragas_eval(rows: list[EvalRuntimeRow]) -> dict[str, Any]:
