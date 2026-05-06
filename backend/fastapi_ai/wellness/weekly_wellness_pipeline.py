@@ -15,12 +15,12 @@ from typing import Any
 
 from openai import OpenAI
 
+from .navy_openai import create_navy_openai_client
 from .weekly_wellness_schema import WeeklyWellnessPlanRequest
 
 log = logging.getLogger(__name__)
 
-NAVY_BASE_URL = "https://api.navy/v1"
-NAVY_MODEL    = os.environ.get("OPENAI_MODEL", "gpt-4o")
+NAVY_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -33,10 +33,7 @@ CUISINE_DESCRIPTIONS: dict[str, str] = {
 
 
 def _get_client() -> OpenAI:
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise EnvironmentError("OPENAI_API_KEY not set")
-    return OpenAI(api_key=api_key, base_url=NAVY_BASE_URL)
+    return create_navy_openai_client()
 
 
 def _extract_json(raw: str) -> dict:
@@ -65,6 +62,25 @@ def _extract_json(raw: str) -> dict:
     return json.loads(raw[start : end + 1])
 
 
+def _summarize_llm_api_error(exc: BaseException) -> str:
+    """Turn huge HTML proxy pages / opaque SDK errors into a short, actionable message."""
+    text = str(exc)
+    tl = text.lower()
+    endpoint = os.environ.get("OPENAI_BASE_URL", "https://api.navy/v1")
+    if "<!doctype html>" in tl or "web filter" in tl or "fortiguard" in tl:
+        return (
+            "Firewall or web filter blocked the LLM API (got an HTML block page instead of JSON). "
+            f"Current base URL: {endpoint}. Allowlist this host/VPN around it, or set OPENAI_BASE_URL "
+            "to another OpenAI-compatible endpoint your network allows."
+        )
+    if "CERTIFICATE_VERIFY_FAILED" in text:
+        return (
+            "TLS certificate verification failed. Set OPENAI_CA_BUNDLE (or SSL_CERT_FILE) to your CA bundle, "
+            "or OPENAI_SSL_VERIFY=false for local testing only."
+        )
+    return text if len(text) <= 700 else text[:700] + "…"
+
+
 def _call(client: OpenAI, prompt: str, *, max_tokens: int = 4000) -> dict:
     try:
         resp = client.chat.completions.create(
@@ -74,8 +90,9 @@ def _call(client: OpenAI, prompt: str, *, max_tokens: int = 4000) -> dict:
             max_tokens=max_tokens,
         )
     except Exception as exc:
-        log.exception("OpenAI API call failed")
-        raise RuntimeError(f"LLM API error: {exc}") from exc
+        summary = _summarize_llm_api_error(exc)
+        log.error("OpenAI API call failed: %s", summary)
+        raise RuntimeError(f"LLM API error: {summary}") from exc
 
     raw = resp.choices[0].message.content or ""
     log.debug("LLM raw response (first 500 chars): %s", raw[:500])

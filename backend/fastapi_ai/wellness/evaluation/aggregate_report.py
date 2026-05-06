@@ -9,6 +9,18 @@ from wellness.evaluation.dataset_schema import WellnessEvalSample
 from wellness.evaluation.run_deepeval_eval import run_deepeval_eval
 from wellness.evaluation.runner import WellnessEvalRuntimeRow, build_runtime_rows, load_eval_samples
 
+_BACKEND_ENV = Path(__file__).resolve().parents[3] / ".env"
+
+
+def _load_backend_dotenv() -> None:
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    if _BACKEND_ENV.is_file():
+        load_dotenv(_BACKEND_ENV, override=False)
+
+
 _DEFAULT_DATASET = Path(__file__).parent / "data" / "wellness_evalset.jsonl"
 _DEFAULT_OUTPUT  = Path(__file__).parent.parent.parent.parent / "tmp" / "wellness_eval_reports"
 
@@ -38,6 +50,7 @@ def run_full_evaluation(
     *,
     fail_on_thresholds: bool = False,
 ) -> dict[str, Any]:
+    _load_backend_dotenv()
     samples:      list[WellnessEvalSample]     = load_eval_samples(dataset_path)
     runtime_rows: list[WellnessEvalRuntimeRow] = build_runtime_rows(samples)
     deepeval_report = run_deepeval_eval(runtime_rows)

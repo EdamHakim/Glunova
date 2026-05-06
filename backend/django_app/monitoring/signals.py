@@ -19,7 +19,7 @@ def _fire_agent(patient_id: int) -> None:
         httpx.post(
             f"{ai_url}/agent/coordinate",
             json={"patient_id": patient_id, "trigger": "alert"},
-            timeout=5.0,
+            timeout=120.0,
         )
         logger.info("[monitoring.signals] Agent triggered for patient %s", patient_id)
     except Exception as exc:

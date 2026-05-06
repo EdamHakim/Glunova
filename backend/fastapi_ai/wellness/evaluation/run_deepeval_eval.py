@@ -42,15 +42,13 @@ def _build_judge_model(provider: str = "auto"):
 
     if provider == "openai":
         from deepeval.models import DeepEvalBaseLLM
-        from openai import OpenAI
+
+        from wellness.navy_openai import create_navy_openai_client
 
         class NavyModel(DeepEvalBaseLLM):
             def __init__(self):
                 self._model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
-                self._client = OpenAI(
-                    api_key=os.getenv("OPENAI_API_KEY"),
-                    base_url="https://api.navy/v1",
-                )
+                self._client = create_navy_openai_client()
 
             def load_model(self):
                 return self._model_name

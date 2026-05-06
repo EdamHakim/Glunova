@@ -432,14 +432,18 @@ function CareCircleContent() {
       setAppointments([])
       return
     }
+    const showUpdates = role === 'caregiver'
     let cancelled = false
     setLoading(true)
     setError(null)
-    void Promise.all([listCareCircleUpdates(patientId), listCareCircleAppointments(patientId)])
-      .then(([updatesPayload, apptsPayload]) => {
+    void Promise.all([
+      listCareCircleAppointments(patientId),
+      showUpdates ? listCareCircleUpdates(patientId) : Promise.resolve({ items: [] as CareCircleUpdate[] }),
+    ])
+      .then(([apptsPayload, updatesPayload]) => {
         if (cancelled) return
-        setUpdates(updatesPayload.items)
         setAppointments(apptsPayload.items)
+        setUpdates(showUpdates ? updatesPayload.items : [])
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load care circle data')
@@ -448,7 +452,7 @@ function CareCircleContent() {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [patientId])
+  }, [patientId, role])
 
   return (
     <div className="relative min-h-[calc(100dvh-6rem)]">
@@ -525,54 +529,68 @@ function CareCircleContent() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-stretch">
-            <Card className="flex flex-col border-border/80 shadow-sm lg:col-span-7">
-              <CardHeader className="border-b border-border/60 bg-muted/20 pb-4">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Bell className="h-4 w-4" />
-                  </span>
-                  Updates &amp; messages
-                </CardTitle>
-                <CardDescription>Recent notes from the care team and care agent.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col p-0">
-                {loading && (
-                  <p className="p-5 text-sm text-muted-foreground">Loading updates…</p>
-                )}
-                {!loading && updates.length === 0 && (
-                  <p className="p-5 text-sm text-muted-foreground">No updates yet for this patient.</p>
-                )}
-                {!loading && updates.length > 0 && (
-                  <ScrollArea className="h-[min(420px,50vh)] sm:h-[min(480px,55vh)]">
-                    <ul className="divide-y divide-border/80 p-2">
-                      {updates.map((update) => (
-                        <li
-                          key={update.id}
-                          className="px-3 py-3 transition-colors hover:bg-muted/40 sm:px-4 sm:py-4"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="font-medium leading-snug">{update.from_name}</p>
-                            {update.source === 'agent' && (
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300">
-                                <Bot className="h-3 w-3" />
-                                AI
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{update.summary}</p>
-                          <p className="mt-2 text-xs text-muted-foreground tabular-nums">
-                            {new Date(update.created_at).toLocaleString()}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </Card>
+          <div
+            className={
+              role === 'caregiver'
+                ? 'grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-stretch'
+                : 'grid grid-cols-1 gap-6'
+            }
+          >
+            {role === 'caregiver' && (
+              <Card className="flex flex-col border-border/80 shadow-sm lg:col-span-7">
+                <CardHeader className="border-b border-border/60 bg-muted/20 pb-4">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Bell className="h-4 w-4" />
+                    </span>
+                    Updates &amp; messages
+                  </CardTitle>
+                  <CardDescription>Recent notes from the care team and care agent.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col p-0">
+                  {loading && (
+                    <p className="p-5 text-sm text-muted-foreground">Loading updates…</p>
+                  )}
+                  {!loading && updates.length === 0 && (
+                    <p className="p-5 text-sm text-muted-foreground">No updates yet for this patient.</p>
+                  )}
+                  {!loading && updates.length > 0 && (
+                    <ScrollArea className="h-[min(420px,50vh)] sm:h-[min(480px,55vh)]">
+                      <ul className="divide-y divide-border/80 p-2">
+                        {updates.map((update) => (
+                          <li
+                            key={update.id}
+                            className="px-3 py-3 transition-colors hover:bg-muted/40 sm:px-4 sm:py-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="font-medium leading-snug">{update.from_name}</p>
+                              {update.source === 'agent' && (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                                  <Bot className="h-3 w-3" />
+                                  AI
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{update.summary}</p>
+                            <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+                              {new Date(update.created_at).toLocaleString()}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </ScrollArea>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
-            <Card className="flex flex-col border-border/80 shadow-sm lg:col-span-5">
+            <Card
+              className={
+                role === 'caregiver'
+                  ? 'flex flex-col border-border/80 shadow-sm lg:col-span-5'
+                  : 'flex flex-col border-border/80 shadow-sm'
+              }
+            >
               <CardHeader className="border-b border-border/60 bg-muted/20 pb-4">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">

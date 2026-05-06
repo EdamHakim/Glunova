@@ -286,6 +286,7 @@ def dispatch_update(
     recipient_type: Annotated[str, "One of: patient, caregiver, doctor"],
     message: Annotated[str, "The care coordination message to dispatch"],
     recipient_id: Annotated[int | None, "User ID of the caregiver. Omit for patient and doctor messages."] = None,
+    title: Annotated[str, "Alert title shown in the monitoring feed. E.g. 'Nutrition Check-in', 'Care Coordinator Update'."] = "Care Coordinator",
 ) -> str:
     """Deliver care-agent text: patient/doctor → Monitoring alert; caregiver → Care Circle FamilyUpdate."""
     result: dict = {"ok": False, "family_update_id": None, "health_alert_id": None, "recipient_type": recipient_type}
@@ -316,7 +317,7 @@ def dispatch_update(
                         VALUES (%s, NULL, %s, %s, 'info', 'active', NOW(), NULL, NOW(), %s)
                         RETURNING id
                         """,
-                        (patient_id, "Care agent", message, "patient"),
+                        (patient_id, title, message, "patient"),
                     )
                     result["health_alert_id"] = cur.fetchone()[0]
                 elif rt == "doctor":
@@ -328,7 +329,7 @@ def dispatch_update(
                         VALUES (%s, NULL, %s, %s, 'info', 'active', NOW(), NULL, NOW(), %s)
                         RETURNING id
                         """,
-                        (patient_id, "Care agent", message, "doctor"),
+                        (patient_id, title, message, "doctor"),
                     )
                     result["health_alert_id"] = cur.fetchone()[0]
                 else:

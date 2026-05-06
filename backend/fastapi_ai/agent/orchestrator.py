@@ -65,9 +65,10 @@ async def run_coordination(patient_id: int, trigger: str) -> CoordinateResponse:
             ctx = await context_agent.run(patient_id, session)
 
             # ── Step 2: cooldown guard ────────────────────────────────────────
-            # CRITICAL alerts always bypass the cooldown.
+            # CRITICAL tier and actionable triggers always bypass the cooldown.
             risk_tier = (ctx.monitoring.get("risk") or {}).get("tier", "LOW")
-            if trigger != "alert" or risk_tier != "CRITICAL":
+            _no_cooldown = {"nutrition_skip", "crisis"}
+            if risk_tier.upper() != "CRITICAL" and trigger not in _no_cooldown:
                 should_run, reason = _is_cooled_down(ctx)
                 if not should_run:
                     logger.info("[Orchestrator] SKIPPED patient=%s reason=%s", patient_id, reason)
@@ -81,7 +82,7 @@ async def run_coordination(patient_id: int, trigger: str) -> CoordinateResponse:
                     )
 
             # ── Step 3: reason ────────────────────────────────────────────────
-            reasoning = await risk_reasoner_agent.run(ctx)
+            reasoning = await risk_reasoner_agent.run(ctx, trigger)
 
             # Clinical triggers (manual, nutrition_skip, crisis) always dispatch.
             _force_dispatch = {"manual", "nutrition_skip", "crisis"}

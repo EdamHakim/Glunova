@@ -746,52 +746,8 @@ class MonitoringDiseaseProgressionView(APIView):
         })
 
 
-class TriggerAgentView(APIView):
-    """Let a patient manually trigger the care coordination agent for themselves."""
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        if getattr(user, "role", None) != "patient":
-            return Response(
-                {"detail": "Only patients can trigger the agent for themselves."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        patient_id = int(user.pk)
-        ai_url = getattr(settings, "AI_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
-        url = f"{ai_url}/agent/coordinate"
-
-        try:
-            resp = httpx.post(
-                url,
-                json={"patient_id": patient_id, "trigger": "manual"},
-                timeout=60.0,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except httpx.HTTPStatusError as exc:
-            return Response(
-                {"detail": f"Agent call failed: {exc.response.text}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        except Exception as exc:
-            return Response(
-                {"detail": f"Agent unavailable: {exc}"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        return Response(data)
-
-
 class RefreshRiskView(APIView):
-    """Trigger a fresh fusion risk assessment for the authenticated patient.
-
-    Only patients can call this for themselves. After the FastAPI fusion run,
-    if a CRITICAL alert is produced the coordination agent is auto-triggered
-    by the monitoring router.
-    """
+    """Trigger a fresh fusion risk assessment for the authenticated patient."""
 
     permission_classes = [IsAuthenticated]
 
@@ -826,5 +782,4 @@ class RefreshRiskView(APIView):
             "tier": data.get("tier"),
             "score": data.get("score"),
             "health_alert_id": data.get("health_alert_id"),
-            "agent_triggered": data.get("tier", "").upper() == "CRITICAL" and bool(data.get("health_alert_id")),
         })

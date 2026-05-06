@@ -30,8 +30,9 @@ _DISPATCH_TOOL_SCHEMA = {
                 "recipient_type": {"type": "string",  "enum": ["patient", "caregiver", "doctor"]},
                 "message":        {"type": "string",  "description": "The message to dispatch"},
                 "recipient_id":   {"type": ["integer", "null"], "description": "Caregiver user ID when recipient_type is caregiver; null for patient and doctor"},
+                "title":          {"type": "string",  "description": "Short alert title shown in the monitoring feed (max 80 chars). Make it specific to the reason, e.g. 'Nutrition Check-in', 'Activity Reminder', 'Health Alert', 'Crisis Support'."},
             },
-            "required": ["patient_id", "recipient_type", "message"],
+            "required": ["patient_id", "recipient_type", "message", "title"],
         },
     },
 }
@@ -46,6 +47,11 @@ Rules:
 - If caregiver_update is provided AND caregivers list is non-empty, dispatch once per caregiver.
 - If doctor_summary is provided AND a doctor is linked, dispatch for the doctor (recipient_type='doctor', recipient_id=null).
 - Do not modify the messages — dispatch them verbatim.
+- Choose a short, specific title that reflects the reason for the message:
+    nutrition_skip context  → "Meal Check-in" or "Activity Check-in"
+    crisis context          → "Crisis Support Alert"
+    health alert context    → "Health Alert" or "Risk Update"
+    routine check-in        → "Care Coordinator Update"
 - Call dispatch_update for each recipient, then stop.
 """
 
