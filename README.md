@@ -1,6 +1,9 @@
 <p align="center">
   <img src="frontend/public/glunova_logo.png" alt="Glunova — AI-assisted diabetes care platform logo" width="280">
 </p>
+<p align="center">
+  <a href="https://esprit.tn/"><img src="frontend/public/esprit_logo.png" alt="Esprit School of Engineering — se former autrement" width="220"></a>
+</p>
 
 <h1 align="center">Glunova</h1>
 
@@ -42,24 +45,26 @@ For a detailed feature matrix and team ownership, see [Features](https://citrine
 
 ## Tech Stack
 
+Icons are shown for quick scanning; dependency versions live in manifests under `frontend/` and `backend/`.
+
 ### Frontend
 
-- **Next.js** (App Router), **React 19**, **TypeScript**
-- **Tailwind CSS** and **Radix UI** primitives (see [frontend/package.json](frontend/package.json))
-- **pnpm** for package management
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/nextdotjs.svg" width="18" height="18" alt=""> **Next.js** (App Router), <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/react.svg" width="18" height="18" alt=""> **React 19**, <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/typescript.svg" width="18" height="18" alt=""> **TypeScript**
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/tailwindcss.svg" width="18" height="18" alt=""> **Tailwind CSS** and <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/radixui.svg" width="18" height="18" alt=""> **Radix UI** primitives (see [frontend/package.json](frontend/package.json))
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/pnpm.svg" width="18" height="18" alt=""> **pnpm** for package management
 
 ### Backend
 
-- **Django** — authentication, **RBAC**, migrations, REST APIs, document metadata and orchestration ([backend/django_app/](backend/django_app/))
-- **FastAPI** — OCR and extraction, screening inference, AI routes; **OpenAPI** documentation at `/docs` ([backend/fastapi_ai/](backend/fastapi_ai/))
-- **PostgreSQL** — shared database for Django and FastAPI
-- **PyTorch** and **Ultralytics YOLO-World** — model-backed screening and nutrition vision paths (see [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md))
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/django.svg" width="18" height="18" alt=""> **Django** — authentication, **RBAC**, migrations, REST APIs, document metadata and orchestration ([backend/django_app/](backend/django_app/))
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/fastapi.svg" width="18" height="18" alt=""> **FastAPI** — OCR and extraction, screening inference, AI routes; **OpenAPI** documentation at `/docs` ([backend/fastapi_ai/](backend/fastapi_ai/))
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/postgresql.svg" width="18" height="18" alt=""> **PostgreSQL** — shared database for Django and FastAPI
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/pytorch.svg" width="18" height="18" alt=""> **PyTorch** and **Ultralytics YOLO-World** — model-backed screening and nutrition vision paths (see [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md))
 
 ### Other tools
 
-- **GNU Make** and [Makefile](Makefile) for repeatable backend lifecycle commands
-- **`uv`** (Python) for fast local dependency installs in the provided Windows script
-- **Node.js 22+** for the frontend toolchain
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/gnu.svg" width="18" height="18" alt=""> **GNU Make** and [Makefile](Makefile) for repeatable backend lifecycle commands
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/uv.svg" width="18" height="18" alt=""> **`uv`** (Python) for fast local dependency installs in the provided Windows script
+- <img src="https://cdn.jsdelivr.net/npm/simple-icons@v13/icons/nodedotjs.svg" width="18" height="18" alt=""> **Node.js 22+** for the frontend toolchain
 
 ---
 
@@ -70,6 +75,7 @@ For a detailed feature matrix and team ownership, see [Features](https://citrine
 | [frontend/](frontend/) | Next.js app, UI, client integration with Django and FastAPI |
 | [backend/django_app/](backend/django_app/) | Auth, RBAC, REST, migrations |
 | [backend/fastapi_ai/](backend/fastapi_ai/) | AI and OCR routes, FastAPI OpenAPI |
+| [backend/.env.example](backend/.env.example) | Backend env template; copy to `backend/.env` |
 | [scripts/start_backends_local.bat](scripts/start_backends_local.bat) | Local Django + FastAPI on Windows |
 
 ---
@@ -86,9 +92,19 @@ For a detailed feature matrix and team ownership, see [Features](https://citrine
 
 ### Environment variables
 
-Create **`backend/.env`** before starting backends. At minimum:
+Copy [`backend/.env.example`](backend/.env.example) to `backend/.env`, then edit values for your machine (see the comments in the template). Required before local backend startup:
 
-- **`DATABASE_URL`** — required (e.g. local Postgres or managed hosting). Details: [backend/README.md](backend/README.md).
+```bash
+# macOS / Linux (repository root)
+cp backend/.env.example backend/.env
+```
+
+```bat
+REM Windows CMD (repository root)
+copy backend\.env.example backend\.env
+```
+
+Variables are loaded by Django and FastAPI (see **`backend/django_app/core/settings.py`** and **`backend/fastapi_ai/core/config.py`**). At minimum set **`DATABASE_URL`**. Extended notes: [backend/README.md](backend/README.md).
 
 Optional **frontend** overrides (defaults follow the current host on ports **8000** / **8001**; see [frontend/lib/auth.ts](frontend/lib/auth.ts)):
 
@@ -97,13 +113,25 @@ Optional **frontend** overrides (defaults follow the current host on ports **800
 
 ### Backend setup
 
-From the repository root (Windows, with `make`):
+Both options below run [scripts/start_backends_local.bat](scripts/start_backends_local.bat): it creates **`.venv`** at the repo root if needed, installs dependencies with **`uv`**, runs Django migrations, then launches **Django** on port **8000** and **FastAPI** on **8001**. You need **`backend/.env`** in place first (see [Environment variables](#environment-variables)). **Windows-only** (`start` launches separate console windows per service).
+
+**Option A — GNU Make** (repository root)
 
 ```bash
 make backend-local
 ```
 
-This runs [scripts/start_backends_local.bat](scripts/start_backends_local.bat): creates **`.venv`** if needed, installs dependencies with **`uv`**, runs migrations, then starts **Django** on **8000** and **FastAPI** on **8001**. Requires **`backend/.env`**. You may run the **`.bat`** file directly without **Make**.
+**Option B — Run the script directly** (no Make). From the repository root in **Command Prompt** or **PowerShell**:
+
+```bat
+scripts\start_backends_local.bat
+```
+
+From **Git Bash** on Windows you can invoke the same file:
+
+```bash
+scripts/start_backends_local.bat
+```
 
 ### Frontend setup
 
