@@ -1,10 +1,19 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import HealthTrendChart from '@/components/dashboard/health-trend-chart'
+
+const HealthTrendChart = dynamic(() => import('@/components/dashboard/health-trend-chart'), {
+  loading: () => (
+    <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+      Loading chart…
+    </div>
+  ),
+  ssr: false,
+})
 import PatientSummary from '@/components/dashboard/patient-summary'
 import RoleGuard from '@/components/auth/role-guard'
 import { useAuth } from '@/components/auth-context'

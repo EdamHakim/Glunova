@@ -1,12 +1,24 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useEffect, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { CataractDetectionPanel } from '@/components/screening'
 import RoleGuard from '@/components/auth/role-guard'
 import { useAuth } from '@/components/auth-context'
+
+const CataractDetectionPanel = dynamic(
+  () => import('@/components/screening').then((m) => ({ default: m.CataractDetectionPanel })),
+  {
+    loading: () => (
+      <div className="flex min-h-[200px] items-center justify-center text-sm text-muted-foreground">
+        Loading cataract screening…
+      </div>
+    ),
+    ssr: false,
+  },
+)
 
 export default function CataractDetectionPage() {
   const { user, loading } = useAuth()
@@ -32,7 +44,7 @@ export default function CataractDetectionPage() {
     >
       <div className="space-y-6 p-4 sm:p-6">
         <div className="flex items-center gap-2">
-          <Link href="/dashboard/screening">
+          <Link prefetch={false} href="/dashboard/screening">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="w-4 h-4" />
             </Button>

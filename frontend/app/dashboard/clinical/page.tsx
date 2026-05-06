@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useEffect, useState } from 'react'
 import { Stethoscope, AlertTriangle, Image as ImageIcon, Clock } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,9 +8,27 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import RoleGuard from '@/components/auth/role-guard'
-import { DFUSegmentationPanel } from '@/components/clinical/dfu-segmentation-panel'
-import { RetinopathyPanel } from '@/components/clinical/retinopathy-panel'
-import { ThermalFootPanel } from '@/components/clinical/thermal-foot-panel'
+
+function PanelLoading({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[160px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+      Loading {label}…
+    </div>
+  )
+}
+
+const DFUSegmentationPanel = dynamic(
+  () => import('@/components/clinical/dfu-segmentation-panel').then((m) => ({ default: m.DFUSegmentationPanel })),
+  { loading: () => <PanelLoading label="DFU tools" />, ssr: false },
+)
+const RetinopathyPanel = dynamic(
+  () => import('@/components/clinical/retinopathy-panel').then((m) => ({ default: m.RetinopathyPanel })),
+  { loading: () => <PanelLoading label="retinopathy tools" />, ssr: false },
+)
+const ThermalFootPanel = dynamic(
+  () => import('@/components/clinical/thermal-foot-panel').then((m) => ({ default: m.ThermalFootPanel })),
+  { loading: () => <PanelLoading label="thermal imaging" />, ssr: false },
+)
 import {
   getClinicalSummary,
   listClinicalPriorities,

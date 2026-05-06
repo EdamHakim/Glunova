@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useEffect, useState } from 'react'
 import {
   AlertCircle,
@@ -43,9 +44,26 @@ import {
   type RiskStratification,
   type ScreeningModalitySummary,
 } from '@/lib/monitoring-api'
-import { DiseaseProgressionTracker } from '@/components/monitoring/disease-progression-tracker'
-import { RiskStratificationCard } from '@/components/monitoring/risk-stratification-card'
-import { ScreeningHistoryTab } from '@/components/monitoring/screening-history-tab'
+function MonitoringBlockLoading({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[120px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+      Loading {label}…
+    </div>
+  )
+}
+
+const DiseaseProgressionTracker = dynamic(
+  () => import('@/components/monitoring/disease-progression-tracker').then((m) => ({ default: m.DiseaseProgressionTracker })),
+  { loading: () => <MonitoringBlockLoading label="progression" />, ssr: false },
+)
+const RiskStratificationCard = dynamic(
+  () => import('@/components/monitoring/risk-stratification-card').then((m) => ({ default: m.RiskStratificationCard })),
+  { loading: () => <MonitoringBlockLoading label="risk profile" />, ssr: false },
+)
+const ScreeningHistoryTab = dynamic(
+  () => import('@/components/monitoring/screening-history-tab').then((m) => ({ default: m.ScreeningHistoryTab })),
+  { loading: () => <MonitoringBlockLoading label="screening history" />, ssr: false },
+)
 
 function getSeverityColor(severity: string) {
   switch (severity) {

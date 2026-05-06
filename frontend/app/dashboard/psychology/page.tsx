@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Noto_Sans_Arabic } from 'next/font/google'
 import {
   CameraOff,
@@ -32,11 +32,14 @@ import {
   type SynthesizedSpeech,
 } from '@/lib/psychology-api'
 import type { AvatarPhase } from '@/components/psychology/sanadi-avatar'
-import {
-  SanadiTalkingHead,
-  type SanadiTalkingHeadHandle,
-  type PsychologyTtsLang as SanadiPsychologyTtsLang,
+import type {
+  PsychologyTtsLang as SanadiPsychologyTtsLang,
+  SanadiTalkingHeadHandle,
 } from '@/components/psychology/sanadi-r3f-avatar'
+
+const SanadiTalkingHead = lazy(() =>
+  import('@/components/psychology/sanadi-r3f-avatar').then((m) => ({ default: m.SanadiTalkingHead })),
+)
 import { SanadiMoodRing } from '@/components/psychology/sanadi-mood-ring'
 import { SanadiBreathingCue } from '@/components/psychology/sanadi-breathing-cue'
 import { SanadiPastSessions } from '@/components/psychology/sanadi-past-sessions'
@@ -1490,16 +1493,24 @@ export default function PsychologyPage() {
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-3">
                   <div className="flex w-full max-w-lg flex-col items-center justify-center gap-4">
                     <div className="flex min-h-[min(44svh,400px)] max-h-[52svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
-                      <SanadiTalkingHead
-                        ref={talkingHeadRef}
-                        active
-                        variant="voiceHero"
-                        glbUrl={sanadiAvatarPath}
-                        phase={avatarPhase}
-                        emotion={displayEmotion?.label ?? null}
-                        distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
-                        onAssistantAnalyser={onTalkingHeadAnalyserNode}
-                      />
+                      <Suspense
+                        fallback={
+                          <div className="flex size-full min-h-[min(40svh,320px)] items-center justify-center text-sm text-muted-foreground">
+                            Loading avatar…
+                          </div>
+                        }
+                      >
+                        <SanadiTalkingHead
+                          ref={talkingHeadRef}
+                          active
+                          variant="voiceHero"
+                          glbUrl={sanadiAvatarPath}
+                          phase={avatarPhase}
+                          emotion={displayEmotion?.label ?? null}
+                          distressScore={latestResult?.fusion?.distress_score ?? latestResult?.distress_score}
+                          onAssistantAnalyser={onTalkingHeadAnalyserNode}
+                        />
+                      </Suspense>
                     </div>
                     <p className="text-balance text-center text-sm font-medium text-muted-foreground">{voicePhaseLine}</p>
 

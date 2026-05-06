@@ -86,7 +86,7 @@ export default function Sidebar() {
 
   return (
     <aside className="hidden w-64 border-r border-border bg-sidebar text-sidebar-foreground lg:flex lg:flex-col">
-      <Link href="/" className="flex items-center gap-3 border-b border-sidebar-border px-6 py-6 hover:opacity-80 transition-opacity">
+      <Link prefetch={false} href="/" className="flex items-center gap-3 border-b border-sidebar-border px-6 py-6 hover:opacity-80 transition-opacity">
         <img 
           src={isDark ? "/glunova_dark_logo.png" : "/glunova_logo.png"} 
           alt="Glunova Logo" 
@@ -108,6 +108,7 @@ export default function Sidebar() {
             return (
               <li key={item.href}>
                 <Link
+                  prefetch={false}
                   href={item.href}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${isActive
                       ? 'bg-sidebar-accent text-sidebar-primary'
@@ -125,6 +126,7 @@ export default function Sidebar() {
 
       <div className="border-t border-sidebar-border px-3 py-4 space-y-1">
         <Link
+          prefetch={false}
           href="/dashboard/profile"
           className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
             pathname === '/dashboard/profile'
@@ -136,6 +138,7 @@ export default function Sidebar() {
           <span>Profile</span>
         </Link>
         <Link
+          prefetch={false}
           href="/dashboard/settings"
           className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
             pathname === '/dashboard/settings'

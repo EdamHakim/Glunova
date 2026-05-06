@@ -83,13 +83,16 @@ export default function Navbar() {
             <DropdownMenuContent align="start" className="w-56" sideOffset={6}>
               {mobileLinks.map((item) => (
                 <DropdownMenuItem key={item.href} asChild className={cn(pathname === item.href && 'bg-accent')}>
-                  <Link href={item.href}>{item.label}</Link>
+                  <Link prefetch={false} href={item.href}>
+                    {item.label}
+                  </Link>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
           <Link
+            prefetch={false}
             href="/dashboard"
             className="rounded-md px-2 py-1.5 text-sm font-semibold tracking-tight text-foreground outline-none ring-offset-background transition-colors hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
           >
@@ -152,13 +155,13 @@ export default function Navbar() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/profile" className="flex w-full items-center cursor-pointer">
+                <Link prefetch={false} href="/dashboard/profile" className="flex w-full items-center cursor-pointer">
                   <User className="mr-2 h-4 w-4" />
                   <span>Profile</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/settings" className="flex w-full items-center cursor-pointer">
+                <Link prefetch={false} href="/dashboard/settings" className="flex w-full items-center cursor-pointer">
                   <Settings className="mr-2 h-4 w-4" />
                   <span>Settings</span>
                 </Link>

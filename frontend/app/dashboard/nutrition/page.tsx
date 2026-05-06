@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useEffect, useState } from 'react'
 import { Activity, Apple, Camera, Check, Sparkles, UserRoundSearch } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,8 +8,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/components/auth-context'
 import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import { NutritionAnalysisModal } from '@/components/nutrition/nutrition-analysis-modal'
-import { WellnessPlannerTabContent } from './wellness-planner/page'
 import { cn } from '@/lib/utils'
+
+const WellnessPlannerTabContent = dynamic(
+  () => import('./wellness-planner/page').then((m) => ({ default: m.WellnessPlannerTabContent })),
+  {
+    loading: () => (
+      <div className="flex min-h-[240px] items-center justify-center text-sm text-muted-foreground">
+        Loading weekly planner…
+      </div>
+    ),
+    ssr: false,
+  },
+)
 
 const scannerBullets = [
   'Ingredient-level breakdown tailored to diabetes care',
@@ -19,6 +31,7 @@ const scannerBullets = [
 export default function NutritionPage() {
   const { user } = useAuth()
   const [patientId, setPatientId] = useState('')
+  const [wellnessTabRequested, setWellnessTabRequested] = useState(false)
   const role = user?.role
   const isPatient = role === 'patient'
   const isDoctor = role === 'doctor'
@@ -77,7 +90,13 @@ export default function NutritionPage() {
           )}
         </header>
 
-        <Tabs defaultValue="nutrition" className="w-full space-y-6">
+        <Tabs
+          defaultValue="nutrition"
+          className="w-full space-y-6"
+          onValueChange={(value) => {
+            if (value === 'wellness') setWellnessTabRequested(true)
+          }}
+        >
           <TabsList
             className={cn(
               'grid h-auto w-full grid-cols-2 gap-1 rounded-xl border border-border/60 bg-muted/40 p-1.5 shadow-sm',
@@ -170,7 +189,13 @@ export default function NutritionPage() {
                   </div>
                 </div>
               </div>
-              <WellnessPlannerTabContent patientId={patientId || undefined} isPatient={isPatient} />
+              {wellnessTabRequested ? (
+                <WellnessPlannerTabContent patientId={patientId || undefined} isPatient={isPatient} />
+              ) : (
+                <div className="flex min-h-[200px] items-center justify-center text-center text-sm text-muted-foreground">
+                  Switch to this tab to load the weekly planner.
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
