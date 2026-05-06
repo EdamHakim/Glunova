@@ -1,7 +1,5 @@
 <p align="center">
-  <img src="frontend/public/glunova_logo.png" alt="Glunova — AI-assisted diabetes care platform logo" width="260">
-  &nbsp;&nbsp;&nbsp;
-  <a href="https://esprit.tn/"><img src="frontend/public/esprit_logo.png" alt="Esprit School of Engineering — se former autrement" width="220"></a>
+  <img src="frontend/public/glunova_logo.png" alt="Glunova — AI-assisted diabetes care platform logo" width="280">
 </p>
 
 <h1 align="center">Glunova</h1>
@@ -201,6 +199,10 @@ Django owns identity, **RBAC**, and relational data; FastAPI serves **AI**- and 
 ---
 
 ## Acknowledgments
+
+<p align="center">
+  <a href="https://esprit.tn/"><img src="frontend/public/esprit_logo.png" alt="Esprit School of Engineering — se former autrement" width="220"></a>
+</p>
 
 This project was completed under the supervision of **Mme Jihene Hlel**, **Mr Fedi Baccar**, and **Mme Widad Askri** at **Esprit School of Engineering**, as part of the **Innova Team** (Class **3IA3**, **2026**).
 
