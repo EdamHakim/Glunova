@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+DFUSeverityLevel = Literal["none", "mild", "moderate", "severe", "critical"]
 
 
 class ThermalFootInferenceResponse(BaseModel):
@@ -39,6 +43,9 @@ class DFUSegmentationInferenceResponse(BaseModel):
     model_version: str
     threshold_used: float = Field(ge=0, le=1)
     ulcer_detected: bool
+    ulcer_severity: DFUSeverityLevel = Field(
+        description="Heuristic triage tier from ulcer area in mm² (none|mild|moderate|severe|critical).",
+    )
     ulcer_area_ratio: float = Field(ge=0, le=1)
     ulcer_area_px: int = Field(ge=0)
     bbox_x: int = Field(ge=0)

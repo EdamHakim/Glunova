@@ -16,6 +16,40 @@ DEFAULT_CHECKPOINT_PATH = (
     Path(__file__).resolve().parent / "models" / "DFUSegmentation" / "resnet34_unet_weights.pth"
 )
 
+# Rough anatomical prior for mm/pixel when no ruler is present: assume ~24 cm aligns with longest side.
+DEFAULT_ASSUMED_FOOT_SPAN_MM = 240.0
+
+
+def estimate_mm_per_pixel_assumed_foot_span(
+    image_bytes: bytes,
+    *,
+    assumed_span_mm: float = DEFAULT_ASSUMED_FOOT_SPAN_MM,
+    lo: float = 0.015,
+    hi: float = 12.0,
+) -> float:
+    """Very approximate scale: assumes the foot spans the image's longest edge."""
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    w, h = image.size
+    long_px = float(max(w, h))
+    if long_px < 16:
+        raise ValueError("Image dimensions are too small for mm/pixel estimation.")
+    mm_px = float(assumed_span_mm / long_px)
+    return float(max(lo, min(hi, mm_px)))
+
+
+def _auto_seg_threshold(probs: np.ndarray) -> float:
+    """Pick a binary threshold by scanning downward from the map maximum (per-image heuristic)."""
+    pmax = float(probs.max())
+    if pmax < 0.24:
+        return 0.5
+    min_ar = max(5.0 / float(probs.size), 1.2e-5)
+    max_ar = 0.32
+    for t in np.arange(min(0.94, pmax + 1e-6), 0.16, -0.0125):
+        ar = float((probs >= t).mean())
+        if min_ar <= ar <= max_ar:
+            return float(round(float(t), 5))
+    return 0.5
+
 
 class _DoubleConv(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
@@ -217,8 +251,8 @@ class DFUSegmenter:
         batch = np.expand_dims(chw.astype(np.float32), axis=0)
         return torch.from_numpy(batch).to(self.device), rgb
 
-    def predict(self, image_bytes: bytes, threshold: float = 0.5) -> DFUSegmentationResult:
-        if threshold < 0 or threshold > 1:
+    def predict(self, image_bytes: bytes, threshold: float | None = 0.5) -> DFUSegmentationResult:
+        if threshold is not None and (threshold < 0 or threshold > 1):
             raise ValueError("threshold must be in [0, 1].")
 
         self.ensure_loaded()
@@ -229,7 +263,8 @@ class DFUSegmenter:
             logits = self._model(inputs)
             probs = torch.sigmoid(logits).cpu().numpy()[0, 0]
 
-        mask = (probs >= threshold).astype(np.float32)
+        thresh_used = _auto_seg_threshold(probs) if threshold is None else float(threshold)
+        mask = (probs >= thresh_used).astype(np.float32)
         area_px = int(mask.sum())
         area_ratio = float(mask.mean())
         ulcer_detected = bool(area_ratio > 0)
@@ -260,5 +295,5 @@ class DFUSegmenter:
             bbox_height_px=bbox_height,
             mask_base64=self._encode_png(mask_rgb),
             overlay_base64=self._encode_png(overlay),
-            threshold_used=threshold,
+            threshold_used=thresh_used,
         )

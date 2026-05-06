@@ -1,7 +1,4 @@
-import base64
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
 from core.rbac import require_roles
@@ -16,7 +13,8 @@ from clinic.schemas import (
     ThermalFootInferenceResponse,
     ThermalFootModelHealthResponse,
 )
-from clinic.DFUSegmentation import DFUSegmenter
+from clinic.DFUSegmentation import DFUSegmenter, estimate_mm_per_pixel_assumed_foot_span
+from clinic.dfu_severity import classify_dfu_severity
 from monitoring.services.triggers import record_screening_and_refresh
 from clinic.services.retinopathy_service import RetinopathyService
 from clinic.services.thermal_foot_pt_service import ThermalFootPtService
@@ -36,49 +34,26 @@ def _lesion_metrics(prediction, mm_per_pixel: float) -> dict:
     }
 
 
-def _simple_pdf_report(lines: list[str]) -> bytes:
-    escaped_lines = [line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)") for line in lines]
-    content_lines = ["BT", "/F1 11 Tf", "50 780 Td", "14 TL"]
-    for idx, line in enumerate(escaped_lines):
-        if idx == 0:
-            content_lines.append(f"({line}) Tj")
-        else:
-            content_lines.append(f"T* ({line}) Tj")
-    content_lines.append("ET")
-    stream_text = "\n".join(content_lines)
-    stream_bytes = stream_text.encode("latin-1", errors="replace")
-
-    objects: list[bytes] = []
-    objects.append(b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj")
-    objects.append(b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj")
-    objects.append(
-        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
-        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj"
-    )
-    objects.append(b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj")
-    objects.append(
-        f"5 0 obj << /Length {len(stream_bytes)} >> stream\n".encode("ascii")
-        + stream_bytes
-        + b"\nendstream endobj"
-    )
-
-    pdf = bytearray(b"%PDF-1.4\n")
-    offsets = [0]
-    for obj in objects:
-        offsets.append(len(pdf))
-        pdf.extend(obj)
-        pdf.extend(b"\n")
-    xref_pos = len(pdf)
-    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
-    pdf.extend(b"0000000000 65535 f \n")
-    for offset in offsets[1:]:
-        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    pdf.extend(
-        (
-            f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n"
-        ).encode("ascii")
-    )
-    return bytes(pdf)
+def _resolve_dfu_mm_per_pixel(
+    raw_bytes: bytes,
+    *,
+    mm_per_pixel_auto: bool,
+    mm_per_pixel: float,
+) -> float:
+    if mm_per_pixel_auto:
+        try:
+            return estimate_mm_per_pixel_assumed_foot_span(raw_bytes)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+    if mm_per_pixel <= 0 or not float(mm_per_pixel).isfinite():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="mm_per_pixel must be a positive finite number when not using auto.",
+        )
+    return float(mm_per_pixel)
 
 
 class CaseReviewRequest(BaseModel):
@@ -124,8 +99,19 @@ def _user_id_from_claims(claims: dict) -> int:
 async def infer_dfu_segmentation(
     patient_id: int = Form(..., description="Patient record id this image belongs to"),
     image: UploadFile = File(...),
-    threshold: float = Form(0.5, description="Mask threshold in [0, 1]"),
-    mm_per_pixel: float = Form(0.5, description="Physical scaling factor in millimeters per pixel"),
+    threshold_auto: bool = Form(
+        False,
+        description="If true, choose mask threshold from the model probability map (ignore manual threshold).",
+    ),
+    threshold: float = Form(0.5, description="Mask threshold in [0, 1] when threshold_auto is false"),
+    mm_per_pixel_auto: bool = Form(
+        False,
+        description="If true, estimate mm/pixel from image size (~24 cm along longest edge; rough prior).",
+    ),
+    mm_per_pixel: float = Form(
+        0.5,
+        description="Millimeters per pixel when mm_per_pixel_auto is false",
+    ),
     claims: dict = Depends(require_roles("doctor")),
 ) -> DFUSegmentationInferenceResponse:
     doctor_id = _user_id_from_claims(claims)
@@ -147,8 +133,15 @@ async def infer_dfu_segmentation(
             detail="Uploaded image is empty.",
         )
 
+    eff_threshold: float | None = None if threshold_auto else threshold
+    if not threshold_auto and not (0.0 <= threshold <= 1.0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="threshold must be between 0 and 1 when threshold_auto is false.",
+        )
+
     try:
-        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=threshold)
+        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=eff_threshold)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -169,12 +162,21 @@ async def infer_dfu_segmentation(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="DFU segmentation inference failed unexpectedly.",
         )
-    metrics = _lesion_metrics(prediction, mm_per_pixel)
+    mm_px = _resolve_dfu_mm_per_pixel(
+        raw_bytes,
+        mm_per_pixel_auto=mm_per_pixel_auto,
+        mm_per_pixel=mm_per_pixel,
+    )
+    metrics = _lesion_metrics(prediction, mm_px)
+    ratio = float(prediction.ulcer_area_ratio)
+    ulcer_severity = classify_dfu_severity(
+        ulcer_detected=prediction.ulcer_detected,
+        area_mm2=float(metrics["ulcer_area_mm2"]),
+    )
 
     # Fusion-friendly score: mirrors glunova_predictor.DFUSegmentationPredictor.
     # Any detected ulcer (>=0.1% area) starts at 0.5 and scales up with coverage.
     # Sub-threshold detections fall to 0 so the asymmetric filter drops them.
-    ratio = float(prediction.ulcer_area_ratio)
     if ratio >= 0.001:
         fusion_score = min(0.5 + ratio * 20.0, 1.0)
     else:
@@ -183,13 +185,18 @@ async def infer_dfu_segmentation(
         user_id=patient_id,
         modality="foot_ulcer",
         score=fusion_score,
-        risk_label="Ulcer detected" if prediction.ulcer_detected else "No ulcer",
+        risk_label=(
+            f"Ulcer ({ulcer_severity})" if prediction.ulcer_detected else "No ulcer"
+        ),
         model_version="resnet34_unet_dfu@pth-v1",
         metadata={
             "threshold_used": float(prediction.threshold_used),
+            "threshold_auto": threshold_auto,
+            "mm_per_pixel_auto": mm_per_pixel_auto,
             "ulcer_area_ratio": ratio,
             "ulcer_area_px": int(prediction.ulcer_area_px),
             "ulcer_area_mm2": float(metrics["ulcer_area_mm2"]),
+            "ulcer_severity": ulcer_severity,
             "bbox_width_mm": float(metrics["bbox_width_mm"]),
             "bbox_height_mm": float(metrics["bbox_height_mm"]),
         },
@@ -202,6 +209,7 @@ async def infer_dfu_segmentation(
         model_version="pth-v1",
         threshold_used=prediction.threshold_used,
         ulcer_detected=prediction.ulcer_detected,
+        ulcer_severity=ulcer_severity,
         ulcer_area_ratio=prediction.ulcer_area_ratio,
         ulcer_area_px=prediction.ulcer_area_px,
         bbox_x=prediction.bbox_x,
@@ -253,7 +261,8 @@ def dfu_segmentation_model_health(
 async def dfu_segmentation_xai(
     patient_id: int = Form(..., description="Patient record id this image belongs to"),
     image: UploadFile = File(...),
-    threshold: float = Form(0.5, description="Mask threshold in [0, 1]"),
+    threshold_auto: bool = Form(False, description="Auto mask threshold from probability map"),
+    threshold: float = Form(0.5, description="Mask threshold in [0, 1] when threshold_auto is false"),
     claims: dict = Depends(require_roles("doctor")),
 ) -> DFUSegmentationXAIResponse:
     doctor_id = _user_id_from_claims(claims)
@@ -265,8 +274,15 @@ async def dfu_segmentation_xai(
     if not raw_bytes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
 
+    eff_threshold: float | None = None if threshold_auto else threshold
+    if not threshold_auto and not (0.0 <= threshold <= 1.0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="threshold must be between 0 and 1 when threshold_auto is false.",
+        )
+
     try:
-        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=threshold)
+        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=eff_threshold)
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except Exception:
@@ -281,64 +297,6 @@ async def dfu_segmentation_xai(
         xai_overlay_base64=prediction.overlay_base64,
         mask_base64=prediction.mask_base64,
         ulcer_detected=prediction.ulcer_detected,
-    )
-
-
-@router.post(
-    "/dfu-segmentation/report.pdf",
-    summary="DFU segmentation PDF report (doctor)",
-)
-async def dfu_segmentation_report_pdf(
-    patient_id: int = Form(..., description="Patient record id this image belongs to"),
-    image: UploadFile = File(...),
-    threshold: float = Form(0.5, description="Mask threshold in [0, 1]"),
-    mm_per_pixel: float = Form(0.5, description="Physical scaling factor in millimeters per pixel"),
-    claims: dict = Depends(require_roles("doctor")),
-) -> Response:
-    doctor_id = _user_id_from_claims(claims)
-    if patient_id <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="patient_id must be positive.")
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must be an image.")
-    raw_bytes = await image.read()
-    if not raw_bytes:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
-
-    try:
-        prediction = _dfu_segmentation_service.predict(raw_bytes, threshold=threshold)
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="DFU report generation failed unexpectedly.",
-        )
-
-    metrics = _lesion_metrics(prediction, mm_per_pixel)
-    report_lines = [
-        "Glunova Clinical Decision Support - DFU Segmentation Report",
-        f"Generated: {datetime.now(timezone.utc).isoformat()}",
-        f"Doctor ID: {doctor_id}",
-        f"Patient ID: {patient_id}",
-        "",
-        f"Model: resnet34_unet_dfu (pth-v1), threshold={prediction.threshold_used:.2f}",
-        f"Ulcer detected: {'yes' if prediction.ulcer_detected else 'no'}",
-        f"Ulcer area: {prediction.ulcer_area_px} px ({metrics['ulcer_area_mm2']:.2f} mm^2)",
-        (
-            "Bounding box: "
-            f"x={prediction.bbox_x}, y={prediction.bbox_y}, "
-            f"w={prediction.bbox_width_px}px ({metrics['bbox_width_mm']:.2f}mm), "
-            f"h={prediction.bbox_height_px}px ({metrics['bbox_height_mm']:.2f}mm)"
-        ),
-        "",
-        "Clinical note: AI output supports decision making and does not replace diagnosis.",
-    ]
-    pdf_bytes = _simple_pdf_report(report_lines)
-    filename = f"dfu_report_patient_{patient_id}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
