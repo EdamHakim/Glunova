@@ -64,12 +64,6 @@ _TRIGGER_FOCUS = {
         "Only provide caregiver_update if the risk tier is HIGH or CRITICAL. "
         "doctor_summary: set to null unless the risk tier is HIGH or CRITICAL."
     ),
-    "alert": (
-        "TRIGGER — HEALTH ALERT: A coordination run was triggered after an internal clinical alert. "
-        "You do not receive screening results or formal risk-assessment payloads. Base your assessment "
-        "only on NUTRITION/activity adherence and PSYCHOLOGY below; give supportive follow-up in "
-        "general terms without claiming specific screening or stratification results."
-    ),
     "cron": (
         "TRIGGER — NIGHTLY CHECK: Routine scheduled review. Provide a balanced assessment "
         "from NUTRITION_AND_ACTIVITY and PSYCHOLOGY only. Only dispatch if there is a meaningful concern."

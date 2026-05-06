@@ -1,6 +1,6 @@
 # Glunova Care Coordination Agent — Architecture
 
-This document describes the **care coordination agent** that lives under `backend/fastapi_ai/agent/`. It is a multi-step pipeline: gather patient context via MCP tools, reason with an LLM, then dispatch messages to the patient, doctor, and caregivers via PostgreSQL.
+This document describes the **care coordination agent** under `backend/fastapi_ai/agent/`. It is a **multi-agent, single-orchestrator** pipeline: one MCP (stdio) session loads allowed patient context, a **RiskReasoner** Groq LLM (**`llama-3.3-70b-versatile`** by default) produces structured coordination output, and a **Dispatch** Groq LLM (**`llama-3.1-8b-instant`** by default) issues tool calls to persist messages in PostgreSQL.
 
 ---
 
@@ -8,7 +8,7 @@ This document describes the **care coordination agent** that lives under `backen
 
 The agent **proactively coordinates care** by:
 
-1. Loading **allowed** patient context (nutrition / weekly activity adherence, psychology, care team).
+1. Loading **allowed** patient context (nutrition / weekly plan and activity adherence, psychology, care team).
 2. Producing **role-specific draft messages** (patient nudge, caregiver update, doctor summary) keyed off a **trigger** (meal skip, therapy end, crisis, etc.).
 3. **Persisting** those messages as **Monitoring health alerts** (patient + doctor) and **Care Circle family updates** (each linked caregiver).
 
@@ -18,16 +18,18 @@ It does **not** consume formal **screening outputs** or **risk-assessment** feed
 
 ## 2. High-level layout
 
-| Piece | Role |
-|--------|------|
-| **FastAPI** (`agent/router.py`) | HTTP entry: `POST /agent/coordinate`, `POST /agent/coordinate/all` |
-| **Orchestrator** (`orchestrator.py`) | Single end-to-end run: MCP session → Context → Risk reasoner → Dispatch |
-| **MCP server** (`mcp_server.py`, stdio subprocess) | DB-backed tools: `get_nutrition_summary`, `get_psychology_state`, `get_care_team`, `dispatch_update` |
-| **ContextAgent** | Calls read-tools in parallel → `PatientContext` |
-| **RiskReasonerAgent** | Groq chat completion (JSON) → `ReasoningOutput` |
-| **DispatchAgent** | Groq + tool calls → `dispatch_update` per recipient (with deduplication) |
+| Piece | Role | LLM |
+|--------|------|-----|
+| **FastAPI** (`agent/router.py`) | HTTP entry: `POST /agent/coordinate`, `POST /agent/coordinate/all` | — |
+| **Orchestrator** (`orchestrator.py`) | End-to-end run: start MCP subprocess → Context → Risk reasoner → Dispatch; owns the **single** `ClientSession` | — |
+| **MCP server** (`mcp_server.py`, stdio subprocess, **FastMCP**) | DB-backed tools: `get_nutrition_summary`, `get_psychology_state`, `get_care_team`, `dispatch_update` | — |
+| **ContextAgent** (`agents/context_agent.py`) | `asyncio.gather` of the three read-tools → `PatientContext` | **None** (MCP reads only) |
+| **RiskReasonerAgent** (`agents/risk_reasoner_agent.py`) | Groq chat completion (`response_format: json_object`) → `ReasoningOutput` | **Groq** · default **`llama-3.3-70b-versatile`** · `settings.groq_model` · env **`GROQ_MODEL`** |
+| **DispatchAgent** (`agents/dispatch_agent.py`) | Groq chat with **function** tool `dispatch_update` (multi-round loop, max 6) → `DispatchResult` | **Groq** · default **`llama-3.1-8b-instant`** · `settings.psychology_consolidation_model` · env **`PSYCHOLOGY_CONSOLIDATION_MODEL`** |
 
-The orchestrator opens **one MCP client session** (stdio) for the whole run. Context and dispatch share that session so `dispatch_update` runs on the same MCP connection.
+**Authentication:** RiskReasoner and Dispatch both use **`GROQ_API_KEY`** (`settings.groq_api_key`).
+
+The orchestrator starts **one** MCP client session per `run_coordination` and passes that `ClientSession` into ContextAgent and DispatchAgent so all tool calls share the same connection.
 
 ---
 
@@ -38,7 +40,7 @@ flowchart LR
   subgraph entry [Triggers]
     HTTP["POST /agent/coordinate"]
     DJ["Django: nutrition skip"]
-    MS["Django: CRITICAL alert signal"]
+    CR["Cron: /coordinate/all"]
     PSY["Psychology: crisis / therapy end"]
   end
   ORC[run_coordination]
@@ -51,7 +53,7 @@ flowchart LR
   entry --> ORC
   ORC --> CTX
   CTX --> MCP
- ORC --> RR
+  ORC --> RR
   RR --> DP
   DP --> MCP
   MCP --> DB
@@ -59,8 +61,8 @@ flowchart LR
 
 **Ordered steps inside `run_coordination`:**
 
-1. **Start MCP** — `stdio_client` + `ClientSession` to `mcp_server.py` (Python subprocess).
-2. **ContextAgent** — parallel `call_tool` for `get_nutrition_summary`, `get_psychology_state`, `get_care_team` → build `PatientContext`.
+1. **Start MCP** — `stdio_client` + `ClientSession` to `mcp_server.py` (same Python interpreter as the API process).
+2. **ContextAgent** — parallel `call_tool` for `get_nutrition_summary`, `get_psychology_state`, `get_care_team` → `PatientContext`.
 3. **Cooldown guard** — may **return early** without calling the reasoner (see §6).
 4. **RiskReasonerAgent** — `risk_reasoner_agent.run(ctx, trigger)` → `ReasoningOutput`.
 5. **Optional no-dispatch exit** — if `should_dispatch` is false and trigger is not force-dispatched, return without dispatch (see §6).
@@ -78,16 +80,21 @@ Mounted in `main.py` with prefix **`/agent`**:
 | `POST` | `/agent/coordinate` | `CoordinateRequest`: `patient_id`, `trigger` | Run for one patient |
 | `POST` | `/agent/coordinate/all` | `CoordinateAllRequest`: `trigger` (`cron` \| `manual`) | Batch: distinct `patient_id` from **active** `monitoring_healthalert` rows in the **last 24 hours** |
 
+**`POST /coordinate/all` implementation notes:**
+
+- Uses **`core.db.get_connection_pool()`** (same app DB as Django/FastAPI). Returns **503** if the pool is unavailable.
+- Iterates patients sequentially; collects **per-patient errors** in `CoordinateAllResponse.errors` without failing the whole batch.
+
 **Triggers** (`CoordinateRequest.trigger`):
 
 | Value | Typical meaning |
 |--------|------------------|
 | `nutrition_skip` | Patient marked a meal or exercise session skipped (wellness planner) |
-| `therapy_session` | Therapy session ended; post-session summaries (when enabled from psychology service) |
+| `therapy_session` | Therapy session ended; post-session summaries (psychology service) |
 | `crisis` | Psychology crisis event persisted |
-| `alert` | Often tied to new **CRITICAL** monitoring alert (Django signal) |
-| `cron` / `manual` | Scheduled or explicit runs |
-| `alert` / `cron` / `manual` | Subject to **cooldown** unless bypassed (§6) |
+| `cron` / `manual` | Scheduled batch (`/coordinate/all`) or explicit single-patient run; see §6 for **cooldown** vs event-driven triggers |
+
+**Integration pitfall:** `django_app/monitoring/management/commands/run_coordination_agent.py` defaults `--trigger` to `nightly`, but the FastAPI body only allows **`cron`** or **`manual`**. Use e.g. `python manage.py run_coordination_agent --trigger cron` (or align the command default with the API).
 
 ---
 
@@ -96,60 +103,67 @@ Mounted in `main.py` with prefix **`/agent`**:
 - **`PatientContext`** — `patient_id`, `nutrition` (dict), `psychology` (dict), `care_team` (dict).  
   No monitoring/screening/risk-assessment payloads in this object.
 
-- **`ReasoningOutput`** — `risk_tier`, `priority_level`, `key_signals`, `should_dispatch`, `patient_nudge`, `caregiver_update`, `doctor_summary`.
+- **`ReasoningOutput`** — `patient_id`, `risk_tier`, `priority_level`, `key_signals`, `should_dispatch`, `patient_nudge`, `caregiver_update`, `doctor_summary`.
 
-- **`CoordinateResponse`** — `status`, `messages_dispatched`, `trigger`, optional `risk_tier`, `skipped_reason` when skipped or no dispatch.
+- **`DispatchResult`** — `patient_id`, `messages_dispatched`, `recipients` (list of recipient types successfully dispatched).
+
+- **`CoordinateResponse`** — `status`, `patient_id`, `messages_dispatched`, `trigger`, optional `risk_tier`, `skipped_reason` when skipped or no dispatch.
+
+- **`CoordinateAllResponse`** — `patients_processed`, `messages_dispatched`, `errors` (string messages for failed patients).
 
 ---
 
 ## 6. Cooldown and “force dispatch”
 
-Implemented in `orchestrator.py`.
+Implemented in `orchestrator.py` (`_COOLDOWN_MINUTES = 30`, `_is_cooled_down` reads `nutrition.plan.last_agent_run`).
 
 **Cooldown applies only when:**
 
 - `open_crisis == 0` (from `get_psychology_state`), **and**
 - `trigger` is **not** in `{"nutrition_skip", "crisis", "therapy_session"}`.
 
-Then `_is_cooled_down` checks the **latest wellness plan** snapshot for **`last_agent_run`** (written when `dispatch_update` succeeds). If the last run was **< 30 minutes** ago, the orchestrator **returns immediately** with `status="skipped"` — **RiskReasonerAgent is not invoked**.
+Then if `last_agent_run` on the latest weekly plan is **< 30 minutes** ago (ISO timestamp in the plan JSON), the orchestrator **returns immediately** with `status="skipped"` — **RiskReasonerAgent is not invoked**.
 
 **Triggers that never hit the cooldown gate:** `nutrition_skip`, `crisis`, `therapy_session`.
 
 **Open crisis:** If `open_crisis > 0`, the cooldown block is skipped for **any** trigger.
 
-**Force dispatch:** If `trigger` ∈ `{"manual", "nutrition_skip", "crisis", "therapy_session"}`, the pipeline **continues to DispatchAgent** even when `should_dispatch` is false in `ReasoningOutput`. Otherwise, `should_dispatch` false causes an early return with `messages_dispatched=0` (“signals within normal range”).
+**Force dispatch:** If `trigger` ∈ `{"manual", "nutrition_skip", "crisis", "therapy_session"}`, the pipeline **continues to DispatchAgent** even when `should_dispatch` is false in `ReasoningOutput`. Otherwise, `should_dispatch` false causes an early return with `messages_dispatched=0` and `skipped_reason="signals within normal range"`.
+
+Note: **`manual` is not cooldown-exempt** — it only affects the force-dispatch branch after reasoning.
 
 ---
 
 ## 7. MCP tools (`mcp_server.py`)
 
-The MCP process uses **psycopg** and the same **`database_url`** as FastAPI (`core.config.settings`).
+The MCP process uses **psycopg** and the same **`database_url`** as FastAPI (`core.config.settings`), via `normalize_postgres_conninfo`.
 
 ### Read tools (ContextAgent)
 
 | Tool | Returns (conceptually) |
 |------|-------------------------|
-| **`get_nutrition_summary`** | Latest weekly wellness plan slice, skipped exercise session count (7d), nutrition goal targets. May include `last_agent_run` from JSON merge on the plan row. |
-| **`get_psychology_state`** | Latest emotion assessment row, therapy session count (7d), count of **unacknowledged** crisis events, and **`last_completed_session`** (latest ended session: ids, times, structured `session_summary_json`, size-capped). |
-| **`get_care_team`** | Linked doctor (patient–doctor link) and **accepted** caregivers (document links). |
+| **`get_nutrition_summary`** | Latest weekly wellness plan (within lookback), **`last_agent_run`** from `clinical_snapshot` merged onto the plan object, **count of skipped exercise sessions (7d)**, latest nutrition goal macros. |
+| **`get_psychology_state`** | Latest emotion assessment, therapy session count (7d), **unacknowledged** crisis count (`open_crisis`), **`last_completed_session`** (latest ended `psychology_psychologysession`: ids, times, `last_state`, size-capped `session_summary_json`). |
+| **`get_care_team`** | Linked doctor (patient–doctor link) and **accepted** caregivers (`documents_patientcaregiverlink.status = 'accepted'`). |
 
 ### Write tool (DispatchAgent)
 
 | Tool | Behavior |
 |------|----------|
-| **`dispatch_update`** | **`caregiver`** → `INSERT` into `carecircle_familyupdate` (`source='agent'`). **`patient`** / **`doctor`** → `INSERT` into `monitoring_healthalert` with `agent_audience` set. Then **merges** `last_agent_run` into `nutrition_weeklywellnessplan.clinical_snapshot` for cooldown/audit. |
+| **`dispatch_update`** | **`caregiver`** → `INSERT` into `carecircle_familyupdate` (`source='agent'`). **`patient`** / **`doctor`** → `INSERT` into `monitoring_healthalert` with `severity='info'`, `status='active'`, `agent_audience` set. Then **merges** into `nutrition_weeklywellnessplan.clinical_snapshot` a JSON object `{"last_agent_run": <ISO UTC>, "recipient_type": <string>}` on the patient’s latest plan row (cooldown + audit). |
 
 ---
 
 ## 8. RiskReasonerAgent (`agents/risk_reasoner_agent.py`)
 
 - **Provider:** Groq (`settings.groq_api_key`).
-- **Default model:** `settings.groq_model` (e.g. `llama-3.3-70b-versatile`).
-- **Output:** JSON object parsed into `ReasoningOutput`.
+- **Model:** `settings.groq_model` (default `llama-3.3-70b-versatile`).
+- **Output:** JSON object parsed into `ReasoningOutput`; malformed JSON falls back to safe defaults (`should_dispatch` inferred from tier if missing).
 
 The **user prompt** includes:
 
-- A **trigger-specific block** (`_TRIGGER_FOCUS`): instructions per `nutrition_skip`, `alert`, `cron`, `crisis`, `therapy_session`, etc.
+- A **trigger-specific block** (`_TRIGGER_FOCUS`): explicit text for `nutrition_skip`, `cron`, `crisis`, `therapy_session`.
+- Unknown triggers (including **`manual`**) use the **same focus text as `cron`** (`_TRIGGER_FOCUS.get(trigger, _TRIGGER_FOCUS["cron"])`).
 - `NUTRITION_AND_ACTIVITY` and `PSYCHOLOGY` JSON dumps.
 - Care-team presence flags.
 
@@ -160,39 +174,44 @@ The **system prompt** restricts scope to nutrition/activity + psychology and for
 ## 9. DispatchAgent (`agents/dispatch_agent.py`)
 
 - **Provider:** Groq.
-- **Model:** `settings.psychology_consolidation_model` (e.g. `llama-3.1-8b-instant`).
-- **Mechanism:** Chat completions with a single **function tool** `dispatch_update`. The model must call it for each recipient (patient, each caregiver by id, doctor).
+- **Model:** `settings.psychology_consolidation_model` (default `llama-3.1-8b-instant`).
+- **Mechanism:** Chat completions with a single **function** tool schema for `dispatch_update`. The model may emit multiple tool calls per turn; the agent runs up to **6** rounds until there are no more `tool_calls` (budget for patient + caregivers + doctor + slack).
 
-**Deduplication:** If the model emits **duplicate** tool calls for the same logical recipient `(recipient_type, recipient_id)` in one run, later duplicates are skipped (no second DB insert); the tool still receives a success-shaped response so the chat loop stays valid.
+**Rules given to the model:** dispatch `patient_nudge` to the patient; one message per caregiver if `caregiver_update` is set and caregivers exist; doctor message if `doctor_summary` is set and a doctor is linked; **do not rewrite** drafts — send verbatim.
 
-**Titles:** System text hints titles by context (e.g. “Therapy Session Summary”, “Meal Check-in”, “Crisis Support Alert”).
+**Deduplication:** Duplicate tool calls for the same logical recipient `(recipient_type, recipient_id)` in one run append a synthetic tool response `{"ok": true, "deduped": true}` and **do not** hit the DB again.
+
+**Titles:** System text maps contexts to example titles (“Meal Check-in”, “Therapy Session Summary”, “Crisis Support Alert”, etc.).
 
 ---
 
 ## 10. External callers (outside FastAPI route)
 
-These **POST** to the FastAPI agent URL (often via `AI_SERVICE_URL` / `settings` in Django):
+These invoke coordination **directly or via HTTP** (often `AI_SERVICE_URL` in Django, `http://127.0.0.1:8001` by default):
 
 | Source | Trigger | Notes |
 |--------|---------|--------|
-| `django_app/nutrition/views.py` | `nutrition_skip` | After PATCH sets meal/exercise status to `skipped` (only on transition to skipped). Daemon thread + `httpx`. |
-| `django_app/monitoring/signals.py` | `alert` | On **new** `HealthAlert` with `severity == CRITICAL`. |
-| `psychology/repositories.py` | `crisis` | After `PsqlCrisisStore.add` inserts a crisis event: thread + `asyncio.run(run_coordination(...))`. |
-| `psychology/repositories.py` + `psychology/service.py` | `therapy_session` | After therapy session is persisted to Postgres on end-session (spawn thread). |
+| `django_app/nutrition/views.py` | `nutrition_skip` | After PATCH transitions meal/exercise to `skipped`; daemon thread + `httpx` → `POST …/agent/coordinate`. |
+| `fastapi_ai/psychology/repositories.py` | `crisis` | After crisis persistence; thread + `asyncio.run(run_coordination(...))` **in-process** on the FastAPI side. |
+| `fastapi_ai/psychology/service.py` → `spawn_therapy_session_coordination` in `repositories.py` | `therapy_session` | After session end persistence; daemon thread + `asyncio.run(run_coordination(...))`. |
 
 **Batch / cron:**
 
-- `django_app/monitoring/management/commands/run_coordination_agent.py` calls **`POST …/agent/coordinate/all`** (intended for cron). The request body’s `trigger` should match `CoordinateAllRequest` (`cron` or `manual`).
+- `django_app/monitoring/management/commands/run_coordination_agent.py` → **`POST …/agent/coordinate/all`** with JSON `{"trigger": "cron"}` or `{"trigger": "manual"}` (see §4 for `nightly` default mismatch).
 
 ---
 
 ## 11. Configuration (environment)
 
-Relevant FastAPI / agent settings (see `core/config.py`):
+Per-agent defaults are summarized in **§2** (table column **LLM**). Source of truth for defaults: `backend/fastapi_ai/core/config.py`.
 
-- **`GROQ_API_KEY`** — required for RiskReasoner and Dispatch agents.
-- **`database_url`** — MCP tools and `/coordinate/all` patient discovery.
-- **`AI_SERVICE_URL`** — used by Django to reach FastAPI (default often `http://127.0.0.1:8001`).
+Relevant FastAPI / agent settings:
+
+- **`GROQ_API_KEY`** — required for RiskReasoner and Dispatch agents (`settings.groq_api_key`).
+- **`GROQ_MODEL`** — RiskReasoner model id (`settings.groq_model`, default **`llama-3.3-70b-versatile`**).
+- **`PSYCHOLOGY_CONSOLIDATION_MODEL`** — Dispatch agent model id (`settings.psychology_consolidation_model`, default **`llama-3.1-8b-instant`**; name is shared with psychology session-consolidation settings).
+- **`database_url`** — MCP tools; `/coordinate/all` patient discovery; Django ORM.
+- **`AI_SERVICE_URL`** — used by Django to reach FastAPI.
 
 ---
 
@@ -200,20 +219,22 @@ Relevant FastAPI / agent settings (see `core/config.py`):
 
 | Path | Responsibility |
 |------|----------------|
-| `agent/orchestrator.py` | Coordination loop, cooldown, wiring |
-| `agent/router.py` | REST endpoints |
-| `agent/schemas.py` | Pydantic request/response and inter-agent models |
-| `agent/mcp_server.py` | MCP stdio server: tools + DB writes |
-| `agent/agents/context_agent.py` | Parallel MCP reads → `PatientContext` |
-| `agent/agents/risk_reasoner_agent.py` | Groq JSON reasoning |
-| `agent/agents/dispatch_agent.py` | Groq tool loop → `dispatch_update` |
+| `fastapi_ai/agent/orchestrator.py` | Coordination loop, cooldown, MCP session lifecycle |
+| `fastapi_ai/agent/router.py` | REST endpoints, batch query + error aggregation |
+| `fastapi_ai/agent/schemas.py` | Pydantic request/response and inter-agent models |
+| `fastapi_ai/agent/mcp_server.py` | MCP stdio server (FastMCP): tools + DB writes |
+| `fastapi_ai/agent/agents/context_agent.py` | Parallel MCP reads → `PatientContext` |
+| `fastapi_ai/agent/agents/risk_reasoner_agent.py` | Groq JSON reasoning (`groq_model` → default `llama-3.3-70b-versatile`) |
+| `fastapi_ai/agent/agents/dispatch_agent.py` | Groq tool loop (`psychology_consolidation_model` → default `llama-3.1-8b-instant`) → `dispatch_update` |
+| `fastapi_ai/main.py` | `include_router(..., prefix="/agent")` |
 
 ---
 
 ## 13. Operational notes
 
-- **Two LLM calls per successful full run:** RiskReasoner + Dispatch (plus MCP subprocess startup cost).
-- **MCP is local stdio:** no network hop for tools; Postgres is accessed from inside the MCP process.
+- **Two LLM calls per successful full run** (reasoning + at least one dispatch round); Dispatch may use **multiple** completion calls (max 6) if the model batches tool calls across turns.
+- **MCP is local stdio:** tools run in a subprocess; Postgres is opened from that process (and the main app uses the same DSN for batch listing).
 - **Caregiver duplicates:** prevented in DispatchAgent per run; repeated HTTP triggers (e.g. double API calls) need separate app-level guards (e.g. idempotent PATCH handlers).
+- **Single-patient errors:** `POST /coordinate` returns **500** with detail on failure; batch mode records errors in `CoordinateAllResponse.errors`.
 
 For wider backend split (Django vs FastAPI), see `backend/ARCHITECTURE.md` at the repo level.
