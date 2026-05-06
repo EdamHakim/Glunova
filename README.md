@@ -22,11 +22,10 @@
 
 ## Overview
 
-**Glunova** is a full-stack health technology project focused on **diabetes care**, **machine learning–assisted screening**, and **patient-centered digital health**. It combines a modern **React** and **Next.js** frontend with a **hybrid Python backend** (**Django** REST APIs and **FastAPI** for AI-heavy workloads), backed by **PostgreSQL**. The platform supports **API-driven** workflows, **medical document processing** and **OCR**, **nutrition automation** (including vision-based food analysis), and **role-based access control (RBAC)** for secure multi-user care scenarios.
+**Glunova** is a full-stack health technology project focused on **diabetes care**, **deep learning–assisted screening**, and **patient-centered digital health**. It combines a modern **React** and **Next.js** frontend with a **hybrid Python backend** (**Django** REST APIs and **FastAPI** for AI-heavy workloads), backed by **PostgreSQL**. The platform supports **API-driven** workflows, **medical document processing** and **OCR**, **nutrition automation** (including vision-based food analysis), and **role-based access control (RBAC)** for secure multi-user care scenarios.
 
-This project was developed as part of coursework at **Esprit School of Engineering** (Class **3IA3**, **Innova Team**, **2026**). It demonstrates applied skills in **full-stack development**, **API design**, **AI integration**, and **health informatics**.
-
-For a detailed feature matrix and team ownership, see [features.md](features.md).
+This project was developed as part of coursework at **Esprit School of Engineering** (Class **3IA3**, **Innova Team**, **2026**). 
+For a detailed feature matrix and team ownership, see [Features](https://citrine-gallon-8da.notion.site/58e0ec81b5c0828bb7950134d55c4566?v=d010ec81b5c08247a6430893c5067867).
 
 ---
 
@@ -43,7 +42,18 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 
 ## Tech Stack
 
+Badges summarize the stack; pinned versions and extras live in `frontend/package.json`, `backend/requirements.txt`, and related configs.
+
 ### Frontend
+
+<p>
+<a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js"></a>
+<a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232a?style=flat-square&logo=react&logoColor=61dafb" alt="React 19"></a>
+<a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
+<a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
+<a href="https://www.radix-ui.com/"><img src="https://img.shields.io/badge/Radix_UI-161618?style=flat-square&logo=radixui&logoColor=white" alt="Radix UI"></a>
+<a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-f69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
+</p>
 
 - **Next.js** (App Router), **React 19**, **TypeScript**
 - **Tailwind CSS** and **Radix UI** primitives (see [frontend/package.json](frontend/package.json))
@@ -51,12 +61,26 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 
 ### Backend
 
+<p>
+<a href="https://www.djangoproject.com/"><img src="https://img.shields.io/badge/Django-092E20?style=flat-square&logo=django&logoColor=white" alt="Django"></a>
+<a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI"></a>
+<a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-316192?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL"></a>
+<a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white" alt="PyTorch"></a>
+<a href="https://www.ultralytics.com/"><img src="https://img.shields.io/badge/Ultralytics-YOLO--World-1791CE?style=flat-square" alt="Ultralytics YOLO-World"></a>
+</p>
+
 - **Django** — authentication, **RBAC**, migrations, REST APIs, document metadata and orchestration ([backend/django_app/](backend/django_app/))
 - **FastAPI** — OCR and extraction, screening inference, AI routes; **OpenAPI** documentation at `/docs` ([backend/fastapi_ai/](backend/fastapi_ai/))
 - **PostgreSQL** — shared database for Django and FastAPI
 - **PyTorch** and **Ultralytics YOLO-World** — model-backed screening and nutrition vision paths (see [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md))
 
 ### Other tools
+
+<p>
+<a href="https://www.gnu.org/software/make/"><img src="https://img.shields.io/badge/Make-427819?style=flat-square&logo=gnu&logoColor=white" alt="GNU Make"></a>
+<a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/uv-DE5FE9?style=flat-square&logo=uv&logoColor=white" alt="uv"></a>
+<a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js_22+-43853D?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 22+"></a>
+</p>
 
 - **GNU Make** and [Makefile](Makefile) for repeatable backend lifecycle commands
 - **`uv`** (Python) for fast local dependency installs in the provided Windows script
@@ -71,8 +95,7 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 | [frontend/](frontend/) | Next.js app, UI, client integration with Django and FastAPI |
 | [backend/django_app/](backend/django_app/) | Auth, RBAC, REST, migrations |
 | [backend/fastapi_ai/](backend/fastapi_ai/) | AI and OCR routes, FastAPI OpenAPI |
-| [docker-compose.yml](docker-compose.yml) | Compose stack (`django_app` → **8000**, `fastapi_ai` → **8001**) |
-| [Makefile](Makefile) | `backend-up`, `backend-down`, local backend helpers |
+| [backend/.env.example](backend/.env.example) | Backend env template; copy to `backend/.env` |
 | [scripts/start_backends_local.bat](scripts/start_backends_local.bat) | Local Django + FastAPI on Windows |
 
 ---
@@ -89,9 +112,19 @@ For a detailed feature matrix and team ownership, see [features.md](features.md)
 
 ### Environment variables
 
-Create **`backend/.env`** before starting backends. At minimum:
+Copy [`backend/.env.example`](backend/.env.example) to `backend/.env`, then edit values for your machine (see the comments in the template). Required before local backend startup:
 
-- **`DATABASE_URL`** — required (e.g. local Postgres or managed hosting). Details: [backend/README.md](backend/README.md).
+```bash
+# macOS / Linux (repository root)
+cp backend/.env.example backend/.env
+```
+
+```bat
+REM Windows CMD (repository root)
+copy backend\.env.example backend\.env
+```
+
+Variables are loaded by Django and FastAPI (see **`backend/django_app/core/settings.py`** and **`backend/fastapi_ai/core/config.py`**). At minimum set **`DATABASE_URL`**. Extended notes: [backend/README.md](backend/README.md).
 
 Optional **frontend** overrides (defaults follow the current host on ports **8000** / **8001**; see [frontend/lib/auth.ts](frontend/lib/auth.ts)):
 
@@ -100,13 +133,25 @@ Optional **frontend** overrides (defaults follow the current host on ports **800
 
 ### Backend setup
 
-From the repository root (Windows, with `make`):
+Both options below run [scripts/start_backends_local.bat](scripts/start_backends_local.bat): it creates **`.venv`** at the repo root if needed, installs dependencies with **`uv`**, runs Django migrations, then launches **Django** on port **8000** and **FastAPI** on **8001**. You need **`backend/.env`** in place first (see [Environment variables](#environment-variables)). **Windows-only** (`start` launches separate console windows per service).
+
+**Option A — GNU Make** (repository root)
 
 ```bash
 make backend-local
 ```
 
-This runs [scripts/start_backends_local.bat](scripts/start_backends_local.bat): creates **`.venv`** if needed, installs dependencies with **`uv`**, runs migrations, then starts **Django** on **8000** and **FastAPI** on **8001**. Requires **`backend/.env`**. You may run the **`.bat`** file directly without **Make**.
+**Option B — Run the script directly** (no Make). From the repository root in **Command Prompt** or **PowerShell**:
+
+```bat
+scripts\start_backends_local.bat
+```
+
+From **Git Bash** on Windows you can invoke the same file:
+
+```bash
+scripts/start_backends_local.bat
+```
 
 ### Frontend setup
 
@@ -154,6 +199,10 @@ Django owns identity, **RBAC**, and relational data; FastAPI serves **AI**- and 
 ---
 
 ## Acknowledgments
+
+<p align="center">
+  <a href="https://esprit.tn/"><img src="frontend/public/esprit_logo.png" alt="Esprit School of Engineering — se former autrement" width="220"></a>
+</p>
 
 This project was completed under the supervision of **Mme Jihene Hlel**, **Mr Fedi Baccar**, and **Mme Widad Askri** at **Esprit School of Engineering**, as part of the **Innova Team** (Class **3IA3**, **2026**).
 
