@@ -1489,9 +1489,9 @@ export default function PsychologyPage() {
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-linear-to-b from-primary/[0.05] via-[color:var(--sanadi-shell-bg)] to-[color:var(--sanadi-shell-bg)]">
           {voiceModeActive ? (
             <>
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-3">
-                  <div className="flex w-full max-w-lg flex-col items-center justify-center gap-4">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+                  <div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center gap-4 pb-6">
                     <div className="flex min-h-[min(44svh,400px)] max-h-[52svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
                       <Suspense
                         fallback={
@@ -1518,7 +1518,7 @@ export default function PsychologyPage() {
                       <SanadiBreathingCue className="w-full max-w-[480px]" onDismiss={() => setBreathingCueDismissed(true)} />
                     ) : null}
 
-                    <div className="w-full max-w-[480px] shrink-0 rounded-2xl border border-border/70 bg-card/95 p-4 shadow-sm">
+                    <div className="w-full max-w-[480px] shrink-0 overflow-hidden rounded-2xl border border-border/70 bg-card/95 p-4 shadow-sm">
                       <p className="mb-3 text-center text-xs font-medium tracking-wide text-muted-foreground">Your voice</p>
                       <SanadiVoiceWaveform
                         analyserRef={voiceAnalyserRef}
@@ -1531,7 +1531,7 @@ export default function PsychologyPage() {
                 </div>
               </div>
 
-              <div className="shrink-0 border-t border-border/40 bg-[color:var(--sanadi-shell-bg)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <div className="relative z-20 shrink-0 border-t border-border/40 bg-[color:var(--sanadi-shell-bg)] px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-12px_24px_-18px_rgb(15_23_42/0.12)] dark:shadow-[0_-12px_24px_-18px_rgb(0_0_0/0.45)]">
                 {chatError ? (
                   <p className="mx-auto mb-3 max-w-lg text-center text-xs text-destructive">{chatError}</p>
                 ) : null}

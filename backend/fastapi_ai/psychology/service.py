@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, wait as futures_wait
 from dataclasses import dataclass, field
 from datetime import datetime
 from statistics import fmean
@@ -11,6 +11,7 @@ import copy
 import json
 import logging
 import math
+import time
 import tempfile
 import uuid
 from typing import Any
@@ -38,7 +39,7 @@ from psychology.schemas import (
     TrendPoint,
     TrendResponse,
 )
-from psychology.hf_emotion_inference import classify_audio, classify_image, classify_text
+from psychology.hf_emotion_inference import classify_audio, classify_image
 from psychology.kb_retrieval import resolve_kb_retrieval_limit
 from psychology.knowledge_ingestion import get_knowledge_base
 from psychology.storage import (
@@ -620,8 +621,10 @@ class PsychologyService:
     def _fusion(self, payload: MessageRequest) -> FusionOutput:
         entries: list[tuple[EmotionLabel, float, Modality]] = []
 
-        # Run text emotion and speech emotion in parallel; cap total wait at 3 s so
-        # a failing/slow HF model never blocks the therapy reply.
+        deadline = time.monotonic() + float(settings.psychology_fusion_modality_budget_s)
+
+        # Text, speech (if any audio), and face frame start together; modality budget is split so
+        # a slow HF image call or ViT cold-start cannot monopolise the fusion step before `_therapy_reply_*`.
         has_audio = bool(payload.speech_audio_base64)
         text_future = self._executor.submit(self._text_emotion, payload.text)
         speech_future = (
@@ -629,17 +632,35 @@ class PsychologyService:
             if has_audio
             else None
         )
+        face_future = (
+            self._executor.submit(self._infer_face_emotion_from_frame, payload.face_frame_base64)
+            if payload.face_frame_base64
+            else None
+        )
 
+        remaining_txt = deadline - time.monotonic()
         try:
-            text_label, text_confidence, text_sentiment = text_future.result(timeout=3.0)
+            if remaining_txt > 0:
+                text_label, text_confidence, text_sentiment = text_future.result(timeout=max(remaining_txt, 0.001))
+            else:
+                raise FuturesTimeoutError()
         except (FuturesTimeoutError, Exception):
             text_label, text_confidence, text_sentiment = EmotionLabel.neutral, 0.6, 0.1
         entries.append((text_label, text_confidence, Modality.text))
 
+        optional_modalities = [f for f in (speech_future, face_future) if f is not None]
+        remainder = deadline - time.monotonic()
+        if optional_modalities and remainder > 0:
+            futures_wait(optional_modalities, timeout=max(remainder, 0.0))
+
         face_result = None
-        if payload.face_frame_base64:
-            face_result = self._infer_face_emotion_from_frame(payload.face_frame_base64)
-            if face_result is not None:
+        if face_future is not None:
+            try:
+                face_inner = face_future.result(timeout=0)
+            except (FuturesTimeoutError, Exception):
+                face_inner = None
+            if face_inner is not None:
+                face_result = face_inner
                 self._latest_face_by_patient[payload.patient_id] = (
                     face_result[0],
                     face_result[1],
@@ -667,7 +688,7 @@ class PsychologyService:
         speech_result = None
         if speech_future is not None:
             try:
-                speech_result = speech_future.result(timeout=0.1)  # already had 3 s total above
+                speech_result = speech_future.result(timeout=0)
             except (FuturesTimeoutError, Exception):
                 speech_result = None
         if speech_result is None and payload.speech_emotion and payload.speech_confidence is not None:
@@ -1185,7 +1206,7 @@ class PsychologyService:
             settings.psychology_face_emotion_model.strip()
             or "mo-thecreator/vit-Facial-Expression-Recognition"
         )
-        out = classify_image(token, model_id, image_bytes, settings.psychology_hf_inference_timeout_s)
+        out = classify_image(token, model_id, image_bytes, settings.psychology_hf_image_inference_timeout_s)
         if out is None:
             return None
         raw_label, score = out
@@ -1228,18 +1249,21 @@ class PsychologyService:
             return None
         mode = self._emotion_inference_mode_norm()
         token = (settings.psychology_hf_api_token or "").strip()
-        if mode == "inference_api" and not token:
-            logger.warning("psychology face emotion: inference_api mode but HF token missing")
+        use_hf_face = settings.psychology_face_emotion_use_hf_inference
+
+        if mode == "inference_api" and use_hf_face and not token:
+            logger.warning("psychology face emotion: inference_api + HF face API enabled but HF token missing")
             return None
-        if mode != "local" and token:
+
+        if use_hf_face and mode != "local" and token:
             api_out = self._infer_face_emotion_vit_hf_api(image_bytes)
             if api_out is not None:
                 return api_out
             if mode == "inference_api":
                 return None
-        if mode == "local" or self._allow_local_inference_fallback():
-            return self._infer_face_emotion_vit_local(image_bytes)
-        return None
+
+        # Default / non–API-exclusive: always local ViT (weights warmed at startup in `lifespan`).
+        return self._infer_face_emotion_vit_local(image_bytes)
 
     def _infer_speech_emotion_hf_api(self, wav_bytes: bytes) -> tuple[EmotionLabel, float] | None:
         hf_audio_model = (settings.psychology_speech_emotion_hf_model or "").strip()
@@ -1310,36 +1334,6 @@ class PsychologyService:
                 return local_out
         return None
 
-    def _infer_text_emotion_hf_api(self, text: str) -> tuple[EmotionLabel, float, float] | None:
-        token = (settings.psychology_hf_api_token or "").strip()
-        model_id = (
-            settings.psychology_text_emotion_model.strip()
-            or "j-hartmann/emotion-english-distilroberta-base"
-        )
-        out = classify_text(token, model_id, text, settings.psychology_hf_inference_timeout_s)
-        if out is None:
-            fb = (getattr(settings, "psychology_text_emotion_hf_fallback_model", "") or "").strip()
-            if fb and fb != model_id:
-                out = classify_text(token, fb, text, settings.psychology_hf_inference_timeout_s)
-                if out is not None:
-                    logger.info(
-                        "psychology text emotion: primary HF model %s failed; using fallback %s",
-                        model_id,
-                        fb,
-                    )
-        if out is None:
-            return None
-        raw_label, score = out
-        mapped = self._map_text_label_generic(raw_label)
-        sentiment = {
-            EmotionLabel.happy: 0.6,
-            EmotionLabel.neutral: 0.2,
-            EmotionLabel.anxious: -0.4,
-            EmotionLabel.distressed: -0.55,
-            EmotionLabel.depressed: -0.8,
-        }[mapped]
-        return mapped, max(0.35, min(0.99, float(score))), sentiment
-
     def _infer_text_emotion_hf_local(self, text: str) -> tuple[EmotionLabel, float, float] | None:
         try:
             from transformers import pipeline
@@ -1379,24 +1373,14 @@ class PsychologyService:
             return None
 
     def _infer_text_emotion_hf(self, text: str) -> tuple[EmotionLabel, float, float] | None:
+        """Local `transformers` pipeline only (`psychology_text_emotion_model`); no HF Inference RPC."""
         mode = self._emotion_inference_mode_norm()
-        token = (settings.psychology_hf_api_token or "").strip()
-        if mode == "inference_api" and not token:
-            logger.warning("psychology text emotion: inference_api mode but HF token missing")
+        if mode == "inference_api" and not (settings.psychology_hf_api_token or "").strip():
+            logger.warning(
+                "psychology text emotion: inference_api mode but HF token missing; skipping text modality.",
+            )
             return None
-        if mode != "local" and token and settings.psychology_text_emotion_use_hf_inference:
-            api_out = self._infer_text_emotion_hf_api(text)
-            if api_out is not None:
-                return api_out
-            if mode == "inference_api":
-                return None
-        if (
-            mode == "local"
-            or self._allow_local_inference_fallback()
-            or (mode == "inference_api" and not settings.psychology_text_emotion_use_hf_inference)
-        ):
-            return self._infer_text_emotion_hf_local(text)
-        return None
+        return self._infer_text_emotion_hf_local(text)
 
     @staticmethod
     def _safe_b64decode(raw: str) -> bytes | None:
@@ -1476,20 +1460,27 @@ class PsychologyService:
             return EmotionLabel.distressed
         return EmotionLabel.neutral
 
-    def warm_heavy_psychology_caches(self) -> None:
-        """Load local text-emotion transformers before the first chat when that path may run."""
+    def warm_face_vit_bundle_if_needed(self) -> None:
+        """Prefetch local ViT weights only when we are not relying on HF face Inference (offline / no token)."""
         mode = self._emotion_inference_mode_norm()
-        token = bool((settings.psychology_hf_api_token or "").strip())
-        if mode == "inference_api":
+        token = (settings.psychology_hf_api_token or "").strip()
+        if settings.psychology_face_emotion_use_hf_inference and mode != "local" and token:
             return
-        if mode == "auto" and not token and not settings.psychology_text_emotion_use_hf:
-            return
-        if mode == "local" and not settings.psychology_text_emotion_use_hf:
-            return
+        buf = BytesIO()
+        Image.new("RGB", (96, 96), color=(120, 120, 118)).save(buf, format="JPEG", quality=85)
+        self._infer_face_emotion_vit_local(buf.getvalue())
+
+    def warm_heavy_psychology_caches(self) -> None:
+        """Prefetch local transformers used by psychology paths (no HF Inference calls at startup)."""
+        if self._run_text_emotion_hf():
+            try:
+                self._infer_text_emotion_hf_local("warmup.")
+            except Exception:
+                logger.debug("psychology local text classifier warm skipped", exc_info=True)
         try:
-            self._infer_text_emotion_hf_local("warmup.")
+            self.warm_face_vit_bundle_if_needed()
         except Exception:
-            logger.debug("psychology local text classifier warm skipped", exc_info=True)
+            logger.debug("psychology face ViT warm skipped", exc_info=True)
 
 
 def create_psychology_service() -> PsychologyService:

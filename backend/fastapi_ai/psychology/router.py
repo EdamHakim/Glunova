@@ -14,6 +14,7 @@ from psychology.schemas import (
     CrisisEventsResponse,
     EmotionFrameRequest,
     EmotionFrameResponse,
+    EmotionLabel,
     MessageRequest,
     MessageResponse,
     PhysicianClearGateRequest,
@@ -77,11 +78,27 @@ def message(
 
 
 @router.post("/emotion/frame", response_model=EmotionFrameResponse)
-def emotion_frame(
+async def emotion_frame(
     payload: EmotionFrameRequest,
     _claims: dict = Depends(require_roles("patient", "doctor")),
 ) -> EmotionFrameResponse:
-    return service.detect_emotion_frame(payload.patient_id, payload.frame_base64)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(service.detect_emotion_frame, payload.patient_id, payload.frame_base64),
+            timeout=max(0.5, settings.psychology_emotion_frame_http_timeout_s),
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "psychology.emotion.frame http timeout patient_id=%s (>%.1fs); returning fallback",
+            payload.patient_id,
+            settings.psychology_emotion_frame_http_timeout_s,
+        )
+        return EmotionFrameResponse(
+            patient_id=payload.patient_id,
+            label=EmotionLabel.neutral,
+            confidence=0.45,
+            distress_score=0.2,
+        )
 
 
 @router.websocket("/ws/emotion/{patient_id}")

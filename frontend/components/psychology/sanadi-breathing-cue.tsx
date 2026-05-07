@@ -59,7 +59,7 @@ export function SanadiBreathingCue({ className, onDismiss }: Props) {
 
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="relative flex h-16 w-16 shrink-0 items-center justify-center">
+          <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full">
             <div
               className={cn('sanadi-breathe-ring-' + uid, 'absolute inset-0 rounded-full border-2 border-primary/45 bg-primary/10')}
               aria-hidden

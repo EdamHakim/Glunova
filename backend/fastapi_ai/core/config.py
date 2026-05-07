@@ -29,24 +29,31 @@ class Settings(BaseSettings):
     # Must match sentence-transformers/all-MiniLM-L6-v2 output (384); also used before lazy embed init.
     qdrant_vector_size: int = 384
     qdrant_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    # Inference API (`image_classification`); avoids local downloads when HF token + inference mode are set.
+    # Hugging Face repo id for local ViT FER weights (`transformers`); also model id when face HF Inference is enabled.
     psychology_face_emotion_model: str = "mo-thecreator/vit-Facial-Expression-Recognition"
+    # When false (default), face modality never calls HF Inference `image_classification` (avoids read timeouts).
+    psychology_face_emotion_use_hf_inference: bool = False
     psychology_speech_emotion_model: str = "iic/emotion2vec_plus_large"
-    # Forces local `transformers.pipeline` for text emotion when true (heavy first-time download unless cached).
-    # When false but `psychology_emotion_inference_mode` is auto/inference_api and an HF token is set, text emotion uses Inference API (no weights download).
+    # When true with `psychology_emotion_inference_mode=local`, text emotion pipeline still runs (`_run_text_emotion_hf` gate).
     psychology_text_emotion_use_hf: bool = False
+    # Local Hugging Face repo loaded via `transformers.pipeline("text-classification", ...)` (no HF Inference API).
     psychology_text_emotion_model: str = "j-hartmann/emotion-english-distilroberta-base"
-    # If set, HF Inference will try this model when the primary text emotion model fails (cold start, 400, provider).
-    # Set empty to disable. Use a known text-classification–friendly model (e.g. j-hartmann) as backup for multilingual hubs.
+    # Legacy: HF Inference fallback for text_classification (unused — text modality is local-only).
     psychology_text_emotion_hf_fallback_model: str = "j-hartmann/emotion-english-distilroberta-base"
     # HF Inference API: `auto` — try remote inference when a token is set, with local fallbacks where configured.
     # `inference_api` — remote only for modalities that use it; `local` — always on-device.
     psychology_emotion_inference_mode: str = "auto"
-    # Many text-classification / audio-classification Hub models are not on HF Inference; keep false and use local pipelines.
+    # Unused (kept for .env compat): psychology text emotion never calls HF Inference.
     psychology_text_emotion_use_hf_inference: bool = False
     psychology_speech_emotion_use_hf_inference: bool = False
     psychology_hf_api_token: str = ""
     psychology_hf_inference_timeout_s: float = 8.0
+    # Image classification stalls often; shorter timeout jumps to local ViT fallback faster (`auto` mode).
+    psychology_hf_image_inference_timeout_s: float = 2.75
+    # Shared wall-clock for parallel text/speech/face modality collection in `_fusion` (therapy reply wait).
+    psychology_fusion_modality_budget_s: float = 4.5
+    # REST `/psychology/emotion/frame` — avoids long threadpool blockage + matches websocket pacing.
+    psychology_emotion_frame_http_timeout_s: float = 2.5
     # Hugging Face InferenceClient routing: `auto` picks a Hub-registered provider (works for more models than
     # `hf-inference` alone). Set `hf-inference` only if you need the legacy proxy for a specific supported model.
     psychology_hf_inference_provider: str = "auto"
