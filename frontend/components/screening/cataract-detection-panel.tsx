@@ -246,12 +246,6 @@ export function CataractDetectionPanel() {
               </div>
             </div>
 
-            {/* Model Info */}
-            <div className="text-xs text-gray-500 space-y-1 border-t pt-3">
-              <p>Model: {result.model_name}</p>
-              <p>Version: {result.model_version}</p>
-            </div>
-
             {/* Clear Button */}
             <Button
               variant="outline"

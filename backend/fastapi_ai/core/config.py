@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     azure_document_intelligence_endpoint: str = ""
     azure_document_intelligence_key: str = ""
 
+    # Diabetic retinopathy (clinic routes): Torch device selection.
+    # auto — use CUDA when available else CPU (default).
+    # cuda — CUDA only; warns and falls back to CPU if NVIDIA/CuPy Torch not available (see logs).
+    # cpu — force CPU (useful for debugging).
+    retinopathy_torch_device: str = "auto"
+
     @model_validator(mode="after")
     def _resolve_psychology_hf_token_from_env(self) -> Any:
         if (self.psychology_hf_api_token or "").strip():

@@ -66,9 +66,20 @@ from extraction.router import router as extraction_router
 from wellness.router import router as wellness_router
 
 
+def _retinopathy_startup_device_log_sync() -> None:
+    """Log CUDA vs CPU choice once at startup (models still lazy-load)."""
+    try:
+        from clinic.services.retinopathy_service import resolve_retinopathy_torch_device
+
+        resolve_retinopathy_torch_device()
+    except Exception:
+        _startup_log.debug("retinopathy device probe skipped", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await asyncio.to_thread(_warm_psychology_caches_sync)
+    await asyncio.to_thread(_retinopathy_startup_device_log_sync)
     yield
     from psychology.db import close_pool as close_psychology_pool
     from core.db import close_pool as close_shared_pool

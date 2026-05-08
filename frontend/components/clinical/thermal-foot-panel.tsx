@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Footprints, Loader2, Upload } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,17 +20,17 @@ import { getApiUrls } from '@/lib/auth'
 import { useAuth } from '@/components/auth-context'
 
 type ThermalFootResult = {
+  patient_display_name: string
   patient_id: number
   probability: number
   prediction_label: string
-  threshold_used: number
-  model_name: string
   heatmapBase64?: string
   heatmapError?: string
 }
 
 export function ThermalFootPanel() {
   const { user: sessionUser, loading: sessionLoading } = useAuth()
+  const selectedPatientLabelRef = useRef<string | null>(null)
   const [patientId, setPatientId] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
@@ -100,11 +100,11 @@ export function ThermalFootPanel() {
       const data = await inferRes.json()
 
       const next: ThermalFootResult = {
+        patient_display_name:
+          selectedPatientLabelRef.current?.trim() || 'Selected patient',
         patient_id: data.patient_id,
         probability: data.probability,
         prediction_label: data.prediction_label,
-        threshold_used: data.threshold_used,
-        model_name: data.model_name,
       }
 
       const gradForm = new FormData()
@@ -154,8 +154,9 @@ export function ThermalFootPanel() {
           <DialogHeader>
             <DialogTitle>Thermal foot analysis</DialogTitle>
             <DialogDescription>
-              Model output for patient #{result?.patient_id ?? '—'}. For decision support only — not a
-              standalone diagnosis.
+              Results for{' '}
+              <span className="font-medium text-foreground">{result?.patient_display_name ?? 'selected patient'}</span>
+              . For decision support only — not a standalone diagnosis.
             </DialogDescription>
           </DialogHeader>
 
@@ -171,11 +172,6 @@ export function ThermalFootPanel() {
                 <span className="text-sm text-muted-foreground">Diabetes probability</span>
                 <span className="font-semibold">{riskPercent}%</span>
               </div>
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <span className="text-sm text-muted-foreground">Threshold</span>
-                <span className="font-semibold">{result.threshold_used}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">Model: {result.model_name}</p>
               {result.heatmapBase64 ? (
                 <div className="rounded-lg border p-2">
                   <p className="text-sm text-muted-foreground mb-2">Grad-CAM (XAI)</p>
@@ -219,6 +215,9 @@ export function ThermalFootPanel() {
                 label="Patient"
                 value={patientId}
                 onChange={setPatientId}
+                onSelectedPatientChange={(p) => {
+                  selectedPatientLabelRef.current = p?.display_name?.trim() || null
+                }}
               />
             </div>
 

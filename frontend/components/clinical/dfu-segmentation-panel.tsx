@@ -5,6 +5,7 @@ import {
   FormEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -36,6 +37,7 @@ import { useAuth } from '@/components/auth-context'
 type DFUSeverity = 'none' | 'mild' | 'moderate' | 'severe' | 'critical'
 
 type DFUResult = {
+  patient_display_name: string
   patient_id: number
   ulcer_detected: boolean
   ulcer_severity: DFUSeverity
@@ -45,10 +47,10 @@ type DFUResult = {
   bbox_width_mm: number
   bbox_height_mm: number
   mm_per_pixel: number
-  threshold_used: number
   overlay_base64: string
-  used_auto_threshold: boolean
   used_auto_mm_pixel: boolean
+  /** When auto scale was used: assumed sole/foot span along the long image axis (cm). */
+  assumed_foot_span_cm: number | null
 }
 
 function formatAreaMm2(mm2: number): string {
@@ -106,11 +108,13 @@ function MetricTile({
 
 export function DFUSegmentationPanel() {
   const { user: sessionUser, loading: sessionLoading } = useAuth()
+  const selectedPatientLabelRef = useRef<string | null>(null)
   const [patientId, setPatientId] = useState('')
-  const [mmPerPixel, setMmPerPixel] = useState('0.5')
-  const [threshold, setThreshold] = useState('0.5')
-  const [thresholdAuto, setThresholdAuto] = useState(true)
-  const [mmPerPixelAuto, setMmPerPixelAuto] = useState(false)
+  const [mmPerPixel, setMmPerPixel] = useState('0.05')
+  const [mmPerPixelAuto, setMmPerPixelAuto] = useState(true)
+  /** Visible foot / sole span along the image longest side (clinical prior for auto mm/px). */
+  const [assumedFootSpanCm, setAssumedFootSpanCm] = useState('24')
+  const [imageLongPx, setImageLongPx] = useState<number | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [loading, setLoading] = useState(false)
@@ -162,6 +166,33 @@ export function DFUSegmentationPanel() {
     }
   }, [previewUrl])
 
+  useEffect(() => {
+    if (!previewUrl) {
+      setImageLongPx(null)
+      return
+    }
+    const img = new window.Image()
+    img.onload = () => {
+      setImageLongPx(Math.max(img.naturalWidth, img.naturalHeight))
+    }
+    img.onerror = () => setImageLongPx(null)
+    img.src = previewUrl
+    return () => {
+      img.onload = null
+      img.onerror = null
+    }
+  }, [previewUrl])
+
+  const autoScalePreview = useMemo(() => {
+    if (!mmPerPixelAuto || imageLongPx == null || imageLongPx < 16) return null
+    const spanCm = Number.parseFloat(assumedFootSpanCm)
+    if (!Number.isFinite(spanCm) || spanCm < 8 || spanCm > 48) return null
+    const spanMm = spanCm * 10
+    const raw = spanMm / imageLongPx
+    const clamped = Math.min(12, Math.max(0.015, raw))
+    return { clamped, spanMm, longPx: imageLongPx }
+  }, [mmPerPixelAuto, imageLongPx, assumedFootSpanCm])
+
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null
     setFile(selected)
@@ -178,11 +209,15 @@ export function DFUSegmentationPanel() {
 
     const pid = Number.parseInt(patientId.trim(), 10)
     const mm = Number.parseFloat(mmPerPixel)
-    const thr = Number.parseFloat(threshold)
+    const spanCm = Number.parseFloat(assumedFootSpanCm)
     if (!Number.isFinite(pid) || pid <= 0) return setError('Choose a patient from your list.')
-    if (!mmPerPixelAuto && (!Number.isFinite(mm) || mm <= 0)) return setError('mm/pixel must be > 0 (or enable auto estimate).')
-    if (!thresholdAuto && (!Number.isFinite(thr) || thr < 0 || thr > 1))
-      return setError('Threshold must be between 0 and 1 (or enable automatic threshold).')
+    if (mmPerPixelAuto) {
+      if (!Number.isFinite(spanCm) || spanCm < 8 || spanCm > 48) {
+        return setError('Assumed foot span must be between 8 and 48 cm (along the image longest side).')
+      }
+    } else if (!Number.isFinite(mm) || mm <= 0) {
+      return setError('mm/pixel must be > 0, or enable automatic scale from the photo.')
+    }
     if (!file) return setError('Select a foot ulcer image.')
     if (!sessionUser || sessionUser.role !== 'doctor') return setError('This tool is only available to doctors.')
 
@@ -192,10 +227,11 @@ export function DFUSegmentationPanel() {
       const form = new FormData()
       form.append('patient_id', String(pid))
       form.append('image', file)
-      form.append('threshold_auto', thresholdAuto ? 'true' : 'false')
+      form.append('threshold_auto', 'true')
       form.append('mm_per_pixel_auto', mmPerPixelAuto ? 'true' : 'false')
-      form.append('threshold', thresholdAuto ? '0.5' : String(thr))
+      form.append('threshold', '0.5')
       form.append('mm_per_pixel', mmPerPixelAuto ? '0.5' : String(mm))
+      form.append('assumed_foot_span_mm', mmPerPixelAuto ? String(spanCm * 10) : '240')
 
       const res = await fetch(`${fastapi}/clinic/dfu-segmentation/infer`, {
         method: 'POST',
@@ -208,6 +244,8 @@ export function DFUSegmentationPanel() {
       }
       const data = await res.json()
       setResult({
+        patient_display_name:
+          selectedPatientLabelRef.current?.trim() || 'Selected patient',
         patient_id: data.patient_id,
         ulcer_detected: data.ulcer_detected,
         ulcer_severity: (data.ulcer_severity ?? 'none') as DFUSeverity,
@@ -217,10 +255,9 @@ export function DFUSegmentationPanel() {
         bbox_width_mm: data.bbox_width_mm,
         bbox_height_mm: data.bbox_height_mm,
         mm_per_pixel: data.mm_per_pixel,
-        threshold_used: data.threshold_used,
         overlay_base64: data.overlay_base64,
-        used_auto_threshold: thresholdAuto,
         used_auto_mm_pixel: mmPerPixelAuto,
+        assumed_foot_span_cm: mmPerPixelAuto ? spanCm : null,
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Request failed.')
@@ -245,59 +282,92 @@ export function DFUSegmentationPanel() {
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4 max-w-3xl">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2 sm:col-span-1 min-w-0">
               <DoctorPatientPicker
                 id="dfu-patient-id"
                 label="Patient"
                 value={patientId}
                 onChange={setPatientId}
+                onSelectedPatientChange={(p) => {
+                  selectedPatientLabelRef.current = p?.display_name?.trim() || null
+                }}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="dfu-mm-px">mm / pixel</Label>
+              <Label htmlFor="dfu-mm-px">mm / pixel (manual)</Label>
               <Input
                 id="dfu-mm-px"
                 type="number"
-                step="0.01"
-                min="0.01"
+                step="0.001"
+                min="0.001"
                 value={mmPerPixel}
                 onChange={(e) => setMmPerPixel(e.target.value)}
                 disabled={mmPerPixelAuto}
               />
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <label className="flex items-start gap-2 text-sm text-muted-foreground">
                 <Checkbox
                   checked={mmPerPixelAuto}
                   onCheckedChange={(v) => setMmPerPixelAuto(v === true)}
                   id="dfu-mm-auto"
+                  className="mt-0.5"
                 />
                 <span id="dfu-mm-auto-desc">
-                  Estimate from image (~24&nbsp;cm along longest edge — rough only; use ruler when possible).
+                  <span className="font-medium text-foreground">Automatic scale from the photo</span> — we assume
+                  your subject spans a known width <strong>along the longest side of the image</strong> (typical
+                  plantar view ~24&nbsp;cm). Formula:{' '}
+                  <span className="whitespace-nowrap font-mono text-xs">mm/px = span(mm) ÷ longest side(px)</span>.
                 </span>
               </label>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dfu-threshold">Threshold (0-1)</Label>
-              <Input
-                id="dfu-threshold"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                value={threshold}
-                onChange={(e) => setThreshold(e.target.value)}
-                disabled={thresholdAuto}
-              />
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Checkbox
-                  checked={thresholdAuto}
-                  onCheckedChange={(v) => setThresholdAuto(v === true)}
-                  id="dfu-thresh-auto"
-                />
-                <span>Automatic threshold from model probabilities</span>
-              </label>
+              {mmPerPixelAuto ? (
+                <div className="space-y-1.5 pl-6">
+                  <Label htmlFor="dfu-assumed-span-cm" className="text-xs font-normal text-muted-foreground">
+                    Assumed span along longest side (cm)
+                  </Label>
+                  <Input
+                    id="dfu-assumed-span-cm"
+                    type="number"
+                    step="0.5"
+                    min="8"
+                    max="48"
+                    value={assumedFootSpanCm}
+                    onChange={(e) => setAssumedFootSpanCm(e.target.value)}
+                    className="max-w-40"
+                  />
+                  {autoScalePreview ? (
+                    <p className="text-xs text-muted-foreground">
+                      With this image ({autoScalePreview.longPx}&nbsp;px long side): ≈{' '}
+                      <span className="font-mono font-medium text-foreground">
+                        {autoScalePreview.clamped.toFixed(4)}
+                      </span>{' '}
+                      mm/px (server clamps to a safe range).
+                    </p>
+                  ) : previewUrl && mmPerPixelAuto ? (
+                    <p className="text-xs text-muted-foreground">Open a valid image to preview scale.</p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
+
+          <Alert className="max-w-3xl border-muted-foreground/25 bg-muted/20">
+            <Info className="size-4" aria-hidden />
+            <AlertTitle className="text-sm">Getting mm/pixel right</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground leading-relaxed space-y-2">
+              <p>
+                <strong className="text-foreground">Automatic (above):</strong> best when the whole sole roughly fills
+                the frame. If the foot is cropped tighter, enter a <em>smaller</em> span (e.g. 18–20&nbsp;cm) so sizes
+                are not underestimated.
+              </p>
+              <p>
+                <strong className="text-foreground">Most accurate:</strong> place a ruler or a known reference (e.g.
+                credit card ≈85.6&nbsp;mm) in the same plane as the ulcer, parallel to the long axis. Turn off
+                automatic scale and set{' '}
+                <span className="whitespace-nowrap font-mono">mm/px = reference length (mm) ÷ length in pixels</span>{' '}
+                (measure the reference in an editor or on screen).
+              </p>
+            </AlertDescription>
+          </Alert>
 
           <div className="space-y-2">
             <Label htmlFor="dfu-image">Foot ulcer image</Label>
@@ -336,7 +406,8 @@ export function DFUSegmentationPanel() {
             <div className="space-y-2 max-w-5xl">
               <h3 className="text-sm font-semibold tracking-tight text-foreground">Analysis results</h3>
               <p className="text-xs text-muted-foreground">
-                Patient #{result.patient_id} · model output for decision support only
+                <span className="font-medium text-foreground">{result.patient_display_name}</span>
+                {' · '}model output for decision support only
               </p>
             </div>
 
@@ -412,7 +483,7 @@ export function DFUSegmentationPanel() {
               ) : null}
             </div>
 
-            <div className="grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <MetricTile
                 icon={Target}
                 label="Ulcer area"
@@ -439,13 +510,13 @@ export function DFUSegmentationPanel() {
                 icon={Ruler}
                 label="Calibration"
                 value={`${result.mm_per_pixel} mm/px`}
-                hint={result.used_auto_mm_pixel ? 'Estimated from image (~24 cm prior)' : 'Manual mm/pixel'}
-              />
-              <MetricTile
-                icon={ScanSearch}
-                label="Mask threshold"
-                value={result.threshold_used.toFixed(3)}
-                hint={result.used_auto_threshold ? 'Chosen per image (auto)' : 'Manual value'}
+                hint={
+                  result.used_auto_mm_pixel && result.assumed_foot_span_cm != null
+                    ? `Auto: ${result.assumed_foot_span_cm} cm ÷ long image side (mm/px)`
+                    : result.used_auto_mm_pixel
+                      ? 'Auto from assumed span ÷ long image side'
+                      : 'Manual mm/pixel (e.g. ruler in photo)'
+                }
               />
             </div>
 

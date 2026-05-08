@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -16,6 +17,8 @@ from pytorch_grad_cam import EigenCAM, HiResCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from scipy.ndimage import gaussian_filter
+
+from core.config import settings
 
 from clinic.config_retinopathy import (
     CLINICAL_GRADE_LABELS,
@@ -41,6 +44,50 @@ from clinic.config_retinopathy import (
     resolve_v51_pt_path,
     resolve_v8_pt_path,
 )
+
+
+logger = logging.getLogger(__name__)
+
+_retinopathy_device_resolved: torch.device | None = None
+
+
+def resolve_retinopathy_torch_device() -> torch.device:
+    """Pick Torch device once per process; logs GPU name or CPU fallback."""
+    global _retinopathy_device_resolved
+    if _retinopathy_device_resolved is not None:
+        return _retinopathy_device_resolved
+
+    mode = (settings.retinopathy_torch_device or "auto").strip().lower()
+    if mode == "cpu":
+        _retinopathy_device_resolved = torch.device("cpu")
+        logger.warning(
+            "retinopathy_torch_device=cpu - retinopathy inference is CPU-only (slower than CUDA)."
+        )
+        return _retinopathy_device_resolved
+
+    if mode == "cuda":
+        if torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0) if torch.cuda.device_count() > 0 else "cuda"
+            _retinopathy_device_resolved = torch.device("cuda")
+            logger.info("Retinopathy inference using CUDA GPU: %s", name)
+            return _retinopathy_device_resolved
+        logger.error(
+            "retinopathy_torch_device=cuda but CUDA is not available "
+            "(install CUDA-enabled PyTorch + NVIDIA drivers, or use retinopathy_torch_device=auto)."
+        )
+        _retinopathy_device_resolved = torch.device("cpu")
+        return _retinopathy_device_resolved
+
+    if torch.cuda.is_available():
+        name = torch.cuda.get_device_name(0) if torch.cuda.device_count() > 0 else "cuda"
+        _retinopathy_device_resolved = torch.device("cuda")
+        logger.info("Retinopathy inference using CUDA GPU: %s", name)
+    else:
+        _retinopathy_device_resolved = torch.device("cpu")
+        logger.warning(
+            "Retinopathy CUDA not available - inference runs on CPU (install CUDA Torch for GPU speed)."
+        )
+    return _retinopathy_device_resolved
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -153,18 +200,18 @@ class DRBinaryResult:
 
 
 class DRBinaryService:
-    """Glunova V5.1 — fundus binary classifier (No DR vs DR) with TTA + EigenCAM."""
+    """Glunova V5.1 — fundus binary classifier (No DR vs DR) + EigenCAM."""
 
     def __init__(
         self,
         model_path: Path | None = None,
         threshold: float = V51_DEFAULT_THRESHOLD,
-        use_tta: bool = True,
+        use_tta: bool = False,
     ):
         self._model_path_override = model_path
         self.threshold = threshold
         self.use_tta = use_tta
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = resolve_retinopathy_torch_device()
         self._model: nn.Module | None = None
         self._cam: EigenCAM | None = None
         self._load_lock = Lock()
@@ -324,12 +371,12 @@ class DRSeverityResult:
 
 
 class DRSeverityService:
-    """Glunova V8 — fundus 4-class severity with TTA + Multi-Scale HiResCAM."""
+    """Glunova V8 — fundus 4-class severity + Multi-Scale HiResCAM."""
 
-    def __init__(self, model_path: Path | None = None, use_tta: bool = True):
+    def __init__(self, model_path: Path | None = None, use_tta: bool = False):
         self._model_path_override = model_path
         self.use_tta = use_tta
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = resolve_retinopathy_torch_device()
         self._model: TriplePoolModel | None = None
         self._cams: dict[str, HiResCAM] | None = None
         self._load_lock = Lock()
@@ -404,20 +451,10 @@ class DRSeverityService:
             if target_class is None:
                 target_class = int(np.argmax(probs))
             targets = [ClassifierOutputTarget(target_class)]
-            tta_fns = (
-                (lambda x: x,                         lambda c: c),
-                (lambda x: torch.flip(x, [3]),        lambda c: np.flip(c, axis=1).copy()),
-                (lambda x: torch.flip(x, [2]),        lambda c: np.flip(c, axis=0).copy()),
-                (lambda x: torch.rot90(x, 2, [2, 3]), lambda c: np.rot90(c, 2).copy()),
-            )
-            cams_tta: dict[str, list[np.ndarray]] = {n: [] for n in self._cams}
-            for tfwd, tback in tta_fns:
-                t_in = tfwd(tensor)
-                for name, ext in self._cams.items():
-                    c = ext(input_tensor=t_in, targets=targets)[0]
-                    cams_tta[name].append(tback(c))
-
-        cams = {n: np.mean(np.stack(cs, 0), 0) for n, cs in cams_tta.items()}
+            # Single-pass CAMs (no TTA — matches faster interactive explainability defaults).
+            cams: dict[str, np.ndarray] = {}
+            for name, ext in self._cams.items():
+                cams[name] = np.asarray(ext(input_tensor=tensor, targets=targets)[0])
         # Lesion-focused fusion: shallow stage gets the heaviest weight.
         fused = 0.25 * cams["deep"] + 0.30 * cams["mid"] + 0.45 * cams["shallow"]
         fused = _percentile_norm(fused, 30.0, 99.5)

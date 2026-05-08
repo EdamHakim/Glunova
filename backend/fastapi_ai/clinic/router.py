@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
@@ -13,11 +15,35 @@ from clinic.schemas import (
     ThermalFootInferenceResponse,
     ThermalFootModelHealthResponse,
 )
-from clinic.DFUSegmentation import DFUSegmenter, estimate_mm_per_pixel_assumed_foot_span
+from clinic.DFUSegmentation import (
+    DFUSegmenter,
+    DEFAULT_ASSUMED_FOOT_SPAN_MM,
+    estimate_mm_per_pixel_assumed_foot_span,
+)
 from clinic.dfu_severity import classify_dfu_severity
 from monitoring.services.triggers import record_screening_and_refresh
 from clinic.services.retinopathy_service import RetinopathyService
 from clinic.services.thermal_foot_pt_service import ThermalFootPtService
+
+
+def _retinopathy_gradcam_context_from_body(raw: str | None) -> dict | None:
+    """Snapshot from `/retinopathy/infer` — avoids rerunning full cascade before XAI."""
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        ctx = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="gradcam_context must be valid JSON.",
+        ) from exc
+    if not isinstance(ctx, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="gradcam_context must be a JSON object.",
+        )
+    return ctx
+
 
 router = APIRouter(prefix="/clinic", tags=["clinic"])
 _thermal_foot_service = ThermalFootPtService()
@@ -39,10 +65,17 @@ def _resolve_dfu_mm_per_pixel(
     *,
     mm_per_pixel_auto: bool,
     mm_per_pixel: float,
+    assumed_foot_span_mm: float = DEFAULT_ASSUMED_FOOT_SPAN_MM,
 ) -> float:
     if mm_per_pixel_auto:
+        span = float(assumed_foot_span_mm)
+        if not (span == span) or span < 80.0 or span > 480.0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="assumed_foot_span_mm must be between 80 and 480 (whole foot along longest axis).",
+            )
         try:
-            return estimate_mm_per_pixel_assumed_foot_span(raw_bytes)
+            return estimate_mm_per_pixel_assumed_foot_span(raw_bytes, assumed_span_mm=span)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -100,17 +133,21 @@ async def infer_dfu_segmentation(
     patient_id: int = Form(..., description="Patient record id this image belongs to"),
     image: UploadFile = File(...),
     threshold_auto: bool = Form(
-        False,
-        description="If true, choose mask threshold from the model probability map (ignore manual threshold).",
+        True,
+        description="If true (default), choose mask threshold from the model probability map per image.",
     ),
     threshold: float = Form(0.5, description="Mask threshold in [0, 1] when threshold_auto is false"),
     mm_per_pixel_auto: bool = Form(
-        False,
-        description="If true, estimate mm/pixel from image size (~24 cm along longest edge; rough prior).",
+        True,
+        description="Estimate mm/pixel from image size using assumed foot span along the longest axis.",
     ),
     mm_per_pixel: float = Form(
         0.5,
         description="Millimeters per pixel when mm_per_pixel_auto is false",
+    ),
+    assumed_foot_span_mm: float = Form(
+        DEFAULT_ASSUMED_FOOT_SPAN_MM,
+        description="Used when mm_per_pixel_auto is true: visible sole/foot span (mm) along the image longest side.",
     ),
     claims: dict = Depends(require_roles("doctor")),
 ) -> DFUSegmentationInferenceResponse:
@@ -166,6 +203,7 @@ async def infer_dfu_segmentation(
         raw_bytes,
         mm_per_pixel_auto=mm_per_pixel_auto,
         mm_per_pixel=mm_per_pixel,
+        assumed_foot_span_mm=float(assumed_foot_span_mm),
     )
     metrics = _lesion_metrics(prediction, mm_px)
     ratio = float(prediction.ulcer_area_ratio)
@@ -193,6 +231,8 @@ async def infer_dfu_segmentation(
             "threshold_used": float(prediction.threshold_used),
             "threshold_auto": threshold_auto,
             "mm_per_pixel_auto": mm_per_pixel_auto,
+            "assumed_foot_span_mm": float(assumed_foot_span_mm) if mm_per_pixel_auto else None,
+            "mm_per_pixel": float(mm_px),
             "ulcer_area_ratio": ratio,
             "ulcer_area_px": int(prediction.ulcer_area_px),
             "ulcer_area_mm2": float(metrics["ulcer_area_mm2"]),
@@ -261,7 +301,7 @@ def dfu_segmentation_model_health(
 async def dfu_segmentation_xai(
     patient_id: int = Form(..., description="Patient record id this image belongs to"),
     image: UploadFile = File(...),
-    threshold_auto: bool = Form(False, description="Auto mask threshold from probability map"),
+    threshold_auto: bool = Form(True, description="Auto mask threshold from probability map (default)"),
     threshold: float = Form(0.5, description="Mask threshold in [0, 1] when threshold_auto is false"),
     claims: dict = Depends(require_roles("doctor")),
 ) -> DFUSegmentationXAIResponse:
@@ -560,6 +600,14 @@ async def infer_retinopathy(
 async def retinopathy_gradcam(
     patient_id: int = Form(..., description="Patient record id this image belongs to"),
     image: UploadFile = File(...),
+    gradcam_context: str | None = Form(
+        None,
+        description=(
+            "Optional JSON from the prior /retinopathy/infer response to skip rerun: "
+            '{"v51_dr_detected":false,"clinical_grade_label":"No DR","confidence":0.95} '
+            'or with "v8_grade_idx":0-3 when v51_dr_detected is true.'
+        ),
+    ),
     claims: dict = Depends(require_roles("doctor")),
 ) -> RetinopathyGradcamResponse:
     doctor_id = _user_id_from_claims(claims)
@@ -572,26 +620,80 @@ async def retinopathy_gradcam(
     if not raw_bytes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
 
+    snapshot = _retinopathy_gradcam_context_from_body(gradcam_context)
+
     try:
-        cascade = _retinopathy_service.predict_cascade(raw_bytes)
-        # Choose explainer based on cascade verdict: EigenCAM for No DR (gentle global view),
-        # multi-scale HiResCAM for any DR class (lesion-focused).
-        if cascade.severity is None:
-            data = _retinopathy_service.binary.generate_eigencam(raw_bytes)
-            method = "EigenCAM"
-            grade_label = cascade.clinical_grade_label
-            confidence = cascade.binary.confidence
-            attention_area = float(data["attention_area"])
-            heatmap_b64 = data["heatmap_base64"]
+        if snapshot is None:
+            cascade = _retinopathy_service.predict_cascade(raw_bytes)
+            if cascade.severity is None:
+                data = _retinopathy_service.binary.generate_eigencam(raw_bytes)
+                method = "EigenCAM"
+                grade_label = cascade.clinical_grade_label
+                confidence = cascade.binary.confidence
+                attention_area = float(data["attention_area"])
+                heatmap_b64 = data["heatmap_base64"]
+            else:
+                data = _retinopathy_service.severity.generate_hires_cam(
+                    raw_bytes, target_class=cascade.severity.grade_idx,
+                )
+                method = "HiResCAM-MultiScale"
+                grade_label = cascade.clinical_grade_label
+                confidence = cascade.severity.confidence
+                attention_area = float(data["attention_area"])
+                heatmap_b64 = data["heatmap_base64"]
         else:
-            data = _retinopathy_service.severity.generate_hires_cam(
-                raw_bytes, target_class=cascade.severity.grade_idx,
-            )
-            method = "HiResCAM-MultiScale"
-            grade_label = cascade.clinical_grade_label
-            confidence = cascade.severity.confidence
-            attention_area = float(data["attention_area"])
-            heatmap_b64 = data["heatmap_base64"]
+            for key in ("v51_dr_detected", "clinical_grade_label", "confidence"):
+                if key not in snapshot:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"gradcam_context missing required key: {key}",
+                    )
+            grade_label = str(snapshot["clinical_grade_label"])
+            try:
+                confidence = float(snapshot["confidence"])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="gradcam_context.confidence must be a number.",
+                ) from exc
+            if confidence < 0 or confidence > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="gradcam_context.confidence must be in [0, 1].",
+                )
+            dr = bool(snapshot["v51_dr_detected"])
+            if not dr:
+                data = _retinopathy_service.binary.generate_eigencam(raw_bytes)
+                method = "EigenCAM"
+                attention_area = float(data["attention_area"])
+                heatmap_b64 = data["heatmap_base64"]
+            else:
+                gidx_raw = snapshot.get("v8_grade_idx")
+                if gidx_raw is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="gradcam_context.v8_grade_idx is required when v51_dr_detected is true.",
+                    )
+                try:
+                    grade_idx = int(gidx_raw)
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="gradcam_context.v8_grade_idx must be an integer 0–3.",
+                    ) from exc
+                if grade_idx < 0 or grade_idx > 3:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="gradcam_context.v8_grade_idx must be between 0 and 3.",
+                    )
+                data = _retinopathy_service.severity.generate_hires_cam(
+                    raw_bytes, target_class=grade_idx,
+                )
+                method = "HiResCAM-MultiScale"
+                attention_area = float(data["attention_area"])
+                heatmap_b64 = data["heatmap_base64"]
+    except HTTPException:
+        raise
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except RuntimeError as exc:

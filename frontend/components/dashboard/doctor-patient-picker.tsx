@@ -20,6 +20,8 @@ export type DoctorPatientPickerProps = {
   id?: string
   value: string
   onChange: (patientId: string) => void
+  /** Fires when the row matching `value` is known (e.g. for showing names instead of IDs in results). */
+  onSelectedPatientChange?: (patient: AssignedPatientRow | null) => void
   disabled?: boolean
   className?: string
   label?: string
@@ -30,6 +32,7 @@ export function DoctorPatientPicker({
   id,
   value,
   onChange,
+  onSelectedPatientChange,
   disabled,
   className,
   label = 'Patient',
@@ -63,6 +66,11 @@ export function DoctorPatientPicker({
     () => patients.find((p) => String(p.id) === value),
     [patients, value],
   )
+
+  useEffect(() => {
+    if (!onSelectedPatientChange) return
+    onSelectedPatientChange(selected ?? null)
+  }, [selected, onSelectedPatientChange])
 
   const singlePatientId = useMemo(
     () => (patients.length === 1 ? patients[0].id : null),

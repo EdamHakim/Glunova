@@ -35,8 +35,8 @@ const MODALITY_ICONS: Record<string, LucideIcon> = {
   voice: Stethoscope,
 }
 
-// Per-modality clinical reference (threshold above which the signal is clinically concerning).
-const REFERENCE_THRESHOLDS: Record<string, { value: number; label: string }> = {
+// Optional chart guides: approximate score levels used in the fusion pipeline (not user-tunable).
+const MODALITY_CHART_GUIDES: Record<string, { value: number; label: string }> = {
   retinopathy: { value: 0.5, label: 'DR detection' },
   infrared: { value: 0.3, label: 'Asymmetric filter' },
   foot_ulcer: { value: 0.3, label: 'Asymmetric filter' },
@@ -83,7 +83,7 @@ function ModalityCard({ m }: { m: ScreeningModalitySummary }) {
   const Icon = MODALITY_ICONS[m.modality] ?? Activity
   const trend = trendVisual(m.trend, m.delta_score)
   const TrendIcon = trend.icon
-  const ref = REFERENCE_THRESHOLDS[m.modality]
+  const ref = MODALITY_CHART_GUIDES[m.modality]
   const data = chartDataFor(m.scans)
   const latestColor = severityColor(m.latest.score)
 

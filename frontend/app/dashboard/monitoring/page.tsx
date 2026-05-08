@@ -101,6 +101,7 @@ function getMedicationBadgeClass(status: string) {
 export default function MonitoringPage() {
   const { user } = useAuth()
   const [patientId, setPatientId] = useState('')
+  const [contextPatientName, setContextPatientName] = useState<string | null>(null)
   const [medications, setMedications] = useState<PatientMedicationRow[]>([])
   const [alerts, setAlerts] = useState<MonitoringAlert[]>([])
   const [labResults, setLabResults] = useState<PatientLabResultRow[]>([])
@@ -274,7 +275,9 @@ export default function MonitoringPage() {
             <CardTitle className="text-base font-semibold">Patient context</CardTitle>
             <CardDescription>
               {patientId
-                ? `Viewing records for the selected patient. All sections below use this patient’s data.`
+                ? contextPatientName
+                  ? `Viewing records for ${contextPatientName}. All sections below use this patient’s data.`
+                  : `Viewing records for the selected patient. All sections below use this patient’s data.`
                 : user?.role === 'doctor'
                   ? `Choose one of your assigned patients. All sections below will load that patient’s data.`
                   : `Choose a linked patient. If you support only one, they are selected automatically.`}
@@ -292,11 +295,25 @@ export default function MonitoringPage() {
                       : 'Search by name — patients you are linked to as a caregiver.'
                   }
                   value={patientId}
-                  onChange={setPatientId}
+                  onChange={(id) => {
+                    setPatientId(id)
+                    if (!id) setContextPatientName(null)
+                  }}
+                  onSelectedPatientChange={(p) =>
+                    setContextPatientName(p?.display_name?.trim() || null)
+                  }
                 />
               </div>
               {patientId ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setPatientId('')}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPatientId('')
+                    setContextPatientName(null)
+                  }}
+                >
                   Clear
                 </Button>
               ) : null}
@@ -339,7 +356,7 @@ export default function MonitoringPage() {
 
           {!patientId && (
             <p className="text-sm text-muted-foreground">
-              Enter a patient ID to consult medications you have access to.
+              Choose a patient above to view medications you have access to.
             </p>
           )}
 

@@ -15,13 +15,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { fetchWithAuthRefresh, getApiUrls } from '@/lib/auth'
+import { sessionUserDisplayName } from '@/lib/display-names'
 import { getScreeningHistory, type ScreeningScan } from '@/lib/monitoring-api'
 import RoleGuard from '@/components/auth/role-guard'
 
 type TongueResult = {
   probability: number
   prediction_label: string
-  threshold_used: number
   heatmapBase64?: string
 }
 
@@ -37,7 +37,6 @@ type VoiceResult = {
   probability: number
   raw_probability: number
   prediction_label: string
-  threshold_used: number
   ood_flag: boolean
   shap_ready: boolean
   shap_message: string
@@ -53,6 +52,17 @@ type CataractResult = {
   p_cataract: number
   probabilities: Record<string, number>
   heatmapBase64?: string
+}
+
+function cataractLabelToPatientText(label: string): string {
+  const key = label.trim().toLowerCase()
+  const map: Record<string, string> = {
+    normale: 'No cataract detected',
+    legere: 'Mild cataract',
+    moderee: 'Moderate cataract',
+    severe: 'Severe cataract',
+  }
+  return map[key] ?? label
 }
 
 function numFromMeta(v: unknown, fallback: number): number {
@@ -79,7 +89,6 @@ function mapTongueFromScan(scan: ScreeningScan): TongueResult {
   return {
     probability: scan.score,
     prediction_label: scan.risk_label,
-    threshold_used: numFromMeta(md.threshold_used, 0.5),
     heatmapBase64: typeof md.heatmap_base64 === 'string' ? md.heatmap_base64 : undefined,
   }
 }
@@ -95,7 +104,6 @@ function mapVoiceFromScan(scan: ScreeningScan): VoiceResult {
     probability: scan.score,
     raw_probability: numFromMeta(md.raw_probability, scan.score),
     prediction_label: scan.risk_label,
-    threshold_used: numFromMeta(md.threshold_used, 0.5),
     ood_flag: Boolean(md.ood_flag),
     shap_ready: Boolean(md.shap_ready),
     shap_message: hasStoredShap
@@ -409,7 +417,6 @@ export default function ScreeningPage() {
       const result = {
         probability: data.probability,
         prediction_label: data.prediction_label,
-        threshold_used: data.threshold_used,
         heatmapBase64: undefined,
       }
 
@@ -472,7 +479,6 @@ export default function ScreeningPage() {
         probability: data.probability,
         raw_probability: data.raw_probability,
         prediction_label: data.prediction_label,
-        threshold_used: data.threshold_used,
         ood_flag: Boolean(data.ood_flag),
         shap_ready: Boolean(data.shap_ready),
         shap_message: data.shap_message ?? '',
@@ -495,6 +501,8 @@ export default function ScreeningPage() {
     )
   }
 
+  const viewerName = sessionUserDisplayName(sessionUser)
+
   return (
     <RoleGuard
       allowedRoles={['patient']}
@@ -506,7 +514,11 @@ export default function ScreeningPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Tongue Screening Result</DialogTitle>
-              <DialogDescription>AI prediction for your screening (account #{sessionUser?.userId}).</DialogDescription>
+              <DialogDescription>
+                {viewerName
+                  ? `AI-assisted screening result for ${viewerName}.`
+                  : 'AI-assisted screening result.'}
+              </DialogDescription>
             </DialogHeader>
 
             {tongueResult ? (
@@ -518,10 +530,6 @@ export default function ScreeningPage() {
                 <div className="flex items-center justify-between rounded-lg border p-3">
                   <span className="text-sm text-muted-foreground">Probability</span>
                   <span className="font-semibold">{Math.round(tongueResult.probability * 100)}%</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border p-3">
-                  <span className="text-sm text-muted-foreground">Threshold Used</span>
-                  <span className="font-semibold">{tongueResult.threshold_used}</span>
                 </div>
                 {tongueResult.heatmapBase64 ? (
                   <div className="rounded-lg border p-2">
@@ -548,7 +556,9 @@ export default function ScreeningPage() {
             <DialogHeader>
               <DialogTitle>Cataract Screening Result</DialogTitle>
               <DialogDescription>
-                AI cataract severity classification (account #{sessionUser?.userId}).
+                {viewerName
+                  ? `Cataract severity read for ${viewerName}.`
+                  : 'Cataract severity classification.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -556,7 +566,7 @@ export default function ScreeningPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between rounded-lg border p-3">
                   <span className="text-sm text-muted-foreground">Severity</span>
-                  <Badge>{cataractResult.prediction_label}</Badge>
+                  <Badge>{cataractLabelToPatientText(cataractResult.prediction_label)}</Badge>
                 </div>
                 <div className="flex items-center justify-between rounded-lg border p-3">
                   <span className="text-sm text-muted-foreground">Confidence</span>
@@ -565,17 +575,19 @@ export default function ScreeningPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between rounded-lg border p-3">
-                  <span className="text-sm text-muted-foreground">P(cataract)</span>
+                  <span className="text-sm text-muted-foreground">Likelihood of cataract</span>
                   <span className="font-semibold">
                     {Math.round(cataractResult.p_cataract * 100)}%
                   </span>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <p className="text-sm text-muted-foreground mb-2">Probabilities per class</p>
+                  <p className="text-sm text-muted-foreground mb-2">Breakdown by severity</p>
                   <ul className="space-y-1 text-xs">
-                    {Object.entries(cataractResult.probabilities).map(([label, prob]) => (
+                    {Object.entries(cataractResult.probabilities)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([label, prob]) => (
                       <li key={label} className="flex justify-between">
-                        <span className="capitalize">{label}</span>
+                        <span>{cataractLabelToPatientText(label)}</span>
                         <span className="font-mono">{(prob * 100).toFixed(1)}%</span>
                       </li>
                     ))}
@@ -676,7 +688,7 @@ export default function ScreeningPage() {
                 <Upload className="h-5 w-5 text-health-warning" />
                 Tongue Image
               </CardTitle>
-              <CardDescription>Upload and run PyTorch tongue diabetes inference</CardDescription>
+              <CardDescription>Upload a tongue photo for automated diabetes-risk screening</CardDescription>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col justify-center gap-4">
               <form className="space-y-3" onSubmit={onTongueSubmit}>
@@ -763,14 +775,12 @@ export default function ScreeningPage() {
                 <div className="text-xs text-muted-foreground mt-2 space-y-1">
                   {tongueResult ? (
                     <p>
-                      Tongue: <span className="font-medium text-foreground">{tongueResult.prediction_label}</span>{' '}
-                      (threshold {tongueResult.threshold_used})
+                      Tongue: <span className="font-medium text-foreground">{tongueResult.prediction_label}</span>
                     </p>
                   ) : null}
                   {voiceResult ? (
                     <p>
-                      Voice: <span className="font-medium text-foreground">{voiceResult.prediction_label}</span>{' '}
-                      (threshold {voiceResult.threshold_used})
+                      Voice: <span className="font-medium text-foreground">{voiceResult.prediction_label}</span>
                     </p>
                   ) : null}
                   {cataractResult ? (
@@ -806,8 +816,9 @@ export default function ScreeningPage() {
                     {voiceResult.prediction_label} ({Math.round(voiceResult.probability * 100)}%)
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Raw {Math.round(voiceResult.raw_probability * 100)}% | Threshold {voiceResult.threshold_used}
-                    {voiceResult.ood_flag ? ' | OOD flagged' : ''}
+                    Calibrated score {Math.round(voiceResult.probability * 100)}% (raw{' '}
+                    {Math.round(voiceResult.raw_probability * 100)}%)
+                    {voiceResult.ood_flag ? ' · sample flagged as out-of-distribution' : ''}
                   </p>
                 </div>
               ) : null}
@@ -847,7 +858,9 @@ export default function ScreeningPage() {
                     {tongueResult ? `${Math.round(tongueResult.probability * 100)}% ${tongueResult.prediction_label}` : 'Not analyzed yet'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {tongueResult ? `PyTorch model threshold ${tongueResult.threshold_used}` : 'Upload tongue image and run screening'}
+                    {tongueResult
+                      ? "Uses the screening checkpoint's built-in decision rule — nothing to configure."
+                      : 'Upload tongue image and run screening'}
                   </p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">

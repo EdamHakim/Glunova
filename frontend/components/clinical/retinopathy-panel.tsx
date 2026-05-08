@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react'
 import { Eye, Info, Loader2, Sparkles, Upload } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,30 @@ import { getApiUrls } from '@/lib/auth'
 import { useAuth } from '@/components/auth-context'
 
 const GRADE_NAMES = ['Mild', 'Moderate', 'Severe', 'Proliferative'] as const
+
+/** Backend cascade labels (`config_retinopathy.CLINICAL_GRADE_LABELS`) → patient-friendly copy (no DR / NPDR jargon). */
+const CLINICAL_GRADE_DISPLAY: Record<string, string> = {
+  'No DR': 'No diabetic retinopathy detected',
+  'Mild NPDR': 'Early diabetic eye disease (mild)',
+  'Moderate NPDR': 'Moderate diabetic eye disease',
+  'Severe NPDR': 'Advanced diabetic eye disease (severe)',
+  'Proliferative DR': 'Proliferative diabetic eye disease — urgent ophthalmology referral',
+}
+
+function displayClinicalGrade(label: string): string {
+  return CLINICAL_GRADE_DISPLAY[label] ?? label
+}
+
+/** V8 class names (`Mild` … `Proliferative`) shown under step 2. */
+function displaySeverityClass(label: string): string {
+  const map: Record<string, string> = {
+    Mild: 'Mild',
+    Moderate: 'Moderate',
+    Severe: 'Severe',
+    Proliferative: 'Proliferative stage — urgent referral',
+  }
+  return map[label] ?? label
+}
 
 const LESION_HINTS: Record<string, { primary: string[]; rule?: string }> = {
   'Mild NPDR': {
@@ -41,7 +65,7 @@ const LESION_HINTS: Record<string, { primary: string[]; rule?: string }> = {
       'Preretinal or vitreous hemorrhage',
       'Fibrovascular proliferation, possible tractional retinal detachment',
     ],
-    rule: 'PDR is a sight-threatening emergency — refer for pan-retinal photocoagulation or anti-VEGF without delay (AAO PPP 2019).',
+    rule: 'Proliferative diabetic eye disease is a sight-threatening emergency — refer for pan-retinal photocoagulation or anti-VEGF without delay (AAO PPP 2019).',
   },
 }
 
@@ -81,7 +105,7 @@ type GradcamResult = {
 }
 
 function gradeBadgeClass(grade: number): string {
-  // ICDR scale: 0=No DR (success), 1=Mild (info), 2=Moderate (warning), 3=Severe (danger), 4=PDR (destructive).
+  // Standard 0–4 severity scale from the cascade (0 = none, 4 = proliferative).
   switch (grade) {
     case 0:
       return 'bg-health-success/15 text-health-success border-health-success/30'
@@ -104,6 +128,7 @@ function pct(value: number): string {
 
 export function RetinopathyPanel() {
   const { user: sessionUser, loading: sessionLoading } = useAuth()
+  const selectedPatientLabelRef = useRef<string | null>(null)
   const [patientId, setPatientId] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
@@ -184,6 +209,15 @@ export function RetinopathyPanel() {
       const form = new FormData()
       form.append('patient_id', String(pid))
       form.append('image', file)
+      form.append(
+        'gradcam_context',
+        JSON.stringify({
+          v51_dr_detected: result.v51.dr_detected,
+          clinical_grade_label: result.clinical_grade_label,
+          confidence: result.v8?.confidence ?? result.v51.confidence,
+          ...(result.v8 ? { v8_grade_idx: result.v8.grade_idx } : {}),
+        }),
+      )
       const res = await fetch(`${fastapi}/clinic/retinopathy/gradcam`, {
         method: 'POST',
         credentials: 'include',
@@ -218,8 +252,8 @@ export function RetinopathyPanel() {
           Diabetic retinopathy detection
         </CardTitle>
         <CardDescription>
-          Upload a fundus image to detect diabetic retinopathy and grade its severity (0–4 ICDR scale).
-          Generate an attention map to see which retinal areas the model used for its decision.
+          Upload a retina (fundus) image to estimate diabetic eye disease burden on a standard 0–4 severity scale,
+          then generate an attention map to see which regions most influenced the read.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -230,6 +264,9 @@ export function RetinopathyPanel() {
               label="Patient"
               value={patientId}
               onChange={setPatientId}
+              onSelectedPatientChange={(p) => {
+                selectedPatientLabelRef.current = p?.display_name?.trim() || null
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -291,11 +328,17 @@ export function RetinopathyPanel() {
 
         {result ? (
           <div className="mt-6 space-y-4">
+            {selectedPatientLabelRef.current ? (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Patient</span>:{' '}
+                {selectedPatientLabelRef.current}
+              </p>
+            ) : null}
             <div className="rounded-lg border p-4">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-sm text-muted-foreground">Clinical grade (ICDR)</span>
+                <span className="text-sm text-muted-foreground">Overall severity summary</span>
                 <Badge variant="outline" className={`text-base px-3 py-1 ${gradeBadgeClass(result.clinical_grade)}`}>
-                  {result.clinical_grade} — {result.clinical_grade_label}
+                  Stage {result.clinical_grade}: {displayClinicalGrade(result.clinical_grade_label)}
                 </Badge>
               </div>
             </div>
@@ -303,21 +346,29 @@ export function RetinopathyPanel() {
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-2 rounded-lg border p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Step 1 — DR Detection</span>
+                  <span className="text-sm font-medium">Step 1 — Initial screening</span>
                   <Badge variant={result.v51.dr_detected ? 'destructive' : 'secondary'}>
-                    {result.v51.dr_detected ? 'DR detected' : 'No DR'}
+                    {result.v51.dr_detected
+                      ? 'Possible diabetic eye disease — review clinically'
+                      : 'No diabetic retinopathy pattern detected'}
                   </Badge>
                 </div>
-                <p className="text-sm">DR prob: <span className="font-mono font-semibold">{pct(result.v51.dr_probability)}</span></p>
-                <p className="text-sm">No DR prob: <span className="font-mono">{pct(result.v51.no_dr_probability)}</span></p>
+                <p className="text-sm">
+                  Likelihood diabetic eye findings:{' '}
+                  <span className="font-mono font-semibold">{pct(result.v51.dr_probability)}</span>
+                </p>
+                <p className="text-sm">
+                  Likelihood normal for this classifier:{' '}
+                  <span className="font-mono">{pct(result.v51.no_dr_probability)}</span>
+                </p>
               </div>
 
               {result.v8 ? (
                 <div className="space-y-3 rounded-lg border p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Step 2 — Severity Grading</span>
+                    <span className="text-sm font-medium">Step 2 — Severity detail</span>
                     <Badge variant="outline">
-                      {result.v8.grade_label} · {pct(result.v8.confidence)}
+                      {displaySeverityClass(result.v8.grade_label)} · {pct(result.v8.confidence)}
                     </Badge>
                   </div>
                   <div className="space-y-2">
@@ -327,7 +378,9 @@ export function RetinopathyPanel() {
                       return (
                         <div key={label} className="space-y-1">
                           <div className="flex items-center justify-between text-xs">
-                            <span className={isWinner ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
+                            <span className={isWinner ? 'font-semibold' : 'text-muted-foreground'}>
+                              {displaySeverityClass(label)}
+                            </span>
                             <span className="font-mono">{pct(p)}</span>
                           </div>
                           <Progress value={p * 100} className="h-2" />
@@ -339,7 +392,7 @@ export function RetinopathyPanel() {
               ) : (
                 <div className="rounded-lg border p-3 bg-muted/30">
                   <p className="text-sm text-muted-foreground">
-                    Severity grading was skipped because no DR was detected.
+                    Severity detail was skipped because screening did not suggest diabetic eye disease.
                   </p>
                 </div>
               )}
@@ -355,12 +408,12 @@ export function RetinopathyPanel() {
                     </p>
                     <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
                       Gradient-weighted Class Activation Mapping highlights the retinal regions that
-                      most influenced the model&apos;s severity grading. Use it as an interpretability
-                      check — not as a replacement for fundoscopy.
+                      most influenced the severity read. Use it as an interpretability check — not as a replacement
+                      for fundoscopy.
                     </p>
                   </div>
                   <Badge variant="outline" className="shrink-0">
-                    {heatmap.grade_label}
+                    {displayClinicalGrade(heatmap.grade_label)}
                   </Badge>
                 </div>
 
@@ -394,7 +447,7 @@ export function RetinopathyPanel() {
 
                   <div className="rounded-md border bg-muted/30 p-3">
                     <p className="text-xs font-semibold mb-2">
-                      Lesions to verify for {heatmap.grade_label}
+                      Lesions to verify ({displayClinicalGrade(heatmap.grade_label)})
                     </p>
                     {LESION_HINTS[heatmap.grade_label] ? (
                       <>
