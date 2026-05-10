@@ -11,7 +11,10 @@ import { NutritionAnalysisModal } from '@/components/nutrition/nutrition-analysi
 import { cn } from '@/lib/utils'
 
 const WellnessPlannerTabContent = dynamic(
-  () => import('./wellness-planner/page').then((m) => ({ default: m.WellnessPlannerTabContent })),
+  () =>
+    import('./wellness-planner/wellness-planner-tab-content').then((m) => ({
+      default: m.WellnessPlannerTabContent,
+    })),
   {
     loading: () => (
       <div className="flex min-h-[240px] items-center justify-center text-sm text-muted-foreground">
