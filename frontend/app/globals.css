@@ -3,6 +3,21 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── RTL / Arabic font ──────────────────────────────────────────────────── */
+[dir="rtl"] {
+  font-family: var(--font-noto-arabic), var(--font-geist-sans), 'Segoe UI', Tahoma, sans-serif;
+  text-align: start;
+}
+
+[dir="rtl"] .font-mono {
+  font-family: var(--font-geist-mono), 'Courier New', monospace;
+}
+
+/* Logical-property shims for components that still use physical properties */
+[dir="rtl"] .border-l { border-inline-start-width: 1px; border-left-width: 0; }
+[dir="rtl"] .border-r { border-inline-end-width: 1px; border-right-width: 0; }
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 :root {
   /* Background System */
   --background: #F4F7F8;

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, usePathname } from '@/i18n/navigation'
 import { fetchCurrentSessionUser, AuthUser, getApiUrls } from '@/lib/auth'
 
 interface AuthContextType {

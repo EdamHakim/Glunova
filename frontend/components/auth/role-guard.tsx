@@ -1,7 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import React from 'react'
+import { useTranslations } from 'next-intl'
+import { Link } from '@/i18n/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -21,6 +22,7 @@ export default function RoleGuard({
   description,
   children,
 }: RoleGuardProps) {
+  const t = useTranslations('roleGuard')
   const { user, loading } = useAuth()
 
   if (loading) {
@@ -41,7 +43,7 @@ export default function RoleGuard({
           </CardHeader>
           <CardContent>
             <Button asChild variant="secondary">
-              <Link href="/dashboard">Back to dashboard</Link>
+              <Link href="/dashboard">{t('backToDashboard')}</Link>
             </Button>
           </CardContent>
         </Card>
