@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { AlertCircle, Bell, Bot, Calendar, Plus, Stethoscope, Trash2, UserCheck, UserRoundSearch } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -13,6 +14,7 @@ import { MedicalDocumentsSection } from '@/components/care-circle/medical-docume
 import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
 import { useAuth } from '@/components/auth-context'
 import {
+  cancelAppointment,
   inviteCaregiver,
   linkDoctor,
   listAvailableCaregivers,
@@ -41,6 +43,19 @@ function LinkStatusBadge({ status }: { status: string }) {
     accepted: 'bg-green-500/10 text-green-600 border-green-500/20',
     pending: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
     rejected: 'bg-red-500/10 text-red-600 border-red-500/20',
+  }
+  return (
+    <Badge variant="outline" className={variants[status] ?? 'bg-muted text-muted-foreground'}>
+      {status}
+    </Badge>
+  )
+}
+
+function AppointmentStatusBadge({ status }: { status: CareCircleAppointment['status'] }) {
+  const variants: Record<string, string> = {
+    scheduled: 'bg-blue-500/10 text-blue-700 border-blue-500/25 dark:text-blue-300',
+    completed: 'bg-green-500/10 text-green-700 border-green-500/25 dark:text-green-300',
+    cancelled: 'bg-muted text-muted-foreground border-border',
   }
   return (
     <Badge variant="outline" className={variants[status] ?? 'bg-muted text-muted-foreground'}>
@@ -414,6 +429,8 @@ function CareCircleContent() {
   const [appointments, setAppointments] = useState<CareCircleAppointment[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [appointmentsRefresh, setAppointmentsRefresh] = useState(0)
+  const [cancellingId, setCancellingId] = useState<number | null>(null)
 
   const role = user?.role
   const caregiverNeedsPatientId = role === 'caregiver'
@@ -452,7 +469,20 @@ function CareCircleContent() {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [patientId, role])
+  }, [patientId, role, appointmentsRefresh])
+
+  async function handleCancelVisit(appointmentId: number) {
+    setError(null)
+    setCancellingId(appointmentId)
+    try {
+      await cancelAppointment(appointmentId)
+      setAppointmentsRefresh((n) => n + 1)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not cancel appointment')
+    } finally {
+      setCancellingId(null)
+    }
+  }
 
   return (
     <div className="relative min-h-[calc(100dvh-6rem)]">
@@ -619,26 +649,57 @@ function CareCircleContent() {
                           key={appointment.id}
                           className="rounded-xl border border-border/80 bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
                         >
-                          <p className="font-medium leading-snug">{appointment.title}</p>
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <p className="font-medium leading-snug">{appointment.title}</p>
+                            <AppointmentStatusBadge status={appointment.status} />
+                          </div>
                           <p className="mt-1 text-xs text-muted-foreground">
                             {appointment.patient_name}
                             <span className="text-border"> · </span>
                             {new Date(appointment.starts_at).toLocaleString()}
+                            <span className="text-border"> – </span>
+                            {new Date(appointment.ends_at).toLocaleTimeString(undefined, {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
                           </p>
                           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                             <span className="font-medium text-foreground/80">Doctor:</span> {appointment.doctor_name}
-                            <br />
-                            <span className="font-medium text-foreground/80">Caregiver:</span>{' '}
-                            {appointment.caregiver_name}
+                            {appointment.caregiver_name && appointment.caregiver_name !== 'Unknown' ? (
+                              <>
+                                <br />
+                                <span className="font-medium text-foreground/80">Caregiver:</span>{' '}
+                                {appointment.caregiver_name}
+                              </>
+                            ) : null}
                           </p>
+                          {(role === 'patient' || role === 'caregiver') && appointment.status === 'scheduled' ? (
+                            <div className="mt-3">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={cancellingId !== null}
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => void handleCancelVisit(appointment.id)}
+                              >
+                                {cancellingId === appointment.id ? 'Cancelling…' : 'Cancel visit'}
+                              </Button>
+                            </div>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
                   </ScrollArea>
                 )}
-                <p className="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
-                  Scheduling changes are managed outside this view.
-                </p>
+                {role === 'patient' ? (
+                  <div className="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
+                    Visits listed here come from your account records.{' '}
+                    <Link href="/dashboard/appointments" className="font-medium text-primary underline hover:no-underline">
+                      Book visit
+                    </Link>{' '}
+                    chooses an open slot from your linked doctors&apos; calendars.
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </div>

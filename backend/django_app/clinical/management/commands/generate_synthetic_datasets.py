@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from carecircle.models import Appointment, FamilyUpdate
+from carecircle.models import Appointment, AppointmentSlot, FamilyUpdate
 from clinical.models import ClinicalCaseReview, CrisisEscalation, ImagingAnalysis
 from documents.models import MedicalDocument
 from users.models import PatientCaregiverLink, PatientDoctorLink
@@ -207,13 +207,17 @@ class Command(BaseCommand):
                 summary="Synthetic family update: stable progress with recommended meal adjustments.",
             )
 
+            slot_starts = now + timedelta(days=idx + 2)
+            slot_ends = now + timedelta(days=idx + 2, minutes=30)
+            synthetic_slot = AppointmentSlot.objects.create(doctor=doctor, starts_at=slot_starts, ends_at=slot_ends)
             Appointment.objects.create(
                 patient=patient,
                 doctor=doctor,
                 caregiver=caregiver,
+                booking_slot=synthetic_slot,
                 title="Synthetic follow-up consultation",
-                starts_at=now + timedelta(days=idx + 2),
-                ends_at=now + timedelta(days=idx + 2, minutes=30),
+                starts_at=slot_starts,
+                ends_at=slot_ends,
                 status=Appointment.Status.SCHEDULED,
                 reminder_sent=(idx % 2 == 0),
             )

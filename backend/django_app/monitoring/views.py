@@ -296,16 +296,21 @@ class DashboardOverviewView(APIView):
                 return "Moderate"
             return "Low"
 
-        recent_patients = [
-            {
+        recent_patients = []
+        for item in latest_assessments[:5]:
+            p = item.patient
+            display_name = ((p.get_full_name() or "").strip() or p.username)
+            profile_picture_url = None
+            if getattr(p, "profile_picture", None):
+                profile_picture_url = request.build_absolute_uri(p.profile_picture.url)
+            recent_patients.append({
                 "id": int(item.patient_id),
-                "name": item.patient.username,
+                "name": display_name,
+                "profile_picture": profile_picture_url,
                 "risk_level": _tier_label(item.score),
                 "last_assessment": item.assessed_at.isoformat(),
                 "status": "Requires Follow-up" if item.score >= 0.55 else "Monitoring",
-            }
-            for item in latest_assessments[:5]
-        ]
+            })
 
         return Response(
             {

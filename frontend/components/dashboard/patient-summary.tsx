@@ -6,6 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 type PatientRow = {
   id: number
   name: string
+  /** Uploaded profile photo URL from backend; omit or null when unavailable. */
+  profilePicture?: string | null
   riskLevel: 'Low' | 'Moderate' | 'High' | 'Critical'
   lastScreening: string
   status: string
@@ -27,6 +29,14 @@ function getRiskBadgeColor(riskLevel: string) {
 }
 
 export default function PatientSummary({ patients }: { patients: PatientRow[] }) {
+  if (patients.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-6 text-center">
+        No entries yet. This list shows up to five assigned patients who have at least one risk assessment, newest first.
+      </p>
+    )
+  }
+
   return (
     <div className="space-y-3">
       {patients.map((patient) => (
@@ -36,8 +46,19 @@ export default function PatientSummary({ patients }: { patients: PatientRow[] })
         >
           <div className="flex items-center gap-4 flex-1">
             <Avatar className="h-10 w-10">
-              <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(patient.name)}`} />
-              <AvatarFallback>{patient.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+              <AvatarImage
+                src={patient.profilePicture ?? undefined}
+                alt=""
+              />
+              <AvatarFallback>
+                {patient.name
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join('')
+                  .toUpperCase() || '?'}
+              </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
               <p className="font-medium text-sm">{patient.name}</p>

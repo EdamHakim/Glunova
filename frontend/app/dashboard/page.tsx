@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, TrendingUp } from 'lucide-react'
+import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -59,6 +60,7 @@ export default function Dashboard() {
       (overview?.recent_patients ?? []).map((patient) => ({
         id: patient.id,
         name: patient.name,
+        profilePicture: patient.profile_picture,
         riskLevel: patient.risk_level,
         lastScreening: new Date(patient.last_assessment).toLocaleString(),
         status: patient.status,
@@ -146,17 +148,17 @@ export default function Dashboard() {
             <CardTitle className="text-lg">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Button className="w-full justify-start" variant="outline">
-              New Screening
+            <Button asChild className="w-full justify-start" variant="outline">
+              <Link href="/dashboard/monitoring">View Patient Monitoring</Link>
             </Button>
-            <Button className="w-full justify-start" variant="outline">
-              View Alerts
+            <Button asChild className="w-full justify-start" variant="outline">
+              <Link href="/dashboard/clinical">Clinical Support</Link>
             </Button>
-            <Button className="w-full justify-start" variant="outline">
-              Log Meal
+            <Button asChild className="w-full justify-start" variant="outline">
+              <Link href="/dashboard/schedule">Manage Availability</Link>
             </Button>
-            <Button className="w-full justify-start" variant="outline">
-              Psychology Session
+            <Button asChild className="w-full justify-start" variant="outline">
+              <Link href="/dashboard/care-circle">Care Circle</Link>
             </Button>
           </CardContent>
         </Card>

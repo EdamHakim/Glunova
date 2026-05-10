@@ -140,7 +140,18 @@ export default function MonitoringPage() {
     }
     acc[docId].results.push(lab)
     return acc
-  }, {} as Record<string, { id: string; filename: string; date: string; url: string | null; preview_url: string | null; results: PatientLabResultRow[] }>)
+  }, {} as Record<
+    string,
+    {
+      id: string
+      filename: string
+      date: string
+      url: string | null
+      preview_url: string | null
+      mime_type: string | null
+      results: PatientLabResultRow[]
+    }
+  >)
 
   const labDocuments = Object.values(labsByDocument).sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),

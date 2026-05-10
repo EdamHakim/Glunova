@@ -60,6 +60,23 @@ export type CareCircleAppointment = {
   ends_at: string
   status: 'scheduled' | 'completed' | 'cancelled'
   reminder_sent: boolean
+  booking_slot_id?: number | null
+}
+
+export type DoctorAppointmentSlot = {
+  id: number
+  doctor_id: number
+  starts_at: string
+  ends_at: string
+  is_booked: boolean
+  created_at: string
+}
+
+export type BookableSlot = {
+  id: number
+  doctor_id: number
+  starts_at: string
+  ends_at: string
 }
 
 // ── Link management types ─────────────────────────────────────────────────────
@@ -121,6 +138,55 @@ export async function listCareCircleUpdates(patientId?: string) {
 export async function listCareCircleAppointments(patientId?: string) {
   const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''
   return getJson<{ items: CareCircleAppointment[]; total: number }>(`/care-circle/appointments${query}`)
+}
+
+// ── Doctor: availability slots ──────────────────────────────────────────────────
+
+export async function listMyAppointmentSlots() {
+  return getJson<{ items: DoctorAppointmentSlot[]; total: number }>('/care-circle/my-appointment-slots')
+}
+
+export async function createAppointmentSlot(body: { starts_at: string; ends_at: string }) {
+  return postJson<DoctorAppointmentSlot>('/care-circle/my-appointment-slots', body)
+}
+
+export async function bulkCreateAppointmentSlots(slots: { starts_at: string; ends_at: string }[]) {
+  return postJson<{ created: number; skipped: number; items: DoctorAppointmentSlot[] }>(
+    '/care-circle/my-appointment-slots/bulk',
+    { slots },
+  )
+}
+
+export async function deleteAppointmentSlot(slotId: number) {
+  return deleteReq(`/care-circle/my-appointment-slots/${slotId}`)
+}
+
+// ── Patient / caregiver: book from doctor slots ──────────────────────────────────
+
+/** Caregiver must pass `patientId`; patients omit it (book for self). */
+export async function listBookingDoctorsForPatient(patientId: string) {
+  const q = `?patient_id=${encodeURIComponent(patientId)}`
+  return getJson<{ items: DoctorLink[]; total: number }>(`/care-circle/booking/doctors${q}`)
+}
+
+export async function listBookableSlots(doctorId: number, opts?: { patientId?: string }) {
+  const params = new URLSearchParams()
+  params.set('doctor_id', String(doctorId))
+  if (opts?.patientId) params.set('patient_id', opts.patientId)
+  return getJson<{ items: BookableSlot[]; total: number }>(`/care-circle/bookable-slots?${params}`)
+}
+
+export async function bookAppointment(body: {
+  slot_id: number
+  title?: string
+  /** Required when the caregiver books for a linked patient. */
+  patient_id?: number
+}) {
+  return postJson<CareCircleAppointment>('/care-circle/book-appointment', body)
+}
+
+export async function cancelAppointment(appointmentId: number) {
+  return postJson<CareCircleAppointment>(`/care-circle/appointments/${appointmentId}/cancel`)
 }
 
 // ── Patient: doctor links ─────────────────────────────────────────────────────

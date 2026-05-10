@@ -14,6 +14,8 @@ import {
   Stethoscope as Clinic,
   Settings,
   User,
+  CalendarClock,
+  CalendarPlus,
 } from 'lucide-react'
 import { useAuth } from '@/components/auth-context'
 import { useTheme } from '@/app/providers'
@@ -59,6 +61,18 @@ const menuItems: MenuItem[] = [
     href: '/dashboard/care-circle',
     icon: Users,
     allowedRoles: ['patient', 'caregiver'],
+  },
+  {
+    label: 'Book visit',
+    href: '/dashboard/appointments',
+    icon: CalendarPlus,
+    allowedRoles: ['patient', 'caregiver'],
+  },
+  {
+    label: 'Availability',
+    href: '/dashboard/schedule',
+    icon: CalendarClock,
+    allowedRoles: ['doctor'],
   },
   {
     label: 'Kids',

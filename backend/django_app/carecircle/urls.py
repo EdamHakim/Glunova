@@ -3,8 +3,15 @@ from django.urls import path
 from .views import (
     AvailableCaregiversView,
     AvailableDoctorsView,
+    BookingDoctorsForPatientView,
+    BookAppointmentView,
+    BookableSlotsView,
+    CancelAppointmentView,
     CareCircleAppointmentsView,
     CareCircleUpdatesView,
+    MyAppointmentSlotDetailView,
+    MyAppointmentSlotsBulkView,
+    MyAppointmentSlotsView,
     MyCaregiverDetailView,
     MyCaregiverView,
     MyDoctorDetailView,
@@ -17,6 +24,14 @@ urlpatterns = [
     # ── Existing read-only views ──────────────────────────────────────────────
     path("care-circle/updates", CareCircleUpdatesView.as_view(), name="care-circle-updates"),
     path("care-circle/appointments", CareCircleAppointmentsView.as_view(), name="care-circle-appointments"),
+    path("care-circle/appointments/<int:pk>/cancel", CancelAppointmentView.as_view(), name="care-circle-appointment-cancel"),
+
+    path("care-circle/my-appointment-slots", MyAppointmentSlotsView.as_view(), name="care-circle-my-appointment-slots"),
+    path("care-circle/my-appointment-slots/bulk", MyAppointmentSlotsBulkView.as_view(), name="care-circle-my-appointment-slots-bulk"),
+    path("care-circle/my-appointment-slots/<int:pk>", MyAppointmentSlotDetailView.as_view(), name="care-circle-my-appointment-slot-detail"),
+    path("care-circle/bookable-slots", BookableSlotsView.as_view(), name="care-circle-bookable-slots"),
+    path("care-circle/book-appointment", BookAppointmentView.as_view(), name="care-circle-book-appointment"),
+    path("care-circle/booking/doctors", BookingDoctorsForPatientView.as_view(), name="care-circle-booking-doctors"),
 
     # ── Discovery: who can be linked ─────────────────────────────────────────
     path("care-circle/available-doctors", AvailableDoctorsView.as_view(), name="care-circle-available-doctors"),

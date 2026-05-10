@@ -22,6 +22,7 @@ export type DashboardOverview = {
   recent_patients: Array<{
     id: number
     name: string
+    profile_picture: string | null
     risk_level: 'Low' | 'Moderate' | 'High' | 'Critical'
     last_assessment: string
     status: string

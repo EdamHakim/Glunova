@@ -23,6 +23,23 @@ class FamilyUpdate(models.Model):
         ordering = ["-created_at"]
 
 
+class AppointmentSlot(models.Model):
+    """Time window a doctor offers; at most one Appointment may reference it via booking_slot."""
+
+    doctor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="appointment_slots",
+        limit_choices_to={"role": "doctor"},
+    )
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["starts_at", "-created_at"]
+
+
 class Appointment(models.Model):
     class Status(models.TextChoices):
         SCHEDULED = "scheduled", "Scheduled"
@@ -43,6 +60,13 @@ class Appointment(models.Model):
         null=True,
         blank=True,
         related_name="caregiver_appointments",
+    )
+    booking_slot = models.OneToOneField(
+        "AppointmentSlot",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="booked_appointment",
     )
     title = models.CharField(max_length=255)
     starts_at = models.DateTimeField()
