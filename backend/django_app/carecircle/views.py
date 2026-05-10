@@ -1000,7 +1000,12 @@ class AvailableTimeSlotsView(APIView):
             e = datetime.fromisoformat(e_iso)
             return any(s < be and e > bs for bs, be in booked)
 
-        available = [slot for slot in all_slots if not overlaps(slot["starts_at"], slot["ends_at"])]
+        now = timezone.now()
+        available = [
+            slot for slot in all_slots
+            if not overlaps(slot["starts_at"], slot["ends_at"])
+            and datetime.fromisoformat(slot["starts_at"]) > now
+        ]
         return Response({"items": available, "date": date_str})
 
 
@@ -1044,13 +1049,17 @@ class DirectBookAppointmentView(APIView):
 
         ends_at = starts_at + timedelta(minutes=avail.slot_duration_min)
 
-        local_start = starts_at.astimezone(timezone.get_current_timezone()).time()
-        local_end = ends_at.astimezone(timezone.get_current_timezone()).time()
-        if local_start < avail.start_time or local_end > avail.end_time:
-            return Response({"detail": "Selected time is outside doctor's working hours."}, status=status.HTTP_409_CONFLICT)
-        if avail.lunch_start and avail.lunch_end:
-            if not (local_end <= avail.lunch_start or local_start >= avail.lunch_end):
-                return Response({"detail": "Selected time overlaps the doctor's lunch break."}, status=status.HTTP_409_CONFLICT)
+        # Validate against the computed schedule (covers working hours, lunch, and slot boundaries)
+        target_date_local = starts_at.astimezone(timezone.get_current_timezone()).date()
+        valid_starts = {
+            datetime.fromisoformat(s["starts_at"])
+            for s in _compute_slots_for_date(target_date_local, avail)
+        }
+        if starts_at not in valid_starts:
+            return Response(
+                {"detail": "This time is not a valid appointment slot (outside working hours or during lunch break)."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         role = getattr(request.user, "role", None)
         with transaction.atomic():

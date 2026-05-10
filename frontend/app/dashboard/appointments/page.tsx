@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
 import type { AssignedPatientRow } from '@/lib/dashboard-api'
 import {
   cancelAppointment,
@@ -348,13 +349,27 @@ export default function AppointmentsPage() {
                         <p className="text-sm text-muted-foreground">This doctor hasn&apos;t set their availability yet.</p>
                       </div>
                     ) : (
-                      <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={setSelectedDate}
-                        disabled={isDateDisabled}
-                        className="rounded-lg border w-fit"
-                      />
+                      <div className="flex w-full justify-center overflow-x-auto py-1 sm:justify-start [&_[data-slot=calendar]]:min-w-fit">
+                        <Calendar
+                          mode="single"
+                          selected={selectedDate}
+                          onSelect={setSelectedDate}
+                          disabled={isDateDisabled}
+                          captionLayout="label"
+                          fixedWeeks
+                          className={cn(
+                            'rounded-xl border border-border bg-muted/15 shadow-sm',
+                            'p-4 sm:p-5',
+                            /* Larger tap targets than default; scales nav + caption with cells */
+                            '[--cell-size:2.875rem] min-[380px]:[--cell-size:3rem]',
+                          )}
+                          classNames={{
+                            /* Must include flex-1 etc. — parent merges this over defaults */
+                            weekday:
+                              'text-muted-foreground rounded-md flex-1 select-none text-center font-medium text-[11px] uppercase tracking-wide sm:text-xs',
+                          }}
+                        />
+                      </div>
                     )}
                   </div>
 
