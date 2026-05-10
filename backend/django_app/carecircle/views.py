@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date as date_cls, datetime, time as time_cls, timedelta
+
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
@@ -13,7 +15,7 @@ from rest_framework.views import APIView
 from documents.access import can_access_patient_documents, parse_patient_pk
 from users.models import PatientCaregiverLink, PatientDoctorLink, User, UserRole
 
-from .models import Appointment, AppointmentSlot, FamilyUpdate
+from .models import Appointment, AppointmentSlot, DoctorAvailability, FamilyUpdate
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
@@ -791,3 +793,285 @@ class MyAppointmentSlotsBulkView(APIView):
             {"created": len(created_items), "skipped": skipped, "items": created_items},
             status=status.HTTP_201_CREATED,
         )
+
+
+# ── Doctor: weekly availability ───────────────────────────────────────────────
+
+def _parse_time(raw) -> time_cls | None:
+    if not isinstance(raw, str):
+        return None
+    try:
+        parts = raw.split(":")
+        return time_cls(int(parts[0]), int(parts[1]))
+    except (ValueError, TypeError, IndexError):
+        return None
+
+
+def _avail_dict(avail: DoctorAvailability) -> dict:
+    return {
+        "id": avail.id,
+        "doctor_id": int(avail.doctor_id),
+        "day_of_week": avail.day_of_week,
+        "start_time": avail.start_time.strftime("%H:%M"),
+        "end_time": avail.end_time.strftime("%H:%M"),
+        "slot_duration_min": avail.slot_duration_min,
+        "lunch_start": avail.lunch_start.strftime("%H:%M") if avail.lunch_start else None,
+        "lunch_end": avail.lunch_end.strftime("%H:%M") if avail.lunch_end else None,
+    }
+
+
+def _compute_slots_for_date(target_date: date_cls, avail: DoctorAvailability) -> list[dict]:
+    """Return timezone-aware ISO slot dicts for the given date using the availability config."""
+    start_dt = timezone.make_aware(datetime.combine(target_date, avail.start_time))
+    end_dt = timezone.make_aware(datetime.combine(target_date, avail.end_time))
+    lunch_s = timezone.make_aware(datetime.combine(target_date, avail.lunch_start)) if avail.lunch_start else None
+    lunch_e = timezone.make_aware(datetime.combine(target_date, avail.lunch_end)) if avail.lunch_end else None
+    dur = timedelta(minutes=avail.slot_duration_min)
+
+    result = []
+    cur = start_dt
+    while cur + dur <= end_dt:
+        slot_end = cur + dur
+        if lunch_s and lunch_e and cur < lunch_e and slot_end > lunch_s:
+            cur = lunch_e
+            continue
+        result.append({"starts_at": cur.isoformat(), "ends_at": slot_end.isoformat()})
+        cur = slot_end
+    return result
+
+
+class MyAvailabilityView(APIView):
+    """Doctor: read and replace weekly availability schedule."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        err = _require_role(request.user, "doctor")
+        if err:
+            return err
+        avails = DoctorAvailability.objects.filter(doctor=request.user)
+        return Response({"items": [_avail_dict(a) for a in avails]})
+
+    def post(self, request):
+        """Atomically replace entire schedule. Send all active days; missing ones are deleted."""
+        err = _require_role(request.user, "doctor")
+        if err:
+            return err
+
+        raw_schedule = request.data.get("schedule", [])
+        if not isinstance(raw_schedule, list):
+            return Response({"detail": "schedule must be an array."}, status=status.HTTP_400_BAD_REQUEST)
+
+        slot_duration_min = int(request.data.get("slot_duration_min") or 30)
+        if slot_duration_min < 5 or slot_duration_min > 480:
+            return Response({"detail": "slot_duration_min must be between 5 and 480."}, status=status.HTTP_400_BAD_REQUEST)
+
+        lunch_start = _parse_time(request.data.get("lunch_start"))
+        lunch_end = _parse_time(request.data.get("lunch_end"))
+        if bool(lunch_start) != bool(lunch_end):
+            return Response({"detail": "Provide both lunch_start and lunch_end or neither."}, status=status.HTTP_400_BAD_REQUEST)
+        if lunch_start and lunch_end and lunch_end <= lunch_start:
+            return Response({"detail": "lunch_end must be after lunch_start."}, status=status.HTTP_400_BAD_REQUEST)
+
+        validated: list[tuple[int, time_cls, time_cls]] = []
+        seen_days: set[int] = set()
+        for i, item in enumerate(raw_schedule):
+            if not isinstance(item, dict):
+                return Response({"detail": f"schedule[{i}] must be an object."}, status=status.HTTP_400_BAD_REQUEST)
+            day = item.get("day_of_week")
+            if day not in range(7):
+                return Response({"detail": f"schedule[{i}].day_of_week must be 0-6 (Mon=0)."}, status=status.HTTP_400_BAD_REQUEST)
+            if day in seen_days:
+                return Response({"detail": f"Duplicate day_of_week={day}."}, status=status.HTTP_400_BAD_REQUEST)
+            seen_days.add(day)
+            start = _parse_time(item.get("start_time"))
+            end = _parse_time(item.get("end_time"))
+            if not start or not end:
+                return Response({"detail": f"schedule[{i}]: invalid time format (use HH:MM)."}, status=status.HTTP_400_BAD_REQUEST)
+            if end <= start:
+                return Response({"detail": f"schedule[{i}]: end_time must be after start_time."}, status=status.HTTP_400_BAD_REQUEST)
+            validated.append((day, start, end))
+
+        with transaction.atomic():
+            DoctorAvailability.objects.filter(doctor=request.user).exclude(day_of_week__in=seen_days).delete()
+            for day, start, end in validated:
+                DoctorAvailability.objects.update_or_create(
+                    doctor=request.user,
+                    day_of_week=day,
+                    defaults={
+                        "start_time": start,
+                        "end_time": end,
+                        "slot_duration_min": slot_duration_min,
+                        "lunch_start": lunch_start,
+                        "lunch_end": lunch_end,
+                    },
+                )
+
+        avails = DoctorAvailability.objects.filter(doctor=request.user)
+        return Response({"items": [_avail_dict(a) for a in avails]})
+
+
+class DoctorAvailabilityPublicView(APIView):
+    """Patient or caregiver: fetch a linked doctor's weekly schedule (no times computed here)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        role = getattr(request.user, "role", None)
+        raw_doctor_id = request.query_params.get("doctor_id")
+        if not raw_doctor_id:
+            return Response({"detail": "doctor_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            doctor_id = int(raw_doctor_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "doctor_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if role == UserRole.PATIENT:
+            patient = request.user
+        elif role == UserRole.CAREGIVER:
+            raw_pid = request.query_params.get("patient_id")
+            pid = parse_patient_pk(raw_pid or "")
+            if pid is None:
+                return Response({"detail": "patient_id is required for caregivers."}, status=status.HTTP_400_BAD_REQUEST)
+            if not can_access_patient_documents(request.user, pid):
+                return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+            patient = User.objects.filter(pk=pid, role=UserRole.PATIENT).first()
+            if patient is None:
+                return Response({"detail": "Patient not found."}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response({"detail": "Only patients and caregivers may use this endpoint."}, status=status.HTTP_403_FORBIDDEN)
+
+        if not PatientDoctorLink.objects.filter(patient=patient, doctor_id=doctor_id).exists():
+            return Response({"detail": "That patient is not linked to this doctor."}, status=status.HTTP_403_FORBIDDEN)
+
+        avails = DoctorAvailability.objects.filter(doctor_id=doctor_id)
+        return Response({"items": [_avail_dict(a) for a in avails]})
+
+
+class AvailableTimeSlotsView(APIView):
+    """Patient or caregiver: compute open slots for a specific doctor and calendar date."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        raw_doctor_id = request.query_params.get("doctor_id")
+        date_str = request.query_params.get("date")
+        if not raw_doctor_id:
+            return Response({"detail": "doctor_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not date_str:
+            return Response({"detail": "date is required (YYYY-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            doctor_id = int(raw_doctor_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "doctor_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            target_date = date_cls.fromisoformat(date_str)
+        except ValueError:
+            return Response({"detail": "date must be YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        booking_patient, perr = _resolve_booking_target_patient(
+            request, _coerce_optional_patient_id_raw(request.query_params.get("patient_id"))
+        )
+        if perr:
+            return perr
+
+        if not PatientDoctorLink.objects.filter(patient=booking_patient, doctor_id=doctor_id).exists():
+            return Response({"detail": "That patient is not linked to this doctor."}, status=status.HTTP_403_FORBIDDEN)
+
+        day_of_week = target_date.weekday()  # Mon=0 … Sun=6
+        avail = DoctorAvailability.objects.filter(doctor_id=doctor_id, day_of_week=day_of_week).first()
+        if not avail:
+            return Response({"items": [], "date": date_str})
+
+        all_slots = _compute_slots_for_date(target_date, avail)
+
+        # Remove slots already occupied by scheduled appointments
+        day_start = timezone.make_aware(datetime.combine(target_date, time_cls(0, 0)))
+        day_end = timezone.make_aware(datetime.combine(target_date, time_cls(23, 59, 59)))
+        booked = Appointment.objects.filter(
+            doctor_id=doctor_id,
+            status=Appointment.Status.SCHEDULED,
+            starts_at__gte=day_start,
+            starts_at__lt=day_end,
+        ).values_list("starts_at", "ends_at")
+
+        def overlaps(s_iso: str, e_iso: str) -> bool:
+            s = datetime.fromisoformat(s_iso)
+            e = datetime.fromisoformat(e_iso)
+            return any(s < be and e > bs for bs, be in booked)
+
+        available = [slot for slot in all_slots if not overlaps(slot["starts_at"], slot["ends_at"])]
+        return Response({"items": available, "date": date_str})
+
+
+class DirectBookAppointmentView(APIView):
+    """Patient or caregiver: book directly from a computed available slot (no pre-created AppointmentSlot needed)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        raw_doctor_id = request.data.get("doctor_id")
+        starts_at_raw = request.data.get("starts_at")
+        title = (request.data.get("title") or "").strip() or "Consultation"
+
+        if not raw_doctor_id:
+            return Response({"detail": "doctor_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            doctor_id = int(raw_doctor_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "doctor_id must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+        starts_at, err = _parse_iso_datetime(starts_at_raw, "starts_at")
+        if err:
+            return err
+
+        booking_patient, perr = _resolve_booking_target_patient(
+            request, _coerce_optional_patient_id_raw(request.data.get("patient_id"))
+        )
+        if perr:
+            return perr
+
+        if not PatientDoctorLink.objects.filter(patient=booking_patient, doctor_id=doctor_id).exists():
+            return Response({"detail": "Patient is not linked to this doctor."}, status=status.HTTP_403_FORBIDDEN)
+
+        if starts_at < timezone.now():
+            return Response({"detail": "Cannot book a slot in the past."}, status=status.HTTP_409_CONFLICT)
+
+        day_of_week = starts_at.astimezone(timezone.get_current_timezone()).weekday()
+        avail = DoctorAvailability.objects.filter(doctor_id=doctor_id, day_of_week=day_of_week).first()
+        if not avail:
+            return Response({"detail": "Doctor has no availability on this day."}, status=status.HTTP_409_CONFLICT)
+
+        ends_at = starts_at + timedelta(minutes=avail.slot_duration_min)
+
+        local_start = starts_at.astimezone(timezone.get_current_timezone()).time()
+        local_end = ends_at.astimezone(timezone.get_current_timezone()).time()
+        if local_start < avail.start_time or local_end > avail.end_time:
+            return Response({"detail": "Selected time is outside doctor's working hours."}, status=status.HTTP_409_CONFLICT)
+        if avail.lunch_start and avail.lunch_end:
+            if not (local_end <= avail.lunch_start or local_start >= avail.lunch_end):
+                return Response({"detail": "Selected time overlaps the doctor's lunch break."}, status=status.HTTP_409_CONFLICT)
+
+        role = getattr(request.user, "role", None)
+        with transaction.atomic():
+            overlap = Appointment.objects.filter(
+                doctor_id=doctor_id,
+                status=Appointment.Status.SCHEDULED,
+                starts_at__lt=ends_at,
+                ends_at__gt=starts_at,
+            ).exists()
+            if overlap:
+                return Response({"detail": "This time slot was just booked. Please pick another."}, status=status.HTTP_409_CONFLICT)
+
+            appt = Appointment.objects.create(
+                patient=booking_patient,
+                doctor_id=doctor_id,
+                caregiver=request.user if role == UserRole.CAREGIVER else None,
+                title=title,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                status=Appointment.Status.SCHEDULED,
+            )
+
+        appt_refresh = Appointment.objects.select_related("patient", "doctor", "caregiver").get(pk=appt.pk)
+        return Response(_appointment_api_dict(appt_refresh), status=status.HTTP_201_CREATED)

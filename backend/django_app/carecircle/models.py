@@ -40,6 +40,32 @@ class AppointmentSlot(models.Model):
         ordering = ["starts_at", "-created_at"]
 
 
+class DoctorAvailability(models.Model):
+    """Recurring weekly availability for a doctor. One row per active day."""
+
+    WEEKDAY_CHOICES = [
+        (0, "Monday"), (1, "Tuesday"), (2, "Wednesday"),
+        (3, "Thursday"), (4, "Friday"), (5, "Saturday"), (6, "Sunday"),
+    ]
+
+    doctor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="availabilities",
+        limit_choices_to={"role": "doctor"},
+    )
+    day_of_week = models.IntegerField(choices=WEEKDAY_CHOICES)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    slot_duration_min = models.IntegerField(default=30)
+    lunch_start = models.TimeField(null=True, blank=True)
+    lunch_end = models.TimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = [["doctor", "day_of_week"]]
+        ordering = ["day_of_week"]
+
+
 class Appointment(models.Model):
     class Status(models.TextChoices):
         SCHEDULED = "scheduled", "Scheduled"

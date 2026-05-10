@@ -140,7 +140,62 @@ export async function listCareCircleAppointments(patientId?: string) {
   return getJson<{ items: CareCircleAppointment[]; total: number }>(`/care-circle/appointments${query}`)
 }
 
-// ── Doctor: availability slots ──────────────────────────────────────────────────
+// ── Doctor weekly availability ────────────────────────────────────────────────
+
+export type DoctorAvailability = {
+  id: number
+  doctor_id: number
+  day_of_week: number  // 0=Mon … 6=Sun
+  start_time: string   // "HH:MM"
+  end_time: string
+  slot_duration_min: number
+  lunch_start: string | null
+  lunch_end: string | null
+}
+
+export type AvailableTimeSlot = {
+  starts_at: string  // ISO datetime
+  ends_at: string
+}
+
+export async function getMyAvailability() {
+  return getJson<{ items: DoctorAvailability[] }>('/care-circle/my-availability')
+}
+
+export async function saveMyAvailability(body: {
+  schedule: { day_of_week: number; start_time: string; end_time: string }[]
+  slot_duration_min: number
+  lunch_start: string | null
+  lunch_end: string | null
+}) {
+  return postJson<{ items: DoctorAvailability[] }>('/care-circle/my-availability', body)
+}
+
+export async function getDoctorAvailability(doctorId: number, opts?: { patientId?: string }) {
+  const params = new URLSearchParams()
+  params.set('doctor_id', String(doctorId))
+  if (opts?.patientId) params.set('patient_id', opts.patientId)
+  return getJson<{ items: DoctorAvailability[] }>(`/care-circle/doctor-availability?${params}`)
+}
+
+export async function getAvailableTimes(doctorId: number, date: string, opts?: { patientId?: string }) {
+  const params = new URLSearchParams()
+  params.set('doctor_id', String(doctorId))
+  params.set('date', date)
+  if (opts?.patientId) params.set('patient_id', opts.patientId)
+  return getJson<{ items: AvailableTimeSlot[]; date: string }>(`/care-circle/available-times?${params}`)
+}
+
+export async function directBookAppointment(body: {
+  doctor_id: number
+  starts_at: string
+  title?: string
+  patient_id?: number
+}) {
+  return postJson<CareCircleAppointment>('/care-circle/book-direct', body)
+}
+
+// ── Doctor: availability slots (legacy pre-created slots) ─────────────────────
 
 export async function listMyAppointmentSlots() {
   return getJson<{ items: DoctorAppointmentSlot[]; total: number }>('/care-circle/my-appointment-slots')

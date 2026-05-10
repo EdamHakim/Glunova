@@ -2,34 +2,53 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { format } from 'date-fns'
-import { CalendarPlus, Loader2 } from 'lucide-react'
+import { differenceInCalendarDays, format, startOfToday } from 'date-fns'
+import { CalendarDays, CalendarPlus, Clock, Loader2, Stethoscope, X } from 'lucide-react'
 import RoleGuard from '@/components/auth/role-guard'
 import { useAuth } from '@/components/auth-context'
 import { DoctorPatientPicker } from '@/components/dashboard/doctor-patient-picker'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import type { AssignedPatientRow } from '@/lib/dashboard-api'
 import {
-  bookAppointment,
   cancelAppointment,
+  directBookAppointment,
+  getAvailableTimes,
+  getDoctorAvailability,
   listBookingDoctorsForPatient,
-  listBookableSlots,
   listCareCircleAppointments,
   listMyDoctors,
-  type BookableSlot,
+  type AvailableTimeSlot,
   type CareCircleAppointment,
+  type DoctorAvailability,
   type DoctorLink,
 } from '@/lib/carecircle-api'
+
+function jsToBackendDay(jsDay: number): number {
+  return (jsDay + 6) % 7
+}
+
+function relativeDay(dateStr: string): string {
+  const diff = differenceInCalendarDays(new Date(dateStr), startOfToday())
+  if (diff === 0) return 'Today'
+  if (diff === 1) return 'Tomorrow'
+  if (diff > 0 && diff < 7) return `In ${diff} days`
+  return format(new Date(dateStr), 'EEE d MMM')
+}
+
+function StepBadge({ n }: { n: number }) {
+  return (
+    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground shrink-0 select-none">
+      {n}
+    </span>
+  )
+}
 
 export default function AppointmentsPage() {
   const { user } = useAuth()
@@ -40,17 +59,33 @@ export default function AppointmentsPage() {
   const [selectedPatientLabel, setSelectedPatientLabel] = useState<string | null>(null)
 
   const [doctors, setDoctors] = useState<DoctorLink[]>([])
-  const [doctorId, setDoctorId] = useState<string>('')
-  const [slots, setSlots] = useState<BookableSlot[]>([])
+  const [doctorId, setDoctorId] = useState('')
+  const [doctorAvailability, setDoctorAvailability] = useState<DoctorAvailability[]>([])
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>()
+  const [availableSlots, setAvailableSlots] = useState<AvailableTimeSlot[]>([])
   const [appointments, setAppointments] = useState<CareCircleAppointment[]>([])
   const [title, setTitle] = useState('')
+
   const [loadingDoctors, setLoadingDoctors] = useState(true)
+  const [loadingAvailability, setLoadingAvailability] = useState(false)
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [loadingAppts, setLoadingAppts] = useState(true)
-  const [bookingId, setBookingId] = useState<number | null>(null)
+  const [bookingSlot, setBookingSlot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
   const bookingContextReady = isPatient || (isCaregiver && caregiverPatientId !== '')
+  const activeDays = new Set(doctorAvailability.map((a) => a.day_of_week))
+  const selectedDoctor = doctors.find((d) => String(d.doctor_id) === doctorId)
+
+  function isDateDisabled(date: Date): boolean {
+    if (date < startOfToday()) return true
+    if (doctorAvailability.length === 0) return false
+    return !activeDays.has(jsToBackendDay(date.getDay()))
+  }
+
+  const morningSlots = availableSlots.filter((s) => new Date(s.starts_at).getHours() < 12)
+  const afternoonSlots = availableSlots.filter((s) => new Date(s.starts_at).getHours() >= 12)
 
   const loadUpcoming = useCallback(() => {
     if (!user) return
@@ -69,77 +104,71 @@ export default function AppointmentsPage() {
   useEffect(() => {
     if (!isPatient) return
     setLoadingDoctors(true)
-    setError(null)
     listMyDoctors()
-      .then((r) => {
-        setDoctors(r.items)
-        if (r.items.length > 0) setDoctorId(String(r.items[0].doctor_id))
-        else setDoctorId('')
-      })
+      .then((r) => { setDoctors(r.items); setDoctorId(r.items[0] ? String(r.items[0].doctor_id) : '') })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load doctors'))
       .finally(() => setLoadingDoctors(false))
   }, [isPatient])
 
   useEffect(() => {
     if (!isCaregiver) return
-    if (!caregiverPatientId) {
-      setDoctors([])
-      setDoctorId('')
-      setLoadingDoctors(false)
-      return
-    }
+    if (!caregiverPatientId) { setDoctors([]); setDoctorId(''); setLoadingDoctors(false); return }
     setLoadingDoctors(true)
-    setError(null)
     listBookingDoctorsForPatient(caregiverPatientId)
-      .then((r) => {
-        setDoctors(r.items)
-        if (r.items.length > 0) setDoctorId(String(r.items[0].doctor_id))
-        else setDoctorId('')
-      })
+      .then((r) => { setDoctors(r.items); setDoctorId(r.items[0] ? String(r.items[0].doctor_id) : '') })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load doctors'))
       .finally(() => setLoadingDoctors(false))
   }, [isCaregiver, caregiverPatientId])
 
-  useEffect(() => {
-    loadUpcoming()
-  }, [loadUpcoming])
+  useEffect(() => { loadUpcoming() }, [loadUpcoming])
 
   useEffect(() => {
     const id = parseInt(doctorId, 10)
     if (!Number.isFinite(id) || !bookingContextReady) {
-      setSlots([])
-      return
+      setDoctorAvailability([]); setSelectedDate(undefined); setAvailableSlots([]); return
     }
+    setLoadingAvailability(true)
+    setSelectedDate(undefined)
+    setAvailableSlots([])
+    getDoctorAvailability(id, isCaregiver ? { patientId: caregiverPatientId } : undefined)
+      .then((r) => setDoctorAvailability(r.items))
+      .catch(() => setDoctorAvailability([]))
+      .finally(() => setLoadingAvailability(false))
+  }, [doctorId, bookingContextReady, isCaregiver, caregiverPatientId])
+
+  useEffect(() => {
+    const id = parseInt(doctorId, 10)
+    if (!selectedDate || !Number.isFinite(id)) { setAvailableSlots([]); return }
     setLoadingSlots(true)
     setError(null)
-    const slotOpts = isCaregiver ? { patientId: caregiverPatientId } : undefined
-    listBookableSlots(id, slotOpts)
-      .then((r) => setSlots(r.items))
-      .catch((e: unknown) => {
-        setSlots([])
-        setError(e instanceof Error ? e.message : 'Failed to load slots')
-      })
+    getAvailableTimes(id, format(selectedDate, 'yyyy-MM-dd'), isCaregiver ? { patientId: caregiverPatientId } : undefined)
+      .then((r) => setAvailableSlots(r.items))
+      .catch((e: unknown) => { setAvailableSlots([]); setError(e instanceof Error ? e.message : 'Failed to load times') })
       .finally(() => setLoadingSlots(false))
-  }, [doctorId, bookingContextReady, isCaregiver, caregiverPatientId])
+  }, [selectedDate, doctorId, isCaregiver, caregiverPatientId])
 
   function onCaregiverPatientChange(p: AssignedPatientRow | null) {
     setSelectedPatientLabel(p?.display_name ?? null)
   }
 
-  async function handleBook(slot: BookableSlot) {
-    setBookingId(slot.id)
+  async function handleBook(slot: AvailableTimeSlot) {
+    const id = parseInt(doctorId, 10)
+    setBookingSlot(slot.starts_at)
     setError(null)
+    setSuccessMsg(null)
     try {
-      const body: { slot_id: number; title?: string; patient_id?: number } = { slot_id: slot.id }
+      const body: { doctor_id: number; starts_at: string; title?: string; patient_id?: number } = { doctor_id: id, starts_at: slot.starts_at }
       if (title.trim()) body.title = title.trim()
       if (isCaregiver) body.patient_id = Number(caregiverPatientId)
-      await bookAppointment(body)
-      setSlots((prev) => prev.filter((s) => s.id !== slot.id))
+      await directBookAppointment(body)
+      setAvailableSlots((prev) => prev.filter((s) => s.starts_at !== slot.starts_at))
+      setSuccessMsg(`Booked for ${format(new Date(slot.starts_at), 'EEEE d MMM')} at ${format(new Date(slot.starts_at), 'HH:mm')}.`)
+      setTimeout(() => setSuccessMsg(null), 6000)
       loadUpcoming()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Booking failed')
     } finally {
-      setBookingId(null)
+      setBookingSlot(null)
     }
   }
 
@@ -153,205 +182,286 @@ export default function AppointmentsPage() {
     }
   }
 
+  function TimeSlotGroup({ label, slots }: { label: string; slots: AvailableTimeSlot[] }) {
+    if (slots.length === 0) return null
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
+        <div className="flex flex-wrap gap-2">
+          {slots.map((slot) => {
+            const isBooking = bookingSlot === slot.starts_at
+            return (
+              <button
+                key={slot.starts_at}
+                disabled={bookingSlot !== null}
+                onClick={() => void handleBook(slot)}
+                className={`h-9 min-w-[4.5rem] rounded-lg border px-3 text-sm font-medium transition-all
+                  ${isBooking
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background hover:border-primary hover:bg-primary/5 hover:text-primary'
+                  }
+                  ${bookingSlot !== null && !isBooking ? 'cursor-not-allowed opacity-40' : ''}
+                `}
+              >
+                {isBooking
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin mx-auto" />
+                  : format(new Date(slot.starts_at), 'HH:mm')
+                }
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <RoleGuard
-      allowedRoles={['patient', 'caregiver']}
-      title="Unavailable"
-      description="Appointment booking is for patients and caregivers."
-    >
-      <div className="space-y-6 p-4 sm:p-6">
+    <RoleGuard allowedRoles={['patient', 'caregiver']} title="Unavailable" description="Appointment booking is for patients and caregivers.">
+      <div className="space-y-5 p-4 sm:p-6">
+
+        {/* Header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl flex items-center gap-2">
-            <CalendarPlus className="h-8 w-8 text-primary shrink-0" />
-            Book an appointment
+            <CalendarPlus className="h-7 w-7 text-primary shrink-0" />
+            Book a Visit
           </h1>
-          <p className="text-muted-foreground mt-2">
-            {isCaregiver ? (
-              <>
-                Choose a linked patient, then one of their doctors and an open slot. You can also review this patient&apos;s
-                schedule in{' '}
-                <Link href="/dashboard/care-circle" className="underline font-medium hover:text-primary">
-                  Care Circle
-                </Link>
-                .
-              </>
-            ) : (
-              <>
-                Choose a{' '}
-                <Link href="/dashboard/care-circle" className="underline font-medium hover:text-primary">
-                  linked doctor
-                </Link>{' '}
-                and reserve an available slot they published.
-              </>
-            )}
+          <p className="text-muted-foreground mt-1.5">
+            {isCaregiver
+              ? 'Select a linked patient, choose their doctor, and pick an available time.'
+              : <>Pick a <Link href="/dashboard/care-circle" className="underline decoration-dotted hover:text-primary">linked doctor</Link>, choose a date, and reserve a slot.</>
+            }
           </p>
         </div>
 
-        {error ? (
-          <p className="text-sm text-destructive whitespace-pre-wrap" role="alert">
-            {error}
-          </p>
-        ) : null}
+        {error && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive" role="alert">
+            <X className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+        {successMsg && (
+          <div className="rounded-md border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-950/30 px-3 py-2.5 text-sm text-green-700 dark:text-green-400">
+            {successMsg}
+          </div>
+        )}
 
-        {isCaregiver ? (
+        {/* Caregiver patient picker */}
+        {isCaregiver && (
           <Card>
-            <CardHeader>
-              <CardTitle>Patient</CardTitle>
-              <CardDescription>Select who this visit is for. Only patients you are linked to as a caregiver appear here.</CardDescription>
-            </CardHeader>
-            <CardContent>
+            <CardContent className="pt-5">
               <DoctorPatientPicker
                 id="appointments-caregiver-patient"
                 value={caregiverPatientId}
                 onChange={setCaregiverPatientId}
                 onSelectedPatientChange={onCaregiverPatientChange}
                 label="Linked patient"
-                description="Search by name — the visit is booked on their behalf."
+                description="The visit is booked on their behalf."
               />
             </CardContent>
           </Card>
-        ) : null}
+        )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Available openings</CardTitle>
-            <CardDescription>Shown times use your browser&apos;s timezone; the clinic sees the same instant in coordinated universal time.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!bookingContextReady ? (
-              <p className="text-sm text-muted-foreground">
-                {isCaregiver ? 'Select a patient above to load their doctors and open slots.' : 'Loading…'}
-              </p>
-            ) : loadingDoctors ? (
-              <p className="text-sm text-muted-foreground">Loading care team…</p>
-            ) : doctors.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {isCaregiver ? (
-                  <>
-                    This patient has no linked doctors yet. They can add doctors under{' '}
-                    <Link href="/dashboard/care-circle" className="underline font-medium hover:text-primary">
-                      Care Circle
-                    </Link>
-                    .
-                  </>
-                ) : (
-                  <>
-                    You have no linked doctors yet.{' '}
-                    <Link href="/dashboard/care-circle" className="underline font-medium hover:text-primary">
-                      Add one under Care Circle
-                    </Link>
-                    .
-                  </>
-                )}
-              </p>
-            ) : (
-              <>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Doctor</Label>
-                    <Select value={doctorId} onValueChange={setDoctorId}>
-                      <SelectTrigger className="w-full min-w-48">
-                        <SelectValue placeholder="Doctor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {doctors.map((d) => (
-                          <SelectItem key={d.doctor_id} value={String(d.doctor_id)}>
-                            {d.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="appt-title">Visit title (optional)</Label>
-                    <Input id="appt-title" placeholder="Consultation" value={title} onChange={(e) => setTitle(e.target.value)} />
-                  </div>
+        {/* Two-column grid */}
+        <div className="grid gap-5 lg:grid-cols-[1fr_340px] items-start">
+
+          {/* ── Left: booking wizard ── */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle>Schedule a visit</CardTitle>
+              <CardDescription>Greyed-out dates have no available slots for the selected doctor.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+
+              {!bookingContextReady ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  Select a patient above to continue.
+                </p>
+              ) : loadingDoctors ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading care team…
                 </div>
-
-                {loadingSlots ? (
-                  <div className="flex justify-center py-10 text-muted-foreground">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  </div>
-                ) : slots.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 border border-dashed rounded-lg px-4 text-center">
-                    This doctor has no open upcoming slots right now.
+              ) : doctors.length === 0 ? (
+                <div className="rounded-lg border border-dashed px-6 py-8 text-center space-y-1">
+                  <Stethoscope className="h-8 w-8 mx-auto text-muted-foreground/50" />
+                  <p className="text-sm font-medium text-muted-foreground mt-2">No linked doctors</p>
+                  <p className="text-xs text-muted-foreground">
+                    {isCaregiver
+                      ? 'This patient has not linked any doctors yet.'
+                      : <><Link href="/dashboard/care-circle" className="underline hover:text-primary">Add a doctor</Link> from Care Circle first.</>
+                    }
                   </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {slots.map((slot) => (
-                      <li
-                        key={slot.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm"
-                      >
-                        <div>
-                          <div className="font-medium">{format(new Date(slot.starts_at), 'PPpp')}</div>
-                          <div className="text-xs text-muted-foreground">Ends {format(new Date(slot.ends_at), 'p')}</div>
-                        </div>
-                        <Button
-                          size="sm"
-                          disabled={bookingId !== null}
-                          onClick={() => void handleBook(slot)}
-                          className="shrink-0"
-                        >
-                          {bookingId === slot.id ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Booking…
-                            </>
-                          ) : (
-                            'Reserve'
-                          )}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {isCaregiver
-                ? selectedPatientLabel
-                  ? `${selectedPatientLabel}'s upcoming visits`
-                  : 'Upcoming visits'
-                : 'Your upcoming visits'}
-            </CardTitle>
-            <CardDescription>Cancel if plans change; the opening returns to the doctor&apos;s pool.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isCaregiver && !caregiverPatientId ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">Select a patient to see their scheduled visits.</p>
-            ) : loadingAppts ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
-            ) : appointments.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">No upcoming scheduled visits.</p>
-            ) : (
-              <ul className="space-y-2">
-                {appointments.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex flex-wrap items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm"
-                  >
-                    <div>
-                      <div className="font-medium">{a.title}</div>
-                      <div className="text-muted-foreground">{format(new Date(a.starts_at), 'PPpp')}</div>
-                      <div className="text-xs text-muted-foreground mt-1">With {a.doctor_name}</div>
-                      {isCaregiver ? (
-                        <div className="text-xs text-muted-foreground mt-0.5">Patient: {a.patient_name}</div>
-                      ) : null}
+                </div>
+              ) : (
+                <>
+                  {/* Step 1 */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <StepBadge n={1} />
+                      <span className="text-sm font-semibold">Doctor &amp; visit details</span>
                     </div>
-                    <Button variant="outline" size="sm" className="shrink-0" onClick={() => void handleCancel(a.id)}>
-                      Cancel
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Doctor</Label>
+                        <Select value={doctorId} onValueChange={setDoctorId}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select doctor" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {doctors.map((d) => (
+                              <SelectItem key={d.doctor_id} value={String(d.doctor_id)}>
+                                {d.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {selectedDoctor?.specialization && (
+                          <p className="text-xs text-muted-foreground">{selectedDoctor.specialization}</p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="appt-title" className="text-xs text-muted-foreground">Visit title (optional)</Label>
+                        <Input
+                          id="appt-title"
+                          placeholder="e.g. Follow-up consultation"
+                          value={title}
+                          onChange={(e) => setTitle(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Step 2 */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <StepBadge n={2} />
+                      <span className="text-sm font-semibold">Pick a date</span>
+                    </div>
+                    {loadingAvailability ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading schedule…
+                      </div>
+                    ) : doctorAvailability.length === 0 ? (
+                      <div className="rounded-lg border border-dashed px-4 py-5 text-center">
+                        <CalendarDays className="h-6 w-6 mx-auto text-muted-foreground/50 mb-1.5" />
+                        <p className="text-sm text-muted-foreground">This doctor hasn&apos;t set their availability yet.</p>
+                      </div>
+                    ) : (
+                      <Calendar
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={setSelectedDate}
+                        disabled={isDateDisabled}
+                        className="rounded-lg border w-fit"
+                      />
+                    )}
+                  </div>
+
+                  {/* Step 3 */}
+                  {selectedDate && (
+                    <>
+                      <Separator />
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <StepBadge n={3} />
+                          <span className="text-sm font-semibold">
+                            Choose a time
+                            <span className="ml-2 font-normal text-muted-foreground">
+                              — {format(selectedDate, 'EEEE, MMMM d')}
+                            </span>
+                          </span>
+                        </div>
+
+                        {loadingSlots ? (
+                          <div className="flex justify-center py-6 text-muted-foreground">
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          </div>
+                        ) : availableSlots.length === 0 ? (
+                          <div className="rounded-lg border border-dashed px-4 py-5 text-center">
+                            <Clock className="h-6 w-6 mx-auto text-muted-foreground/50 mb-1.5" />
+                            <p className="text-sm text-muted-foreground">No open slots on this date.</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">All times are booked — try another day.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <TimeSlotGroup label="Morning" slots={morningSlots} />
+                            <TimeSlotGroup label="Afternoon" slots={afternoonSlots} />
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Right: upcoming visits ── */}
+          <Card className="lg:sticky lg:top-6">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">
+                  {isCaregiver && selectedPatientLabel ? `${selectedPatientLabel}'s visits` : 'Upcoming visits'}
+                </CardTitle>
+                {appointments.length > 0 && (
+                  <Badge variant="secondary">{appointments.length}</Badge>
+                )}
+              </div>
+              <CardDescription>Tap cancel if plans change.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isCaregiver && !caregiverPatientId ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">Select a patient to see their visits.</p>
+              ) : loadingAppts ? (
+                <div className="flex justify-center py-8 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              ) : appointments.length === 0 ? (
+                <div className="py-8 text-center space-y-1">
+                  <CalendarDays className="h-8 w-8 mx-auto text-muted-foreground/30" />
+                  <p className="text-sm text-muted-foreground mt-2">No upcoming visits</p>
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {appointments.map((a) => (
+                    <li key={a.id} className="rounded-lg border bg-card p-3.5 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{a.title}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {format(new Date(a.starts_at), 'HH:mm')} – {format(new Date(a.ends_at), 'HH:mm')}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-xs shrink-0">
+                          {relativeDay(a.starts_at)}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground space-y-0.5">
+                          <p>{format(new Date(a.starts_at), 'EEE, d MMM yyyy')}</p>
+                          <p className="flex items-center gap-1">
+                            <Stethoscope className="h-3 w-3" />
+                            {a.doctor_name}
+                          </p>
+                          {isCaregiver && <p>Patient: {a.patient_name}</p>}
+                        </div>
+                        <button
+                          onClick={() => void handleCancel(a.id)}
+                          className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                          aria-label="Cancel appointment"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+        </div>
       </div>
     </RoleGuard>
   )
