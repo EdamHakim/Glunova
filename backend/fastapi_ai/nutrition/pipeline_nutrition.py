@@ -106,16 +106,16 @@ def _resolve_yolo_weights_path() -> str:
 
 
 def _nutrition_yolo_backend() -> str:
-    """ultralytics | roboflow | groq_only — see PipelineNutrition docstring."""
-    raw = (os.environ.get("NUTRITION_YOLO_BACKEND") or os.environ.get("YOLO_WORLD_BACKEND") or "ultralytics").strip().lower()
-    if raw in ("local", "ultralytics", "yolo", ""):
+    """roboflow | groq_only | ultralytics — see PipelineNutrition docstring."""
+    raw = (os.environ.get("NUTRITION_YOLO_BACKEND") or os.environ.get("YOLO_WORLD_BACKEND") or "roboflow").strip().lower()
+    if raw in ("local", "ultralytics", "yolo"):
         return "ultralytics"
-    if raw in ("roboflow", "serverless", "remote", "inference"):
+    if raw in ("roboflow", "serverless", "remote", "inference", ""):
         return "roboflow"
     if raw in ("groq_only", "groq", "vision_only", "skip_yolo"):
         return "groq_only"
     raise ValueError(
-        f"Unknown NUTRITION_YOLO_BACKEND={raw!r}. Use ultralytics, roboflow, or groq_only."
+        f"Unknown NUTRITION_YOLO_BACKEND={raw!r}. Use roboflow, groq_only, or ultralytics."
     )
 
 

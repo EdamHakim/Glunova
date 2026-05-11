@@ -45,6 +45,4 @@ librosa>=0.10.2
 mcp>=1.0.0
 
 # Nutrition Pipeline
-ultralytics>=8.1
-inference-sdk
 matplotlib

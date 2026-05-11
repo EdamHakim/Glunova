@@ -1,0 +1,24 @@
+services:
+  django_app:
+    image: ghcr.io/edamhakim/glunova-django:latest
+    container_name: glunova-django
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      AI_SERVICE_URL: http://fastapi_ai:8001
+      FASTAPI_BASE_URL: http://fastapi_ai:8001
+      DJANGO_DEBUG: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - fastapi_ai
+
+  fastapi_ai:
+    image: ghcr.io/edamhakim/glunova-fastapi:latest
+    container_name: glunova-fastapi
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      FASTAPI_SKIP_STARTUP_WARMUP: "false"
+    ports:
+      - "8001:8001"
