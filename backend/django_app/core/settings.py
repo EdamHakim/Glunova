@@ -130,13 +130,13 @@ SIMPLE_JWT = {
     "AUTH_COOKIE": "access_token",
     "AUTH_COOKIE_HTTP_ONLY": True,
     "AUTH_COOKIE_PATH": "/",
-    "AUTH_COOKIE_SAMESITE": "Lax",
-    "AUTH_COOKIE_SECURE": False,
+    "AUTH_COOKIE_SAMESITE": "None",
+    "AUTH_COOKIE_SECURE": True,
     "REFRESH_COOKIE": "refresh_token",
     "REFRESH_COOKIE_HTTP_ONLY": True,
     "REFRESH_COOKIE_PATH": "/",
-    "REFRESH_COOKIE_SAMESITE": "Lax",
-    "REFRESH_COOKIE_SECURE": False,
+    "REFRESH_COOKIE_SAMESITE": "None",
+    "REFRESH_COOKIE_SECURE": True,
 }
 
 CORS_ALLOWED_ORIGINS = _parse_frontend_origins()
