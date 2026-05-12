@@ -1,0 +1,3 @@
+glunova.duckdns.org {
+    reverse_proxy django_app:8000
+}

@@ -1,4 +1,18 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: glunova-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - django_app
+
   django_app:
     image: ghcr.io/edamhakim/glunova-django:latest
     container_name: glunova-django
@@ -8,8 +22,6 @@ services:
       AI_SERVICE_URL: http://fastapi_ai:8001
       FASTAPI_BASE_URL: http://fastapi_ai:8001
       DJANGO_DEBUG: "false"
-    ports:
-      - "8000:8000"
     depends_on:
       - fastapi_ai
 
@@ -20,5 +32,7 @@ services:
     env_file: ./backend/.env
     environment:
       FASTAPI_SKIP_STARTUP_WARMUP: "false"
-    ports:
-      - "8001:8001"
+
+volumes:
+  caddy_data:
+  caddy_config:
