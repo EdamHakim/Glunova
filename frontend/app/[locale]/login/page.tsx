@@ -90,9 +90,6 @@ function LoginForm() {
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="password" className="text-sm font-medium">{t('password')}</Label>
-                <Link href="/auth/forgot-password" className="text-xs font-semibold text-primary hover:text-primary/80">
-                  {t('forgotPassword')}
-                </Link>
               </div>
               <div className="relative group">
                 <Lock className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
