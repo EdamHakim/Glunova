@@ -6,6 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-push:
@@ -31,7 +32,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build & push Django image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./backend/django_app
           push: true
@@ -40,7 +41,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & push FastAPI image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./backend/fastapi_ai
           push: true
