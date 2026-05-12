@@ -10,6 +10,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
+      - django_media:/media:ro
     depends_on:
       - django_app
 
@@ -22,6 +23,8 @@ services:
       AI_SERVICE_URL: http://fastapi_ai:8001
       FASTAPI_BASE_URL: http://fastapi_ai:8001
       DJANGO_DEBUG: "false"
+    volumes:
+      - django_media:/app/media
     depends_on:
       - fastapi_ai
 
@@ -36,3 +39,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  django_media:
