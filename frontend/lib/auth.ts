@@ -27,11 +27,11 @@ export type AuthUser = {
   email?: string
 }
 
-function resolveClientApiBaseUrl(envValue: string | undefined, port: number, fallback: string) {
+function resolveClientApiBaseUrl(envValue: string | undefined, _port: number, fallback: string) {
   if (envValue && envValue.trim()) return envValue
-  if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:${port}`
-  }
+  // No env var → use relative URLs so Vercel rewrites proxy to the backend.
+  // This avoids cross-origin requests (fixes Safari/iOS WebKit ITP).
+  if (typeof window !== 'undefined') return ''
   return fallback
 }
 

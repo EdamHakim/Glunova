@@ -2,8 +2,9 @@ import createNextIntlPlugin from 'next-intl/plugin'
 
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts')
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_DJANGO_API_URL || 'http://localhost:8000'
-const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_API_URL || 'http://localhost:8001'
+// Server-only vars (no NEXT_PUBLIC prefix) — never exposed to the browser
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
+const FASTAPI_URL = process.env.FASTAPI_URL || 'http://localhost:8001'
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

@@ -35,6 +35,9 @@ services:
     env_file: ./backend/.env
     environment:
       FASTAPI_SKIP_STARTUP_WARMUP: "false"
+    volumes:
+      - ./models/screening:/app/screening/models
+      - ./models/clinic:/app/clinic/models
 
 volumes:
   caddy_data:
