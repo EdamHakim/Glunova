@@ -35,6 +35,18 @@ function resolveClientApiBaseUrl(envValue: string | undefined, _port: number, fa
   return fallback
 }
 
+/** Convert absolute media URLs to relative so they route through Vercel rewrites. */
+function toRelativeMediaUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined
+  try {
+    const parsed = new URL(url)
+    if (parsed.pathname.startsWith('/media/')) return parsed.pathname
+  } catch {
+    if (url.startsWith('/media/')) return url
+  }
+  return url
+}
+
 export function getApiUrls() {
   return {
     django: resolveClientApiBaseUrl(process.env.NEXT_PUBLIC_DJANGO_API_URL, 8000, 'http://localhost:8000'),
@@ -110,7 +122,7 @@ export async function fetchCurrentSessionUser(): Promise<AuthUser | null> {
       smoking_status: data.smoking_status,
       hba1c_level: data.hba1c_level,
       blood_glucose_level: data.blood_glucose_level,
-      profile_picture: data.profile_picture,
+      profile_picture: toRelativeMediaUrl(data.profile_picture),
       email: data.email,
     }
   } catch {
