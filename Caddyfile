@@ -1,7 +1,23 @@
 glunova.duckdns.org {
+
+    # Media files served directly from Django's media volume
     handle /media/* {
         root * /
         file_server
     }
+
+    # FastAPI AI routes
+    handle /screening/* { reverse_proxy fastapi_ai:8001 }
+    handle /nutrition/*  { reverse_proxy fastapi_ai:8001 }
+    handle /psychology/* { reverse_proxy fastapi_ai:8001 }
+    handle /clinic/*     { reverse_proxy fastapi_ai:8001 }
+    handle /monitoring/* { reverse_proxy fastapi_ai:8001 }
+    handle /extraction/* { reverse_proxy fastapi_ai:8001 }
+    handle /wellness/*   { reverse_proxy fastapi_ai:8001 }
+    handle /kids/*       { reverse_proxy fastapi_ai:8001 }
+    handle /agent/*      { reverse_proxy fastapi_ai:8001 }
+    handle /health       { reverse_proxy fastapi_ai:8001 }
+
+    # Django — everything else (api/auth, api/v1, admin)
     reverse_proxy django_app:8000
 }
