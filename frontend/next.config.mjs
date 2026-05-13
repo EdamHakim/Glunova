@@ -25,10 +25,11 @@ const nextConfig = {
       // beforeFiles runs BEFORE the filesystem check, so app/api/ route
       // handlers don't shadow the proxy rewrites for Django/FastAPI paths.
       beforeFiles: [
-        // Django routes
-        { source: '/api/auth/:path*',       destination: `${BACKEND_URL}/api/auth/:path*` },
-        { source: '/api/v1/:path*',         destination: `${BACKEND_URL}/api/v1/:path*` },
-        { source: '/admin/:path*',          destination: `${BACKEND_URL}/admin/:path*` },
+        // Django routes — append trailing slash so Django APPEND_SLASH
+        // doesn't 301-redirect (Vercel's :path* strips the trailing /).
+        { source: '/api/auth/:path*',       destination: `${BACKEND_URL}/api/auth/:path*/` },
+        { source: '/api/v1/:path*',         destination: `${BACKEND_URL}/api/v1/:path*/` },
+        { source: '/admin/:path*',          destination: `${BACKEND_URL}/admin/:path*/` },
         { source: '/media/:path*',          destination: `${BACKEND_URL}/media/:path*` },
         // FastAPI routes
         { source: '/screening/:path*',  destination: `${FASTAPI_URL}/screening/:path*` },
