@@ -28,8 +28,8 @@ const nextConfig = {
         // Django routes — append trailing slash so Django APPEND_SLASH
         // doesn't 301-redirect (Vercel's :path* strips the trailing /).
         { source: '/api/auth/:path*',       destination: `${BACKEND_URL}/api/auth/:path*/` },
-        { source: '/api/v1/:path*',         destination: `${BACKEND_URL}/api/v1/:path*/` },
-        { source: '/admin/:path*',          destination: `${BACKEND_URL}/admin/:path*/` },
+        { source: '/api/v1/:path*',         destination: `${BACKEND_URL}/api/v1/:path*` },
+        { source: '/admin/:path*',          destination: `${BACKEND_URL}/admin/:path*` },
         { source: '/media/:path*',          destination: `${BACKEND_URL}/media/:path*` },
         // FastAPI routes
         { source: '/screening/:path*',  destination: `${FASTAPI_URL}/screening/:path*` },
