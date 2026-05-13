@@ -20,23 +20,30 @@ const nextConfig = {
     unoptimized: true,
   },
   async rewrites() {
-    return [
-      // Django routes
-      { source: '/api/:path*',   destination: `${BACKEND_URL}/api/:path*` },
-      { source: '/admin/:path*', destination: `${BACKEND_URL}/admin/:path*` },
-      { source: '/media/:path*', destination: `${BACKEND_URL}/media/:path*` },
-      // FastAPI routes
-      { source: '/screening/:path*',  destination: `${FASTAPI_URL}/screening/:path*` },
-      { source: '/nutrition/:path*',  destination: `${FASTAPI_URL}/nutrition/:path*` },
-      { source: '/psychology/:path*', destination: `${FASTAPI_URL}/psychology/:path*` },
-      { source: '/clinic/:path*',     destination: `${FASTAPI_URL}/clinic/:path*` },
-      { source: '/monitoring/:path*', destination: `${FASTAPI_URL}/monitoring/:path*` },
-      { source: '/extraction/:path*', destination: `${FASTAPI_URL}/extraction/:path*` },
-      { source: '/wellness/:path*',   destination: `${FASTAPI_URL}/wellness/:path*` },
-      { source: '/kids/:path*',       destination: `${FASTAPI_URL}/kids/:path*` },
-      { source: '/agent/:path*',      destination: `${FASTAPI_URL}/agent/:path*` },
-      { source: '/health',            destination: `${FASTAPI_URL}/health` },
-    ]
+    return {
+      // beforeFiles runs BEFORE the filesystem check, so app/api/ route
+      // handlers don't shadow the proxy rewrites for Django/FastAPI paths.
+      beforeFiles: [
+        // Django routes
+        { source: '/api/auth/:path*',       destination: `${BACKEND_URL}/api/auth/:path*` },
+        { source: '/api/v1/:path*',         destination: `${BACKEND_URL}/api/v1/:path*` },
+        { source: '/admin/:path*',          destination: `${BACKEND_URL}/admin/:path*` },
+        { source: '/media/:path*',          destination: `${BACKEND_URL}/media/:path*` },
+        // FastAPI routes
+        { source: '/screening/:path*',  destination: `${FASTAPI_URL}/screening/:path*` },
+        { source: '/nutrition/:path*',  destination: `${FASTAPI_URL}/nutrition/:path*` },
+        { source: '/psychology/:path*', destination: `${FASTAPI_URL}/psychology/:path*` },
+        { source: '/clinic/:path*',     destination: `${FASTAPI_URL}/clinic/:path*` },
+        { source: '/monitoring/:path*', destination: `${FASTAPI_URL}/monitoring/:path*` },
+        { source: '/extraction/:path*', destination: `${FASTAPI_URL}/extraction/:path*` },
+        { source: '/wellness/:path*',   destination: `${FASTAPI_URL}/wellness/:path*` },
+        { source: '/kids/:path*',       destination: `${FASTAPI_URL}/kids/:path*` },
+        { source: '/agent/:path*',      destination: `${FASTAPI_URL}/agent/:path*` },
+        { source: '/health',            destination: `${FASTAPI_URL}/health` },
+      ],
+      afterFiles: [],
+      fallback: [],
+    }
   },
 }
 
