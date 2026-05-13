@@ -19,6 +19,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  skipTrailingSlashRedirect: true,
   async rewrites() {
     return {
       // beforeFiles runs BEFORE the filesystem check, so app/api/ route
