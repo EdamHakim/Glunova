@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ExternalLink, ImagePlus, Loader2, Mic, Sparkles, Square, Trash2, Volume2, VolumeX } from 'lucide-react'
+import { BookOpen, ExternalLink, FileText, ImagePlus, Loader2, MessageCircle, Mic, Settings2, Sparkles, Square, Trash2, Upload, Volume2, VolumeX } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import {
   deleteKidsAssistantHistory,
   generateKidsAvatar,
@@ -546,21 +548,30 @@ export default function KidsPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
+      {/* ── Header ────────────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('pageTitle')}</h1>
-        <p className="text-muted-foreground mt-2">{t('pageDesc')}</p>
+        <p className="text-muted-foreground mt-1 text-sm sm:mt-2 sm:text-base">{t('pageDesc')}</p>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
       {loading && <p className="text-sm text-muted-foreground">{t('loadingState')}</p>}
 
       {!loading && state && (
         <>
-          <Card className="overflow-hidden">
-            <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(260px,360px)_1fr]">
-              <div className="flex flex-col items-center justify-center gap-4 py-4 text-center">
-                <div className="relative flex h-56 w-56 items-center justify-center rounded-full border bg-muted/40 shadow-inner">
+          {/* ── Avatar + Talk hero ─────────────────────────────────────── */}
+          <Card className="overflow-hidden border-primary/10">
+            <CardContent className="p-0">
+              <div className="flex flex-col items-center gap-4 bg-gradient-to-b from-primary/5 via-transparent to-transparent px-4 pb-6 pt-8 text-center sm:px-6 sm:pt-10">
+                <div className={cn(
+                  'relative flex h-28 w-28 items-center justify-center rounded-full border-2 shadow-lg sm:h-40 sm:w-40',
+                  assistantListening || assistantSpeaking ? 'border-primary' : 'border-border',
+                )}>
                   {profile?.avatar_image_url ? (
                     <img
                       src={toRelativeMediaUrl(profile.avatar_image_url) || profile.avatar_image_url}
@@ -568,17 +579,17 @@ export default function KidsPage() {
                       className="h-full w-full rounded-full object-cover"
                     />
                   ) : (
-                    <div className="flex h-40 w-40 items-center justify-center rounded-full bg-gradient-to-br from-cyan-100 via-white to-emerald-100 text-primary">
-                      <Sparkles className="h-16 w-16" />
+                    <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-cyan-100 via-white to-emerald-100 text-primary dark:from-cyan-900/30 dark:via-background dark:to-emerald-900/30">
+                      <Sparkles className="h-10 w-10 sm:h-14 sm:w-14" />
                     </div>
                   )}
                   {(assistantListening || assistantSpeaking) && (
-                    <span className="absolute inset-0 rounded-full border-4 border-primary/40 animate-pulse" />
+                    <span className="absolute inset-0 rounded-full border-4 border-primary/30 animate-pulse" />
                   )}
                 </div>
                 <div>
-                  <p className="text-xl font-semibold">{profile?.assistant_name || 'Buddy'}</p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-lg font-semibold sm:text-xl">{profile?.assistant_name || 'Buddy'}</p>
+                  <p className="text-xs text-muted-foreground sm:text-sm">
                     {assistantListening
                       ? t('listening')
                       : assistantThinking
@@ -591,37 +602,62 @@ export default function KidsPage() {
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button
                     type="button"
+                    size="lg"
                     onClick={() => (assistantListening ? stopAssistantListening() : startAssistantListening())}
                     variant={assistantListening ? 'destructive' : 'default'}
+                    className="gap-2 shadow-md"
                   >
                     {assistantListening ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                     {assistantListening ? t('stop') : t('talk')}
                   </Button>
                   <Button
                     type="button"
+                    size="lg"
                     variant="outline"
                     onClick={() => (assistantReply ? void speak(assistantReply) : void askAssistant(''))}
                     disabled={assistantThinking}
+                    className="gap-2"
                   >
                     {assistantThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
                     {assistantReply ? t('speakBtn') : t('askMe')}
                   </Button>
                   {clonePlaybackNeedsTap && (
-                    <Button type="button" variant="secondary" onClick={() => playPendingCloneAudio()}>
+                    <Button type="button" variant="secondary" size="lg" className="gap-2" onClick={() => playPendingCloneAudio()}>
                       <Volume2 className="h-4 w-4" />
                       {t('playClonedReply')}
                     </Button>
                   )}
                 </div>
               </div>
+            </CardContent>
+          </Card>
 
-              <div className="space-y-4">
-                <div>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <CardTitle>{t('voiceAssistantTitle')}</CardTitle>
-                      <CardDescription>{t('voiceAssistantDesc')}</CardDescription>
-                    </div>
+          {/* ── Tabbed content ─────────────────────────────────────────── */}
+          <Tabs defaultValue="chat" className="w-full">
+            <TabsList className="grid h-auto w-full grid-cols-3 gap-1 rounded-xl border border-border/60 bg-muted/40 p-1.5">
+              <TabsTrigger value="chat" className="gap-1.5 rounded-lg text-xs sm:text-sm">
+                <MessageCircle className="hidden h-4 w-4 sm:block" />
+                {t('voiceAssistantTitle')}
+              </TabsTrigger>
+              <TabsTrigger value="setup" className="gap-1.5 rounded-lg text-xs sm:text-sm">
+                <Settings2 className="hidden h-4 w-4 sm:block" />
+                {t('day1SetupTitle')}
+              </TabsTrigger>
+              <TabsTrigger value="story" className="gap-1.5 rounded-lg text-xs sm:text-sm">
+                <BookOpen className="hidden h-4 w-4 sm:block" />
+                {t('storyTitle')}
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ── Chat tab ─────────────────────────────────────────────── */}
+            <TabsContent value="chat" className="mt-4 space-y-4">
+              <Card>
+                <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 px-4 py-4 sm:px-6">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base">{t('voiceAssistantTitle')}</CardTitle>
+                    <CardDescription className="mt-0.5">{t('voiceAssistantDesc')}</CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -629,8 +665,8 @@ export default function KidsPage() {
                       onClick={() => void deleteChatHistory()}
                       disabled={chatDeleting || !state.recent_assistant_turns?.length}
                     >
-                      {chatDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                      {chatDeleting ? t('deleting') : t('deleteChat')}
+                      {chatDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      <span className="hidden sm:inline">{chatDeleting ? t('deleting') : t('deleteChat')}</span>
                     </Button>
                     <Button
                       type="button"
@@ -651,178 +687,229 @@ export default function KidsPage() {
                         })
                       }}
                     >
-                      {useVoiceCloning ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                      {useVoiceCloning ? t('cloningOn') : t('cloningOff')}
+                      {useVoiceCloning ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                      <span className="hidden sm:inline">{useVoiceCloning ? t('cloningOn') : t('cloningOff')}</span>
                     </Button>
                   </div>
-                </div>
-                <div className="rounded-md border bg-muted/30 p-4 text-sm">
-                  <p className="font-medium">{assistantReply ? t('assistantReply') : t('assistantQuestion')}</p>
-                  <p className="mt-1 text-muted-foreground">
-                    {assistantReply || t('tapAskOrTalk')}
-                  </p>
-                  {assistantProvider && <p className="mt-2 text-xs text-muted-foreground">{t('llmLabel')} {assistantProvider}</p>}
-                  {assistantVoiceStatus && <p className="mt-1 text-xs text-muted-foreground">{t('voiceLabel')} {assistantVoiceStatus}</p>}
-                  {!!assistantMissingItems.length && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t('stillChecking')} {assistantMissingItems.map((item) => item.split(':').slice(1).join(':')).join(', ')}
-                    </p>
-                  )}
-                </div>
-                {!!state.recent_assistant_turns?.length && (
-                  <div className="max-h-80 space-y-3 overflow-y-auto rounded-md border p-4 text-sm">
-                    {state.recent_assistant_turns.map((turn) => (
-                      <div key={turn.id} className="space-y-2">
-                        {turn.child_message && (
-                          <div className="ml-auto max-w-[85%] rounded-md bg-primary px-3 py-2 text-primary-foreground">
-                            {turn.child_message}
+                </CardHeader>
+                <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
+                  {/* Latest reply */}
+                  <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+                    <p className="font-medium">{assistantReply ? t('assistantReply') : t('assistantQuestion')}</p>
+                    <p className="mt-1 text-muted-foreground">{assistantReply || t('tapAskOrTalk')}</p>
+                    {assistantProvider && <p className="mt-2 text-xs text-muted-foreground">{t('llmLabel')} {assistantProvider}</p>}
+                    {assistantVoiceStatus && <p className="mt-1 text-xs text-muted-foreground">{t('voiceLabel')} {assistantVoiceStatus}</p>}
+                    {!!assistantMissingItems.length && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t('stillChecking')} {assistantMissingItems.map((item) => item.split(':').slice(1).join(':')).join(', ')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Chat history */}
+                  {!!state.recent_assistant_turns?.length && (
+                    <div className="max-h-72 space-y-3 overflow-y-auto rounded-lg border p-3 text-sm sm:max-h-96 sm:p-4">
+                      {state.recent_assistant_turns.map((turn) => (
+                        <div key={turn.id} className="space-y-2">
+                          {turn.child_message && (
+                            <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-primary-foreground sm:max-w-[80%]">
+                              {turn.child_message}
+                            </div>
+                          )}
+                          <div className="max-w-[90%] rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-muted-foreground sm:max-w-[80%]">
+                            {turn.assistant_reply}
                           </div>
-                        )}
-                        <div className="max-w-[85%] rounded-md bg-muted px-3 py-2 text-muted-foreground">
-                          {turn.assistant_reply}
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {assistantTranscript && (
-                  <div className="rounded-md border p-4 text-sm">
-                    <p className="font-medium">{t('voiceTranscript')}</p>
-                    <p className="mt-1 text-muted-foreground">{assistantTranscript}</p>
-                  </div>
-                )}
-                {profile?.parent_voice_sample_url && (
-                  <div className="rounded-md border p-4 text-sm">
-                    <p className="font-medium">{t('savedVoiceSample')}</p>
-                    <audio controls src={toRelativeMediaUrl(profile.parent_voice_sample_url) || profile.parent_voice_sample_url} className="mt-2 w-full" />
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                      ))}
+                    </div>
+                  )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('day1SetupTitle')}</CardTitle>
-              <CardDescription>{t('day1SetupDesc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="pdf-upload">{t('doctorPdfLabel')}</Label>
-                <Input id="pdf-upload" type="file" accept="application/pdf" onChange={(e) => void uploadPdf(e.target.files?.[0] || null)} />
-                <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground">{t('exampleInstructionTitle')}</p>
-                  <p className="mt-1">{t('exampleInstructionText')}</p>
-                </div>
-                {fileUploading && <p className="text-xs text-muted-foreground">{t('extractingRules')}</p>}
-                {state.active_instruction_doc && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('activeFileInfo', { filename: state.active_instruction_doc.source_filename, count: state.active_instruction_doc.rules.length })}
-                  </p>
-                )}
-              </div>
+                  {/* Transcript */}
+                  {assistantTranscript && (
+                    <div className="rounded-lg border border-dashed p-3 text-sm">
+                      <p className="font-medium">{t('voiceTranscript')}</p>
+                      <p className="mt-1 text-muted-foreground">{assistantTranscript}</p>
+                    </div>
+                  )}
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>{t('assistantNameLabel')}</Label>
-                  <Input value={profile?.assistant_name || ''} onChange={(e) => updateProfileField('assistant_name', e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('avatarPromptLabel')}</Label>
-                  <Textarea
-                    value={profile?.avatar_prompt || ''}
-                    onChange={(e) => updateProfileField('avatar_prompt', e.target.value)}
-                    placeholder={t('avatarPlaceholder')}
-                  />
-                  <Button type="button" variant="outline" onClick={() => void generateAvatar()} disabled={avatarGenerating}>
-                    {avatarGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
-                    {avatarGenerating ? t('generating') : t('generateAvatar')}
-                  </Button>
-                </div>
-              </div>
+                  {/* Saved voice sample */}
+                  {profile?.parent_voice_sample_url && (
+                    <div className="rounded-lg border p-3 text-sm">
+                      <p className="mb-2 font-medium">{t('savedVoiceSample')}</p>
+                      <audio controls src={toRelativeMediaUrl(profile.parent_voice_sample_url) || profile.parent_voice_sample_url} className="w-full" />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-              <div className="space-y-2">
-                <Label>{t('personaPromptLabel')}</Label>
-                <Textarea value={profile?.persona_prompt || ''} onChange={(e) => updateProfileField('persona_prompt', e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="child-photo-upload">{t('childPhotosLabel')}</Label>
-                <Input
-                  id="child-photo-upload"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => void uploadPhoto(e.target.files?.[0] || null)}
-                />
-                {photoUploading && <p className="text-xs text-muted-foreground">{t('savingPhoto')}</p>}
-                {!!profile?.child_reference_photos?.length && (
-                  <div className="flex flex-wrap gap-2">
-                    {profile.child_reference_photos.map((photoUrl) => (
-                      <img key={photoUrl} src={toRelativeMediaUrl(photoUrl) || photoUrl} alt="Child reference" className="h-16 w-16 rounded-md border object-cover" />
-                    ))}
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground">{t('photoDesc')}</p>
-              </div>
-              <div className="space-y-2">
-                <Label>{t('parentVoiceLabel')}</Label>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    variant={recording ? 'destructive' : 'outline'}
-                    onClick={() => (recording ? stopVoiceRecording() : void startVoiceRecording())}
-                  >
-                    {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    {recording ? t('stopRecording') : t('recordVoice')}
-                  </Button>
-                  {voicePreviewUrl && <audio controls src={voicePreviewUrl} className="h-10" />}
-                </div>
-                {voiceRecordingError && <p className="text-xs text-destructive">{voiceRecordingError}</p>}
-                <p className="text-xs text-muted-foreground">{t('parentVoiceDesc')}</p>
-              </div>
-              <Button onClick={() => void saveProfile()} disabled={saving}>
-                {saving ? t('saving') : t('saveSetup')}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('storyTitle')}</CardTitle>
-              <CardDescription>{t('storyDesc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {storyGenerating && <p className="text-sm text-muted-foreground">{t('generatingStory')}</p>}
-              {!storyGenerating && !state.latest_story && (
-                <p className="text-sm text-muted-foreground">{t('noStoryYet')}</p>
-              )}
-              {state.latest_story && (
-                <div className="space-y-3 rounded-lg border p-3">
+            {/* ── Setup tab ────────────────────────────────────────────── */}
+            <TabsContent value="setup" className="mt-4 space-y-4">
+              {/* Instructions upload */}
+              <Card>
+                <CardHeader className="px-4 py-4 sm:px-6">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium">{state.latest_story.title}</p>
-                    <Badge variant="outline">{state.latest_story.mood}</Badge>
+                    <FileText className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-base">{t('doctorPdfLabel')}</CardTitle>
                   </div>
-                  <p className="text-sm text-muted-foreground">{state.latest_story.narrative}</p>
-                  {latestStoryImageUrl ? (
-                    <div className="relative overflow-hidden rounded-md border bg-muted/20">
-                      <img src={latestStoryImageUrl} alt="Story scene" className="max-h-[32rem] w-full object-contain" />
-                      <Button asChild size="sm" variant="secondary" className="absolute right-3 top-3 shadow-sm">
-                        <a href={latestStoryImageUrl} target="_blank" rel="noreferrer">
-                          <ExternalLink className="h-4 w-4" />
-                          {t('fullSize')}
-                        </a>
+                </CardHeader>
+                <CardContent className="space-y-3 px-4 pb-5 sm:px-6">
+                  <Input id="pdf-upload" type="file" accept="application/pdf" onChange={(e) => void uploadPdf(e.target.files?.[0] || null)} />
+                  <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground">{t('exampleInstructionTitle')}</p>
+                    <p className="mt-1">{t('exampleInstructionText')}</p>
+                  </div>
+                  {fileUploading && <p className="text-xs text-muted-foreground">{t('extractingRules')}</p>}
+                  {state.active_instruction_doc && (
+                    <Badge variant="secondary" className="text-xs font-normal">
+                      {t('activeFileInfo', { filename: state.active_instruction_doc.source_filename, count: state.active_instruction_doc.rules.length })}
+                    </Badge>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Assistant identity */}
+              <Card>
+                <CardHeader className="px-4 py-4 sm:px-6">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-base">{t('assistantNameLabel')}</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>{t('assistantNameLabel')}</Label>
+                      <Input value={profile?.assistant_name || ''} onChange={(e) => updateProfileField('assistant_name', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t('avatarPromptLabel')}</Label>
+                      <Textarea
+                        value={profile?.avatar_prompt || ''}
+                        onChange={(e) => updateProfileField('avatar_prompt', e.target.value)}
+                        placeholder={t('avatarPlaceholder')}
+                        rows={3}
+                      />
+                      <Button type="button" variant="outline" size="sm" onClick={() => void generateAvatar()} disabled={avatarGenerating} className="gap-1.5">
+                        {avatarGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                        {avatarGenerating ? t('generating') : t('generateAvatar')}
                       </Button>
                     </div>
-                  ) : (
-                    <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                      {t('noStoryImage')}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('personaPromptLabel')}</Label>
+                    <Textarea value={profile?.persona_prompt || ''} onChange={(e) => updateProfileField('persona_prompt', e.target.value)} rows={3} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Child photos */}
+              <Card>
+                <CardHeader className="px-4 py-4 sm:px-6">
+                  <div className="flex items-center gap-2">
+                    <Upload className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-base">{t('childPhotosLabel')}</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 px-4 pb-5 sm:px-6">
+                  <Input
+                    id="child-photo-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => void uploadPhoto(e.target.files?.[0] || null)}
+                  />
+                  {photoUploading && <p className="text-xs text-muted-foreground">{t('savingPhoto')}</p>}
+                  {!!profile?.child_reference_photos?.length && (
+                    <div className="flex flex-wrap gap-2">
+                      {profile.child_reference_photos.map((photoUrl) => (
+                        <img key={photoUrl} src={toRelativeMediaUrl(photoUrl) || photoUrl} alt="Child reference" className="h-16 w-16 rounded-lg border object-cover shadow-sm" />
+                      ))}
                     </div>
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  <p className="text-xs text-muted-foreground">{t('photoDesc')}</p>
+                </CardContent>
+              </Card>
 
-          {/* Standalone lie-detector UI removed — lie-check runs automatically when you click Talk */}
+              {/* Parent voice */}
+              <Card>
+                <CardHeader className="px-4 py-4 sm:px-6">
+                  <div className="flex items-center gap-2">
+                    <Mic className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-base">{t('parentVoiceLabel')}</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 px-4 pb-5 sm:px-6">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      type="button"
+                      variant={recording ? 'destructive' : 'outline'}
+                      onClick={() => (recording ? stopVoiceRecording() : void startVoiceRecording())}
+                      className="gap-1.5"
+                    >
+                      {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {recording ? t('stopRecording') : t('recordVoice')}
+                    </Button>
+                    {voicePreviewUrl && <audio controls src={voicePreviewUrl} className="h-10 flex-1" />}
+                  </div>
+                  {voiceRecordingError && <p className="text-xs text-destructive">{voiceRecordingError}</p>}
+                  <p className="text-xs text-muted-foreground">{t('parentVoiceDesc')}</p>
+                </CardContent>
+              </Card>
+
+              <Button onClick={() => void saveProfile()} disabled={saving} className="w-full gap-2 shadow-md sm:w-auto">
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {saving ? t('saving') : t('saveSetup')}
+              </Button>
+            </TabsContent>
+
+            {/* ── Story tab ────────────────────────────────────────────── */}
+            <TabsContent value="story" className="mt-4">
+              <Card>
+                <CardHeader className="px-4 py-4 sm:px-6">
+                  <CardTitle className="text-base">{t('storyTitle')}</CardTitle>
+                  <CardDescription>{t('storyDesc')}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
+                  {storyGenerating && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {t('generatingStory')}
+                    </div>
+                  )}
+                  {!storyGenerating && !state.latest_story && (
+                    <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+                      <BookOpen className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                      {t('noStoryYet')}
+                    </div>
+                  )}
+                  {state.latest_story && (
+                    <div className="space-y-3 rounded-xl border p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{state.latest_story.title}</p>
+                        <Badge variant="outline">{state.latest_story.mood}</Badge>
+                      </div>
+                      <p className="text-sm leading-relaxed text-muted-foreground">{state.latest_story.narrative}</p>
+                      {latestStoryImageUrl ? (
+                        <div className="relative overflow-hidden rounded-lg border bg-muted/20">
+                          <img src={latestStoryImageUrl} alt="Story scene" className="max-h-[16rem] w-full object-contain sm:max-h-[28rem]" />
+                          <Button asChild size="sm" variant="secondary" className="absolute right-2 top-2 shadow-sm sm:right-3 sm:top-3">
+                            <a href={latestStoryImageUrl} target="_blank" rel="noreferrer">
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{t('fullSize')}</span>
+                            </a>
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
+                          {t('noStoryImage')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </>
       )}
     </div>

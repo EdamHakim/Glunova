@@ -117,7 +117,9 @@ def _resolve_patient_id(request) -> int:
 
 
 def _media_url(request, path: str) -> str:
-    return request.build_absolute_uri(f"{settings.MEDIA_URL}{path}")
+    # Return relative URL so the frontend proxy (Vercel rewrites / Next.js
+    # rewrites) routes it correctly in every environment.
+    return f"{settings.MEDIA_URL}{path}"
 
 
 def _save_upload(request, upload, folder: str, allowed_prefixes: tuple[str, ...]) -> str:

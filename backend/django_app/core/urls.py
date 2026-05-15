@@ -18,5 +18,6 @@ urlpatterns = [
     path("api/v1/", include("kids.urls")),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Always serve media — in production gunicorn serves these directly
+# (no external storage backend / nginx in this stack).
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
