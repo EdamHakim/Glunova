@@ -24,6 +24,7 @@ import {
   type KidsProfile,
   type KidsState,
 } from '@/lib/kids-api'
+import { toRelativeMediaUrl } from '@/lib/auth'
 
 // Lie detector component removed from the dashboard UI; automatic check remains on Talk
 
@@ -149,11 +150,12 @@ export default function KidsPage() {
   }, [voicePreviewUrl])
 
   const profile = state?.profile
-  const latestStoryImageUrl =
+  const rawStoryImageUrl =
     state?.latest_story?.scene_image_url &&
     !['local_svg_fallback', 'local_photo_cartoon'].includes(String(state.latest_story.metadata?.image_generation_mode || ''))
       ? state.latest_story.scene_image_url
       : ''
+  const latestStoryImageUrl = toRelativeMediaUrl(rawStoryImageUrl) || rawStoryImageUrl
 
   const updateProfileField = (field: string, value: unknown) => {
     if (!state) return
@@ -561,7 +563,7 @@ export default function KidsPage() {
                 <div className="relative flex h-56 w-56 items-center justify-center rounded-full border bg-muted/40 shadow-inner">
                   {profile?.avatar_image_url ? (
                     <img
-                      src={profile.avatar_image_url}
+                      src={toRelativeMediaUrl(profile.avatar_image_url) || profile.avatar_image_url}
                       alt={`${profile?.assistant_name || 'Assistant'} avatar`}
                       className="h-full w-full rounded-full object-cover"
                     />
@@ -692,7 +694,7 @@ export default function KidsPage() {
                 {profile?.parent_voice_sample_url && (
                   <div className="rounded-md border p-4 text-sm">
                     <p className="font-medium">{t('savedVoiceSample')}</p>
-                    <audio controls src={profile.parent_voice_sample_url} className="mt-2 w-full" />
+                    <audio controls src={toRelativeMediaUrl(profile.parent_voice_sample_url) || profile.parent_voice_sample_url} className="mt-2 w-full" />
                   </div>
                 )}
               </div>
@@ -755,7 +757,7 @@ export default function KidsPage() {
                 {!!profile?.child_reference_photos?.length && (
                   <div className="flex flex-wrap gap-2">
                     {profile.child_reference_photos.map((photoUrl) => (
-                      <img key={photoUrl} src={photoUrl} alt="Child reference" className="h-16 w-16 rounded-md border object-cover" />
+                      <img key={photoUrl} src={toRelativeMediaUrl(photoUrl) || photoUrl} alt="Child reference" className="h-16 w-16 rounded-md border object-cover" />
                     ))}
                   </div>
                 )}

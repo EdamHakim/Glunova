@@ -46,3 +46,4 @@ mcp>=1.0.0
 
 # Nutrition Pipeline
 matplotlib
+inference-sdk>=0.30.0

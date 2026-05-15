@@ -52,6 +52,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { toRelativeMediaUrl } from '@/lib/auth'
 
 function getSeverityColor(severity: string) {
   switch (severity) {
@@ -126,8 +127,8 @@ export default function MonitoringPage() {
         id: docId,
         filename: lab.source_document_filename || 'Other Results',
         date: lab.source_document_created_at || lab.observed_at || lab.created_at,
-        url: lab.source_document_url,
-        preview_url: lab.source_document_preview_url,
+        url: toRelativeMediaUrl(lab.source_document_url) ?? lab.source_document_url,
+        preview_url: toRelativeMediaUrl(lab.source_document_preview_url) ?? lab.source_document_preview_url,
         mime_type: lab.source_document_mime_type,
         results: [],
       }
@@ -403,18 +404,18 @@ export default function MonitoringPage() {
                       if (isImage(medication.source_document_mime_type)) {
                         medication.source_document_preview_url &&
                           setSelectedDoc({
-                            url: medication.source_document_preview_url,
+                            url: toRelativeMediaUrl(medication.source_document_preview_url) || medication.source_document_preview_url,
                             filename: medication.source_document_filename,
                           })
                       } else if (medication.source_document_url) {
-                        window.open(medication.source_document_url, '_blank')
+                        window.open(toRelativeMediaUrl(medication.source_document_url) || medication.source_document_url, '_blank')
                       }
                     }}
                   >
                     {medication.source_document_preview_url &&
                     isImage(medication.source_document_mime_type) ? (
                       <img
-                        src={medication.source_document_preview_url}
+                        src={toRelativeMediaUrl(medication.source_document_preview_url) || medication.source_document_preview_url}
                         alt="Source"
                         className="source-thumb"
                       />

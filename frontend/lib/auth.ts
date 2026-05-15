@@ -36,7 +36,7 @@ function resolveClientApiBaseUrl(envValue: string | undefined, _port: number, fa
 }
 
 /** Convert absolute media URLs to relative so they route through Vercel rewrites. */
-function toRelativeMediaUrl(url: string | null | undefined): string | undefined {
+export function toRelativeMediaUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined
   try {
     const parsed = new URL(url)

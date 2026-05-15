@@ -11,6 +11,7 @@ import PatientSummary from '@/components/dashboard/patient-summary'
 import RoleGuard from '@/components/auth/role-guard'
 import { useAuth } from '@/components/auth-context'
 import { getDashboardOverview, type DashboardOverview } from '@/lib/dashboard-api'
+import { toRelativeMediaUrl } from '@/lib/auth'
 
 const HealthTrendChart = dynamic(() => import('@/components/dashboard/health-trend-chart'), {
   loading: () => (
@@ -44,7 +45,7 @@ export default function Dashboard() {
 
   const recentPatients = useMemo(
     () => (overview?.recent_patients ?? []).map((p) => ({
-      id: p.id, name: p.name, profilePicture: p.profile_picture,
+      id: p.id, name: p.name, profilePicture: toRelativeMediaUrl(p.profile_picture) ?? p.profile_picture,
       riskLevel: p.risk_level, lastScreening: new Date(p.last_assessment).toLocaleString(), status: p.status,
     })),
     [overview],
