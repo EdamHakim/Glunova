@@ -18,12 +18,24 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('light')
   const [isDark, setIsDark] = useState(false)
 
-  // Load theme from localStorage on mount
+  // Load theme and typography from localStorage on mount
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as Theme | null
     const initialTheme = savedTheme || 'light'
     setThemeState(initialTheme)
     applyTheme(initialTheme)
+
+    // Restore typography settings
+    const savedFontSize = localStorage.getItem('glunova-font-size')
+    const savedLineHeight = localStorage.getItem('glunova-line-height')
+    const fontSizeMap: Record<string, string> = { small: '14px', normal: '16px', large: '18px', xlarge: '20px' }
+    const lineHeightMap: Record<string, string> = { compact: '1.4', normal: '1.6', relaxed: '1.8', spacious: '2.0' }
+    if (savedFontSize && fontSizeMap[savedFontSize]) {
+      document.documentElement.style.fontSize = fontSizeMap[savedFontSize]
+    }
+    if (savedLineHeight && lineHeightMap[savedLineHeight]) {
+      document.documentElement.style.lineHeight = lineHeightMap[savedLineHeight]
+    }
   }, [])
 
   // Listen for system theme changes

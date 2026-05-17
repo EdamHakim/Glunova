@@ -37,7 +37,7 @@ const mobileNavItems: NavItem[] = [
   { labelKey: 'nav.screening',      href: '/dashboard/screening',    allowedRoles: ['patient'] },
   { labelKey: 'nav.monitoring',     href: '/dashboard/monitoring' },
   { labelKey: 'nav.nutritionActivity', href: '/dashboard/nutrition' },
-  { labelKey: 'nav.sanadi',         href: '/dashboard/psychology' },
+  { labelKey: 'nav.sanadi',         href: '/dashboard/psychology',    allowedRoles: ['patient', 'caregiver'] },
   { labelKey: 'nav.careCircle',     href: '/dashboard/care-circle',  allowedRoles: ['patient', 'caregiver'] },
   { labelKey: 'nav.bookVisit',      href: '/dashboard/appointments', allowedRoles: ['patient', 'caregiver'] },
   { labelKey: 'nav.availability',   href: '/dashboard/schedule',     allowedRoles: ['doctor'] },

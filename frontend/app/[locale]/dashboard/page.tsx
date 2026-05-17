@@ -131,9 +131,6 @@ export default function Dashboard() {
               <Button asChild className="w-full justify-start" variant="outline">
                 <Link href="/dashboard/schedule">{t('manageAvailability')}</Link>
               </Button>
-              <Button asChild className="w-full justify-start" variant="outline">
-                <Link href="/dashboard/care-circle">{t('careCircle')}</Link>
-              </Button>
             </CardContent>
           </Card>
         </div>

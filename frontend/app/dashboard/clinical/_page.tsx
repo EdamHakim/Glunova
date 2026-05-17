@@ -2,12 +2,11 @@
 
 import dynamic from 'next/dynamic'
 import { useEffect, useState } from 'react'
-import { Stethoscope, AlertTriangle, Image as ImageIcon, Clock } from 'lucide-react'
+import { AlertTriangle, Image as ImageIcon } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import RoleGuard from '@/components/auth/role-guard'
 
 function PanelLoading({ label }: { label: string }) {
@@ -34,10 +33,8 @@ import {
   getClinicalSummary,
   listClinicalPriorities,
   listImagingQueue,
-  listPreconsultation,
   type ClinicalPriorityRow,
   type ImagingQueueRow,
-  type PreconsultationRow,
 } from '@/lib/clinical-api'
 
 export default function ClinicalPage() {
@@ -45,7 +42,6 @@ export default function ClinicalPage() {
   const [summary, setSummary] = useState({ critical_cases: 0, high_risk: 0, stable: 0, pending_review: 0 })
   const [priorities, setPriorities] = useState<ClinicalPriorityRow[]>([])
   const [imagingQueue, setImagingQueue] = useState<ImagingQueueRow[]>([])
-  const [preconsultation, setPreconsultation] = useState<PreconsultationRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,13 +49,12 @@ export default function ClinicalPage() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    void Promise.all([getClinicalSummary(), listClinicalPriorities(), listImagingQueue(), listPreconsultation()])
-      .then(([summaryPayload, prioritiesPayload, imagingPayload, preconsultationPayload]) => {
+    void Promise.all([getClinicalSummary(), listClinicalPriorities(), listImagingQueue()])
+      .then(([summaryPayload, prioritiesPayload, imagingPayload]) => {
         if (cancelled) return
         setSummary(summaryPayload)
         setPriorities(prioritiesPayload.items)
         setImagingQueue(imagingPayload.items)
-        setPreconsultation(preconsultationPayload.items)
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load clinical data')
@@ -212,42 +207,6 @@ export default function ClinicalPage() {
                       {t('pendingLabel')}
                     </Badge>
                     <Badge variant="outline">{t('severityLabel')} {row.severity_grade}</Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Stethoscope className="h-5 w-5" />
-              {t('preConsultation')}
-            </CardTitle>
-            <CardDescription>{t('preConsultationDesc')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {preconsultation.map((item) => (
-                <div key={item.id} className="p-4 border border-border rounded-lg">
-                  <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(item.patient_name)}`} />
-                        <AvatarFallback>{item.patient_name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium">{item.patient_name}</p>
-                        <p className="text-xs text-muted-foreground">{t('assignedPatient')}</p>
-                      </div>
-                    </div>
-                    <Clock className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <p><span className="font-medium">{t('chiefComplaint')}</span> {item.chief_complaint}</p>
-                    <p><span className="font-medium">{t('priorityLabel')}</span> {item.priority}</p>
-                    <p><span className="font-medium">{t('recommendationLabel')}</span> {item.recommendation}</p>
                   </div>
                 </div>
               ))}

@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Palette, Type, Globe, Lock, Bell, Eye, Volume2 } from 'lucide-react'
+import { Palette, Type, Globe, Check } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { useLocale } from 'next-intl'
+import { usePathname, useRouter } from '@/i18n/navigation'
+import { routing, type Locale } from '@/i18n/routing'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -16,15 +16,88 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTheme } from '@/app/providers'
+import { cn } from '@/lib/utils'
+
+type FontSize = 'small' | 'normal' | 'large' | 'xlarge'
+type LineHeight = 'compact' | 'normal' | 'relaxed' | 'spacious'
+
+const FONT_SIZE_MAP: Record<FontSize, string> = {
+  small: '14px',
+  normal: '16px',
+  large: '18px',
+  xlarge: '20px',
+}
+
+const LINE_HEIGHT_MAP: Record<LineHeight, string> = {
+  compact: '1.4',
+  normal: '1.6',
+  relaxed: '1.8',
+  spacious: '2.0',
+}
 
 export default function SettingsPage() {
   const t = useTranslations('settings')
+  const tl = useTranslations('language')
   const [mounted, setMounted] = useState(false)
   const { theme, setTheme } = useTheme()
 
+  const locale = useLocale() as Locale
+  const router = useRouter()
+  const pathname = usePathname()
+
+  const [fontSize, setFontSizeState] = useState<FontSize>('normal')
+  const [lineHeight, setLineHeightState] = useState<LineHeight>('normal')
+
   useEffect(() => {
     setMounted(true)
+    // Load persisted typography settings
+    const savedFontSize = localStorage.getItem('glunova-font-size') as FontSize | null
+    const savedLineHeight = localStorage.getItem('glunova-line-height') as LineHeight | null
+    if (savedFontSize && FONT_SIZE_MAP[savedFontSize]) {
+      setFontSizeState(savedFontSize)
+      applyFontSize(savedFontSize)
+    }
+    if (savedLineHeight && LINE_HEIGHT_MAP[savedLineHeight]) {
+      setLineHeightState(savedLineHeight)
+      applyLineHeight(savedLineHeight)
+    }
   }, [])
+
+  function applyFontSize(size: FontSize) {
+    document.documentElement.style.fontSize = FONT_SIZE_MAP[size]
+  }
+
+  function applyLineHeight(height: LineHeight) {
+    document.documentElement.style.lineHeight = LINE_HEIGHT_MAP[height]
+  }
+
+  function handleFontSizeChange(size: FontSize) {
+    setFontSizeState(size)
+    applyFontSize(size)
+    localStorage.setItem('glunova-font-size', size)
+  }
+
+  function handleLineHeightChange(height: LineHeight) {
+    setLineHeightState(height)
+    applyLineHeight(height)
+    localStorage.setItem('glunova-line-height', height)
+  }
+
+  function handleLocaleChange(next: string) {
+    router.replace(pathname, { locale: next as Locale })
+  }
+
+  const localeLabels: Record<Locale, string> = {
+    en: 'English',
+    fr: 'Français',
+    ar: 'العربية',
+  }
+
+  const localeFlags: Record<Locale, string> = {
+    en: '🇬🇧',
+    fr: '🇫🇷',
+    ar: '🇸🇦',
+  }
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -33,6 +106,7 @@ export default function SettingsPage() {
         <p className="text-muted-foreground mt-2">{t('managePreferences')}</p>
       </div>
 
+      {/* ── Appearance ──────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -41,71 +115,42 @@ export default function SettingsPage() {
           </CardTitle>
           <CardDescription>{t('appearanceDesc')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent>
           {mounted && (
             <div>
               <label className="text-sm font-medium">{t('themeLabel')}</label>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-                <button
-                  onClick={() => setTheme('light')}
-                  className={`p-4 rounded-lg transition-colors ${
-                    theme === 'light'
-                      ? 'border-2 border-primary bg-muted'
-                      : 'border border-border hover:border-primary'
-                  }`}
-                >
-                  <p className="font-medium text-sm">{t('themeLight')}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{t('lightThemeDesc')}</p>
-                </button>
-                <button
-                  onClick={() => setTheme('dark')}
-                  className={`p-4 rounded-lg transition-colors ${
-                    theme === 'dark'
-                      ? 'border-2 border-primary bg-muted'
-                      : 'border border-border hover:border-primary'
-                  }`}
-                >
-                  <p className="font-medium text-sm">{t('themeDark')}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{t('darkThemeDesc')}</p>
-                </button>
-                <button
-                  onClick={() => setTheme('system')}
-                  className={`p-4 rounded-lg transition-colors ${
-                    theme === 'system'
-                      ? 'border-2 border-primary bg-muted'
-                      : 'border border-border hover:border-primary'
-                  }`}
-                >
-                  <p className="font-medium text-sm">{t('themeSystem')}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{t('systemThemeDesc')}</p>
-                </button>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {(['light', 'dark', 'system'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setTheme(mode)}
+                    className={cn(
+                      'relative rounded-xl border p-4 text-start transition-all',
+                      theme === mode
+                        ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                        : 'border-border hover:border-muted-foreground/40 hover:bg-muted/30',
+                    )}
+                  >
+                    {theme === mode && (
+                      <div className="absolute end-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-primary">
+                        <Check className="h-3 w-3 text-primary-foreground" />
+                      </div>
+                    )}
+                    <p className="text-sm font-semibold">
+                      {mode === 'light' ? t('themeLight') : mode === 'dark' ? t('themeDark') : t('themeSystem')}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {mode === 'light' ? t('lightThemeDesc') : mode === 'dark' ? t('darkThemeDesc') : t('systemThemeDesc')}
+                    </p>
+                  </button>
+                ))}
               </div>
             </div>
           )}
-
-          <div>
-            <label className="text-sm font-medium mb-3 flex items-center gap-2">
-              <Eye className="h-4 w-4" />
-              {t('highContrastMode')}
-            </label>
-            <div className="flex items-start gap-2 sm:items-center">
-              <Switch />
-              <span className="text-sm text-muted-foreground">{t('highContrastDesc')}</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-3 block">{t('colorScheme')}</label>
-            <div className="flex flex-wrap gap-3">
-              <button className="h-10 w-10 rounded-full bg-health-success hover:ring-2 ring-offset-2 ring-primary" />
-              <button className="h-10 w-10 rounded-full bg-health-info hover:ring-2 ring-offset-2 ring-primary" />
-              <button className="h-10 w-10 rounded-full bg-health-warning hover:ring-2 ring-offset-2 ring-primary" />
-              <button className="h-10 w-10 rounded-full bg-psychology-soft-purple hover:ring-2 ring-offset-2 ring-primary" />
-            </div>
-          </div>
         </CardContent>
       </Card>
 
+      {/* ── Typography ─────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -118,43 +163,35 @@ export default function SettingsPage() {
           <div>
             <label className="text-sm font-medium">{t('fontSize')}</label>
             <div className="mt-3 flex flex-wrap gap-2">
-              {[
-                { key: 'fontSizeSmall', value: 'Small' },
-                { key: 'fontSizeNormal', value: 'Normal' },
-                { key: 'fontSizeLarge', value: 'Large' },
-                { key: 'fontSizeXLarge', value: 'Extra Large' },
-              ].map(({ key, value }) => (
+              {([
+                { key: 'fontSizeSmall', value: 'small' as FontSize },
+                { key: 'fontSizeNormal', value: 'normal' as FontSize },
+                { key: 'fontSizeLarge', value: 'large' as FontSize },
+                { key: 'fontSizeXLarge', value: 'xlarge' as FontSize },
+              ]).map(({ key, value }) => (
                 <button
                   key={value}
-                  className={`px-3 py-2 rounded-lg border ${
-                    value === 'Normal'
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border hover:border-primary'
-                  }`}
+                  onClick={() => handleFontSizeChange(value)}
+                  className={cn(
+                    'rounded-lg border px-4 py-2.5 text-sm font-medium transition-all',
+                    fontSize === value
+                      ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                      : 'border-border hover:border-muted-foreground/40 hover:bg-muted/30',
+                  )}
                 >
                   {t(key as Parameters<typeof t>[0])}
                 </button>
               ))}
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t('fontSizePreview', { size: FONT_SIZE_MAP[fontSize] })}
+            </p>
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-3 flex items-center gap-2">
-              <Eye className="h-4 w-4" />
-              {t('dyslexiaFont')}
-            </label>
-            <div className="flex items-start gap-2 sm:items-center">
-              <Switch />
-              <span className="text-sm text-muted-foreground">{t('dyslexiaFontDesc')}</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-3 flex items-center gap-2">
-              {t('lineHeight')}
-            </label>
-            <Select defaultValue="normal">
-              <SelectTrigger className="w-full sm:w-48">
+            <label className="text-sm font-medium block mb-2">{t('lineHeight')}</label>
+            <Select value={lineHeight} onValueChange={(v) => handleLineHeightChange(v as LineHeight)}>
+              <SelectTrigger className="w-full sm:w-56">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -168,6 +205,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* ── Language ───────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -176,109 +214,47 @@ export default function SettingsPage() {
           </CardTitle>
           <CardDescription>{t('languageLocalizationDesc')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="text-sm font-medium mb-2 block">{t('languageLabel')}</label>
-            <Select defaultValue="en">
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="es">Español</SelectItem>
-                <SelectItem value="fr">Français</SelectItem>
-                <SelectItem value="de">Deutsch</SelectItem>
-                <SelectItem value="zh">中文</SelectItem>
-                <SelectItem value="ar">العربية</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-3 flex items-center gap-2">
-              <Volume2 className="h-4 w-4" />
-              {t('textToSpeech')}
-            </label>
-            <div className="flex items-start gap-2 sm:items-center">
-              <Switch />
-              <span className="text-sm text-muted-foreground">{t('textToSpeechDesc')}</span>
-            </div>
+        <CardContent>
+          <label className="text-sm font-medium mb-3 block">{t('languageLabel')}</label>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            {routing.locales.map((l) => (
+              <button
+                key={l}
+                onClick={() => handleLocaleChange(l)}
+                className={cn(
+                  'relative flex items-center gap-3 rounded-xl border p-4 transition-all',
+                  locale === l
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                    : 'border-border hover:border-muted-foreground/40 hover:bg-muted/30',
+                )}
+              >
+                {locale === l && (
+                  <div className="absolute end-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-primary">
+                    <Check className="h-3 w-3 text-primary-foreground" />
+                  </div>
+                )}
+                <span className="text-xl" aria-hidden>{localeFlags[l as Locale]}</span>
+                <span className="text-sm font-medium">{localeLabels[l as Locale]}</span>
+              </button>
+            ))}
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5" />
-            {t('notifications')}
-          </CardTitle>
-          <CardDescription>{t('notificationsDesc')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start justify-between gap-4 sm:items-center">
-            <div>
-              <p className="font-medium text-sm">{t('criticalAlerts')}</p>
-              <p className="text-xs text-muted-foreground">{t('criticalAlertsDesc')}</p>
-            </div>
-            <Switch defaultChecked />
-          </div>
-
-          <div className="flex items-start justify-between gap-4 sm:items-center">
-            <div>
-              <p className="font-medium text-sm">{t('dailySummary')}</p>
-              <p className="text-xs text-muted-foreground">{t('dailySummaryDesc')}</p>
-            </div>
-            <Switch defaultChecked />
-          </div>
-
-          <div className="flex items-start justify-between gap-4 sm:items-center">
-            <div>
-              <p className="font-medium text-sm">{t('appointmentReminders')}</p>
-              <p className="text-xs text-muted-foreground">{t('appointmentRemindersDesc')}</p>
-            </div>
-            <Switch defaultChecked />
-          </div>
-
-          <div className="flex items-start justify-between gap-4 sm:items-center">
-            <div>
-              <p className="font-medium text-sm">{t('careCircleMessages')}</p>
-              <p className="text-xs text-muted-foreground">{t('careCircleMessagesDesc')}</p>
-            </div>
-            <Switch defaultChecked />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Lock className="h-5 w-5" />
-            {t('privacySecurity')}
-          </CardTitle>
-          <CardDescription>{t('privacySecurityDesc')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button variant="outline" className="w-full">{t('changePassword')}</Button>
-          <Button variant="outline" className="w-full">{t('twoFactorAuth')}</Button>
-          <Button variant="outline" className="w-full">{t('connectedDevices')}</Button>
-          <Button variant="outline" className="w-full">{t('dataPrivacy')}</Button>
-        </CardContent>
-      </Card>
-
+      {/* ── System Info ────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle>{t('systemInfo')}</CardTitle>
           <CardDescription>{t('systemInfoDesc')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
+        <CardContent className="space-y-3 text-sm">
           <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
             <span className="text-muted-foreground">{t('appVersion')}</span>
             <span className="font-medium">1.0.0</span>
           </div>
           <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
             <span className="text-muted-foreground">{t('lastUpdated')}</span>
-            <span className="font-medium">April 12, 2026</span>
+            <span className="font-medium">May 17, 2026</span>
           </div>
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-muted-foreground">{t('platformLabel')}</span>
