@@ -336,10 +336,11 @@ export default function SignupPage() {
                     </div>
                   </div>
 
-                  <div className="flex gap-3 text-[11px] font-medium text-muted-foreground">
+                  <div className="flex flex-wrap gap-3 text-[11px] font-medium text-muted-foreground">
                     <span className={cn('flex items-center gap-1', form.password.length >= 8 && 'text-health-success')}><Check className="h-3 w-3" />{t('req8Chars')}</span>
                     <span className={cn('flex items-center gap-1', /[A-Z]/.test(form.password) && 'text-health-success')}><Check className="h-3 w-3" />{t('reqUppercase')}</span>
                     <span className={cn('flex items-center gap-1', /[0-9]/.test(form.password) && 'text-health-success')}><Check className="h-3 w-3" />{t('reqNumber')}</span>
+                    <span className={cn('flex items-center gap-1', form.confirmPassword.length > 0 && form.password === form.confirmPassword && 'text-health-success')}><Check className="h-3 w-3" />{t('reqPasswordsMatch')}</span>
                   </div>
 
                   {/* Terms (for non-patient, this is the final step) */}

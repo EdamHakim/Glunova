@@ -107,6 +107,7 @@
       "req8Chars": "8 أحرف على الأقل",
       "reqUppercase": "حرف كبير واحد على الأقل",
       "reqNumber": "رقم واحد على الأقل",
+      "reqPasswordsMatch": "كلمتا المرور متطابقتان",
       "healthProfile": "الملف الصحي",
       "healthProfileDesc": "اختياري — يحسّن تقييم مخاطر الذكاء الاصطناعي وتخطيط العافية.",
       "patientOnly": "للمرضى فقط",

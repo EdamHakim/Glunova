@@ -107,6 +107,7 @@
       "req8Chars": "At least 8 characters",
       "reqUppercase": "One uppercase letter",
       "reqNumber": "One number",
+      "reqPasswordsMatch": "Passwords match",
       "healthProfile": "Health profile",
       "healthProfileDesc": "Optional — improves AI risk assessment and wellness planning.",
       "patientOnly": "Patient only",
