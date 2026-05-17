@@ -3,7 +3,7 @@
 import { useState, Suspense } from 'react'
 import { useRouter, Link } from '@/i18n/navigation'
 import { useSearchParams } from 'next/navigation'
-import { Lock, Eye, EyeOff, User as UserIcon, LogIn, Activity, Shield, Brain, Heart } from 'lucide-react'
+import { Lock, Eye, EyeOff, User as UserIcon, LogIn, Activity, Shield, Brain, Heart, Sun, Moon } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,7 +23,7 @@ function LoginForm() {
   const t = useTranslations('auth.login')
   const tc = useTranslations('common')
   const { login } = useAuth()
-  const { isDark } = useTheme()
+  const { isDark, setTheme } = useTheme()
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -100,7 +100,16 @@ function LoginForm() {
               className="h-9 w-auto"
             />
           </Link>
-          <div className="ms-auto">
+          <div className="ms-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
             <LanguageSwitcher />
           </div>
         </div>

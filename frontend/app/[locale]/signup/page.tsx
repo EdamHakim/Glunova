@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter, Link } from '@/i18n/navigation'
-import { Mail, Lock, User as UserIcon, Eye, EyeOff, Check, UserPlus, Stethoscope, Heart, Users, ChevronRight, ChevronLeft, Activity, Brain, Shield } from 'lucide-react'
+import { Mail, Lock, User as UserIcon, Eye, EyeOff, Check, UserPlus, Stethoscope, Heart, Users, ChevronRight, ChevronLeft, Activity, Brain, Shield, Sun, Moon } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,7 +26,7 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { isDark } = useTheme()
+  const { isDark, setTheme } = useTheme()
 
   const [form, setForm] = useState({
     username: '',
@@ -185,7 +185,16 @@ export default function SignupPage() {
               className="h-9 w-auto"
             />
           </Link>
-          <div className="ms-auto">
+          <div className="ms-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
             <LanguageSwitcher />
           </div>
         </div>
