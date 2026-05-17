@@ -221,7 +221,7 @@ function DoctorTab({
   availDoctors: AvailableDoctor[]
   onLink: (id: number) => void
   onUnlink: (linkId: number, doctorId: number) => void
-  t: (key: string, values?: Record<string, unknown>) => string
+  t: (key: string, values?: Record<string, string | number | Date>) => string
 }) {
   return (
     <div className="space-y-5">
@@ -297,7 +297,7 @@ function CaregiverTab({
   availCaregivers: AvailableCaregiver[]
   onInvite: (id: number) => void
   onRemove: (linkId: number, caregiverId: number) => void
-  t: (key: string, values?: Record<string, unknown>) => string
+  t: (key: string, values?: Record<string, string | number | Date>) => string
 }) {
   return (
     <div className="space-y-5">

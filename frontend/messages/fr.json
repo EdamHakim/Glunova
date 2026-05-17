@@ -75,7 +75,13 @@
       "noAccount": "Vous n'avez pas de compte ?",
       "createOne": "Créer un compte",
       "invalidCredentials": "Identifiants invalides. Veuillez réessayer.",
-      "pageLoading": "Chargement…"
+      "pageLoading": "Chargement…",
+      "featureMonitoring": "Surveillance en temps réel",
+      "featureAI": "Analyses par l'IA",
+      "featureSecurity": "Sécurisé et privé",
+      "featureWellness": "Suivi du bien-être",
+      "brandHeadline": "Votre santé, propulsée par l'intelligence",
+      "brandSubtext": "Surveillez votre glycémie, obtenez des conseils personnalisés et prenez le contrôle de votre diabète grâce aux soins assistés par l'IA."
     },
     "signup": {
       "createAccount": "Créer votre compte",
@@ -137,7 +143,18 @@
       "signIn": "Se connecter",
       "passwordsDoNotMatch": "Les mots de passe ne correspondent pas",
       "signUpFailed": "Échec de l'inscription.",
-      "somethingWentWrong": "Une erreur s'est produite. Veuillez réessayer."
+      "somethingWentWrong": "Une erreur s'est produite. Veuillez réessayer.",
+      "stepAccount": "Compte",
+      "stepRole": "Rôle et sécurité",
+      "stepHealth": "Profil de santé",
+      "chooseRole": "Sélectionnez votre rôle pour personnaliser votre expérience.",
+      "rolePatientDesc": "Suivez votre santé, obtenez des analyses IA et gérez vos soins.",
+      "roleDoctorDesc": "Surveillez vos patients, consultez les analyses et fournissez un soutien clinique.",
+      "roleCaregiverDesc": "Suivez les patients liés et restez informé de leurs soins.",
+      "brandHeadline": "Commencez votre parcours santé aujourd'hui",
+      "brandSubtext": "Rejoignez des milliers d'utilisateurs qui gèrent efficacement leur diabète grâce à des outils propulsés par l'IA.",
+      "back": "Retour",
+      "next": "Suivant"
     }
   },
   "dashboard": {

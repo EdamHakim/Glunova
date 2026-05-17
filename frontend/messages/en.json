@@ -75,7 +75,13 @@
       "noAccount": "Don't have an account?",
       "createOne": "Create one",
       "invalidCredentials": "Invalid credentials. Please try again.",
-      "pageLoading": "Loading…"
+      "pageLoading": "Loading…",
+      "featureMonitoring": "Real-time Monitoring",
+      "featureAI": "AI-Powered Insights",
+      "featureSecurity": "Secure & Private",
+      "featureWellness": "Wellness Tracking",
+      "brandHeadline": "Your health, powered by intelligence",
+      "brandSubtext": "Monitor glucose levels, get personalized insights, and take control of your diabetes management with AI-driven care."
     },
     "signup": {
       "createAccount": "Create your account",
@@ -137,7 +143,18 @@
       "signIn": "Sign in",
       "passwordsDoNotMatch": "Passwords do not match",
       "signUpFailed": "Sign up failed.",
-      "somethingWentWrong": "Something went wrong. Please try again."
+      "somethingWentWrong": "Something went wrong. Please try again.",
+      "stepAccount": "Account",
+      "stepRole": "Role & Security",
+      "stepHealth": "Health Profile",
+      "chooseRole": "Select your role to personalize your experience.",
+      "rolePatientDesc": "Track your health, get AI insights, and manage diabetes care.",
+      "roleDoctorDesc": "Monitor patients, review analytics, and provide clinical support.",
+      "roleCaregiverDesc": "Follow linked patients and stay updated on their care.",
+      "brandHeadline": "Start your health journey today",
+      "brandSubtext": "Join thousands using AI-powered tools to manage diabetes effectively and live healthier lives.",
+      "back": "Back",
+      "next": "Next"
     }
   },
   "dashboard": {
