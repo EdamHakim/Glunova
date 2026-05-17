@@ -56,7 +56,7 @@ function LoginForm() {
   return (
     <div className="relative flex h-dvh overflow-hidden bg-background">
       {/* ── Left branding panel (desktop only) ────────────────────── */}
-      <div className="hidden w-[45%] flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-primary/90 to-primary/80 p-10 text-primary-foreground lg:flex xl:w-[42%]">
+      <div className="hidden w-[45%] flex-col justify-between overflow-hidden bg-gradient-to-br from-[#0a2528] via-[#0f3035] to-[#143a40] p-10 text-white lg:flex xl:w-[42%]">
         <div>
           <Link href="/" className="inline-flex items-center gap-3 transition-opacity hover:opacity-90">
             <img src="/glunova_dark_logo.png" alt="Glunova" className="h-10 w-auto" />
@@ -67,20 +67,20 @@ function LoginForm() {
         <div className="space-y-8">
           <div className="max-w-sm space-y-3">
             <h2 className="text-3xl font-bold leading-tight xl:text-4xl">{t('brandHeadline')}</h2>
-            <p className="text-sm leading-relaxed text-primary-foreground/75 xl:text-base">{t('brandSubtext')}</p>
+            <p className="text-sm leading-relaxed text-white/70 xl:text-base">{t('brandSubtext')}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             {features.map(({ icon: Icon, label }) => (
               <div key={label} className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3 backdrop-blur-sm">
-                <Icon className="h-5 w-5 shrink-0 text-primary-foreground/80" />
-                <span className="text-xs font-medium text-primary-foreground/90 xl:text-sm">{label}</span>
+                <Icon className="h-5 w-5 shrink-0 text-white/80" />
+                <span className="text-xs font-medium text-white/90 xl:text-sm">{label}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-xs text-primary-foreground/50">
+        <p className="text-xs text-white/50">
           &copy; {new Date().getFullYear()} Glunova &mdash; AI-Powered Diabetes Care
         </p>
       </div>

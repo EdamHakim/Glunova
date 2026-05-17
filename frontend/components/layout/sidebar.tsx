@@ -33,7 +33,7 @@ const menuItems: MenuItem[] = [
   { labelKey: 'nav.monitoring',       href: '/dashboard/monitoring',   icon: TrendingUp },
   { labelKey: 'nav.screening',        href: '/dashboard/screening',    icon: Stethoscope,     allowedRoles: ['patient'] },
   { labelKey: 'nav.nutritionActivity',href: '/dashboard/nutrition',    icon: Apple },
-  { labelKey: 'nav.sanadi',           href: '/dashboard/psychology',   icon: Brain,           allowedRoles: ['patient', 'caregiver'] },
+  { labelKey: 'nav.sanadi',           href: '/dashboard/psychology',   icon: Brain,           allowedRoles: ['patient'] },
   { labelKey: 'nav.careCircle',       href: '/dashboard/care-circle',  icon: Users,           allowedRoles: ['patient', 'caregiver'] },
   { labelKey: 'nav.bookVisit',        href: '/dashboard/appointments', icon: CalendarPlus,    allowedRoles: ['patient', 'caregiver'] },
   { labelKey: 'nav.availability',     href: '/dashboard/schedule',     icon: CalendarClock,   allowedRoles: ['doctor'] },
