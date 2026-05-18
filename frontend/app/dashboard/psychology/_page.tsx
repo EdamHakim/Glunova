@@ -1456,7 +1456,7 @@ export default function PsychologyPage() {
 
       {cameraOn ? (
         <div
-          className="pointer-events-auto fixed right-3 z-[60] w-[min(46vw,232px)] max-w-[232px] overflow-hidden rounded-2xl border border-border/90 bg-card shadow-2xl ring-1 ring-black/10 dark:ring-white/10 md:right-5"
+          className="pointer-events-auto fixed right-2 z-[60] w-20 max-w-[232px] overflow-hidden rounded-xl border border-border/90 bg-card shadow-2xl ring-1 ring-black/10 dark:ring-white/10 sm:right-3 sm:w-[min(40vw,200px)] sm:rounded-2xl md:right-5 md:w-[min(46vw,232px)]"
           style={{ top: 'max(4.5rem, calc(env(safe-area-inset-top, 0px) + 3.5rem))' }}
         >
           <div className="relative aspect-[4/3] bg-black">
@@ -1469,7 +1469,7 @@ export default function PsychologyPage() {
           {voiceModeActive ? (
             <>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+                <div className={cn('relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3', cameraOn && 'pt-20 sm:pt-3')}>
                   <div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center gap-4 pb-6">
                     <div className="flex min-h-[min(44svh,400px)] max-h-[52svh] w-full max-w-[min(92vw,28rem)] flex-1 flex-col items-center justify-end">
                       <Suspense
@@ -1549,7 +1549,7 @@ export default function PsychologyPage() {
             </>
           ) : (
             <>
-          <main ref={chatScrollRef} className="relative z-10 flex-1 overflow-y-auto px-3 py-4 md:px-5">
+          <main ref={chatScrollRef} className={cn('relative z-10 flex-1 overflow-y-auto px-3 py-4 md:px-5', cameraOn && 'pt-20 sm:pt-4')}>
             <div className="mx-auto flex w-full max-w-5xl gap-4">
               <div className="mx-auto flex min-w-0 max-w-2xl flex-1 flex-col gap-3.5">
           {chat.map((entry) => (
