@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
   if (!apiKey) {
     return NextResponse.json(
       { url: null, skipped: true },
-      { headers: { 'Cache-Control': 'public, max-age=3600' } },
+      { headers: { 'Cache-Control': 'no-store' } },
     )
   }
 
