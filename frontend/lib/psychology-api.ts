@@ -170,9 +170,8 @@ export type SessionHistoryResponse = {
 }
 
 export async function getPsychologySessionHistory(patientId: number, limit = 25) {
-  const url = new URL(`${base()}${psychologyPrefix()}/sessions/history/${patientId}`)
-  url.searchParams.set('limit', String(limit))
-  const response = await fetchWithFallback(url.toString(), {
+  const path = `${base()}${psychologyPrefix()}/sessions/history/${patientId}?limit=${limit}`
+  const response = await fetchWithFallback(path, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -190,11 +189,8 @@ export async function getPsychologyTrends(patientId: number) {
 }
 
 export async function listCrisisEvents(patientId?: number) {
-  const url = new URL(`${base()}${psychologyPrefix()}/crisis/events`)
-  if (patientId) {
-    url.searchParams.set('patient_id', String(patientId))
-  }
-  const response = await fetchWithFallback(url.toString(), {
+  const query = patientId ? `?patient_id=${patientId}` : ''
+  const response = await fetchWithFallback(`${base()}${psychologyPrefix()}/crisis/events${query}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
