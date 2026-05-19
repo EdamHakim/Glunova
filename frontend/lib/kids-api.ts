@@ -189,6 +189,18 @@ export function uploadChildPhoto(file: File) {
   return postForm<KidsProfile>('/kids/child-photos/upload', formData)
 }
 
+export function deleteChildPhoto(photoUrl: string) {
+  return fetchWithAuthRefresh(`${base()}${apiPrefix()}/kids/child-photos/delete`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ photo_url: photoUrl }),
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(await response.text())
+    return response.json() as Promise<KidsProfile>
+  })
+}
+
 export function uploadLieDetect(file: File) {
   const formData = new FormData()
   formData.append('file', file, file.name || 'capture.jpg')

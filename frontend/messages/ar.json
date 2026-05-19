@@ -612,6 +612,7 @@
     "saveSetup": "حفظ الإعداد",
     "storyTitle": "القصة",
     "storyDesc": "يُنشئ Buddy هذا تلقائياً عند اكتمال المتابعة.",
+    "generateStory": "إنشاء القصة",
     "generatingStory": "جارٍ إنشاء القصة والصورة...",
     "noStoryYet": "أكمل متابعة Buddy وستظهر القصة هنا.",
     "fullSize": "الحجم الكامل",

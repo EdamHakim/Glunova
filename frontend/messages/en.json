@@ -612,6 +612,7 @@
     "saveSetup": "Save setup",
     "storyTitle": "Story",
     "storyDesc": "Buddy generates this automatically when the check-in is complete.",
+    "generateStory": "Generate Story",
     "generatingStory": "Generating story and image...",
     "noStoryYet": "Finish Buddy's check-in and the story will appear here.",
     "fullSize": "Full size",

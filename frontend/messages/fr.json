@@ -612,6 +612,7 @@
     "saveSetup": "Sauvegarder la configuration",
     "storyTitle": "Histoire",
     "storyDesc": "Buddy génère ceci automatiquement quand le bilan est terminé.",
+    "generateStory": "Générer l'histoire",
     "generatingStory": "Génération de l'histoire et de l'image...",
     "noStoryYet": "Terminez le bilan de Buddy et l'histoire apparaîtra ici.",
     "fullSize": "Taille complète",

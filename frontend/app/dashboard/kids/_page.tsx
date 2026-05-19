@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import {
+  deleteChildPhoto,
   deleteKidsAssistantHistory,
   generateKidsAvatar,
   generateKidsStory,
@@ -532,6 +533,33 @@ export default function KidsPage() {
     }
   }
 
+  const removePhoto = async (photoUrl: string) => {
+    if (!state) return
+    setError(null)
+    try {
+      const updated = await deleteChildPhoto(photoUrl)
+      setState({ ...state, profile: updated })
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete photo')
+    }
+  }
+
+  const generateStory = async () => {
+    if (!state) return
+    setStoryGenerating(true)
+    setError(null)
+    try {
+      const checkinId = state.latest_checkin?.id
+      await generateKidsStory({ checkin_id: checkinId })
+      const refreshed = await getKidsState()
+      setState(refreshed)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Story generation failed')
+    } finally {
+      setStoryGenerating(false)
+    }
+  }
+
   const uploadPdf = async (file: File | null) => {
     if (!file) return
     setFileUploading(true)
@@ -822,7 +850,17 @@ export default function KidsPage() {
                   {!!profile?.child_reference_photos?.length && (
                     <div className="flex flex-wrap gap-2">
                       {profile.child_reference_photos.map((photoUrl) => (
-                        <img key={photoUrl} src={toRelativeMediaUrl(photoUrl) || photoUrl} alt="Child reference" className="h-16 w-16 rounded-lg border object-cover shadow-sm" />
+                        <div key={photoUrl} className="group relative">
+                          <img src={toRelativeMediaUrl(photoUrl) || photoUrl} alt="Child reference" className="h-16 w-16 rounded-lg border object-cover shadow-sm" />
+                          <button
+                            type="button"
+                            onClick={() => void removePhoto(photoUrl)}
+                            className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow group-hover:flex"
+                            aria-label="Remove photo"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -865,9 +903,20 @@ export default function KidsPage() {
             {/* ── Story tab ────────────────────────────────────────────── */}
             <TabsContent value="story" className="mt-4">
               <Card>
-                <CardHeader className="px-4 py-4 sm:px-6">
-                  <CardTitle className="text-base">{t('storyTitle')}</CardTitle>
-                  <CardDescription>{t('storyDesc')}</CardDescription>
+                <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 px-4 py-4 sm:px-6">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base">{t('storyTitle')}</CardTitle>
+                    <CardDescription>{t('storyDesc')}</CardDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => void generateStory()}
+                    disabled={storyGenerating}
+                    className="gap-2 shadow-sm"
+                  >
+                    {storyGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {storyGenerating ? t('generatingStory') : t('generateStory')}
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
                   {storyGenerating && (

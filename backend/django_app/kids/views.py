@@ -811,6 +811,23 @@ class KidsChildPhotoUploadView(APIView):
         return Response(KidsProfileSerializer(profile).data, status=status.HTTP_201_CREATED)
 
 
+class KidsChildPhotoDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        patient_id = _resolve_patient_id(request)
+        photo_url = request.data.get("photo_url", "").strip()
+        if not photo_url:
+            return Response({"detail": "photo_url is required."}, status=status.HTTP_400_BAD_REQUEST)
+        profile, _ = KidsProfile.objects.get_or_create(patient_id=patient_id)
+        photos = profile.child_reference_photos if isinstance(profile.child_reference_photos, list) else []
+        if photo_url not in photos:
+            return Response({"detail": "Photo not found."}, status=status.HTTP_404_NOT_FOUND)
+        profile.child_reference_photos = [p for p in photos if p != photo_url]
+        profile.save(update_fields=["child_reference_photos", "updated_at"])
+        return Response(KidsProfileSerializer(profile).data)
+
+
 class KidsLieDetectorView(APIView):
     """Accept an uploaded image or short video and run LibreFace to extract facial attributes
     and return a heuristic lie risk score.
